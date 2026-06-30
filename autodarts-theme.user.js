@@ -7,10 +7,10 @@
 // @run-at       document-start
 // @grant        none
 // @inject-into  content
-// @homepageURL  https://github.com/Szala86/Autodarts-core
-// @supportURL   https://github.com/Szala86/Autodarts-core/issues
-// @downloadURL  https://raw.githubusercontent.com/Szala86/Autodarts-core/main/autodarts-core.user.js
-// @updateURL    https://raw.githubusercontent.com/Szala86/Autodarts-core/main/autodarts-core.user.js
+// @homepageURL  https://github.com/DDmonkeytron/autodartstampermonkey
+// @supportURL   https://github.com/DDmonkeytron/autodartstampermonkey/issues
+// @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
+// @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
 // @description  CORE panel with presets + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module. Includes performance optimizations (dirty flags + scoped observers).
 // ==/UserScript==
 
