@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.18.0
+// @version      2.19.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.18.0";
+  const SCRIPT_VERSION = "2.19.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -807,6 +807,12 @@
 
   /* ================== CONSTANTS ================== */
   const WIN_URL = "https://github.com/Szala86/autodarts-audio/releases/download/v1/win.mp3";
+  // Built-in backgrounds (hosted in this repo) selectable in Skin / Layout
+  const BG_REPO = "https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/";
+  const BG_PRESETS = [
+    { name: "Arena Green", url: BG_REPO + "Background.jpg" },
+    { name: "Neon Blue",   url: BG_REPO + "NeonBlueBG.png" },
+  ];
   const TRIPLE_VALUES = ["T20","T19","T18","T17","T16","T15","T7","BULL","SBULL","DBULL","25","50"];
   const DOUBLE_VALUES = ["D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","D14","D15","D16","D17","D18","D19","D20","D25","DBULL"];
 
@@ -4961,6 +4967,30 @@ function ensureMainButtonPosition() {
         urlLabel.style.fontSize = compact ? "12px" : "13px";
         urlWrap.appendChild(urlLabel);
 
+        // built-in background presets (GitHub-hosted)
+        const presetWrap = document.createElement("div");
+        Object.assign(presetWrap.style, { display: "flex", flexWrap: "wrap", gap: "6px" });
+        const refreshPresetSel = () => {
+          [...presetWrap.children].forEach(b => {
+            const on = b.dataset.url === String(c.SKIN_BG_URL || "");
+            b.style.background = on ? "rgba(120,200,255,.30)" : "rgba(255,255,255,.08)";
+            b.style.borderColor = on ? "rgba(120,200,255,.65)" : "rgba(255,255,255,.18)";
+          });
+        };
+        BG_PRESETS.forEach(p => {
+          const b = mkButton(p.name, () => {
+            c.SKIN_BG_URL = p.url;
+            urlInp.value = p.url;
+            saveStateDebounced();
+            dirtySkin(); scheduleUpdate();
+            refreshPresetSel();
+            showToast(L.saved);
+          }, "ghost", true);
+          b.dataset.url = p.url;
+          presetWrap.appendChild(b);
+        });
+        urlWrap.appendChild(presetWrap);
+
         const urlInp = document.createElement("input");
         urlInp.type = "text";
         urlInp.value = String(c.SKIN_BG_URL || "");
@@ -4978,9 +5008,11 @@ function ensureMainButtonPosition() {
           c.SKIN_BG_URL = String(urlInp.value || "").trim();
           saveStateDebounced();
           dirtySkin(); scheduleUpdate();
+          refreshPresetSel();
           showToast(L.saved);
         });
         urlWrap.appendChild(urlInp);
+        refreshPresetSel();
 
         box.appendChild(urlWrap);
         break;
