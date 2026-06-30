@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.13.0
+// @version      2.14.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.13.0";
+  const SCRIPT_VERSION = "2.14.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -1389,7 +1389,7 @@
         css.push(`
 .${TRIPLE_CLASS}{
   position: relative !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   outline: 2px solid rgba(var(--ad-triple-glow-rgb), 0.9) !important;
   outline-offset: 1px !important;
   animation:
@@ -1458,7 +1458,7 @@
         css.push(`
 .${DOUBLE_CLASS}{
   position: relative !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   outline: 2px solid rgba(var(--ad-double-glow-rgb), 0.8) !important;
   outline-offset: 1px !important;
   animation:
