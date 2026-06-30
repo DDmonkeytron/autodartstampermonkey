@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.19.0
+// @version      2.20.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.19.0";
+  const SCRIPT_VERSION = "2.20.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -99,14 +99,16 @@
     PI_NAME_X_PX: 0,    PI_NAME_Y_PX: 0,          // name X / Y
     PI_AVG_X_PX: 0,     PI_AVG_Y_PX: 0,           // averages X / Y
     PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
-    // Per-player alignment nudge (shifts avatar+name+averages of one player to line up with the other)
-    PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0,
-    // Per-player colours: off = both players share the colours above; on = player 2 uses these
+    // Per-player alignment nudge (shifts avatar+name+averages of a player to line up with the others)
+    PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0, PI_P3_SHIFT_Y: 0, PI_P4_SHIFT_Y: 0,
+    // 3-4 player layout fit: when 3+ players, scale player-info to fit the 2x2 grid (avoids overlap)
+    PI_GRID_ADJUST: true,
+    PI_GRID_SCALE: 0.5,
+    // Per-player colours: off = all players share the colours above; on = players 2-4 use their own
     PI_PER_PLAYER_COLORS: false,
-    PI_P2_NAME_COLOR_HEX: "#ffffff",
-    PI_P2_SCORE_COLOR_HEX: "#ffffff",
-    PI_P2_AVG_COLOR_HEX: "#cfd3d7",
-    PI_P2_HISTORY_COLOR_HEX: "#ffffff",
+    PI_P2_NAME_COLOR_HEX: "#ffffff", PI_P2_SCORE_COLOR_HEX: "#ffffff", PI_P2_AVG_COLOR_HEX: "#cfd3d7", PI_P2_HISTORY_COLOR_HEX: "#ffffff",
+    PI_P3_NAME_COLOR_HEX: "#ffffff", PI_P3_SCORE_COLOR_HEX: "#ffffff", PI_P3_AVG_COLOR_HEX: "#cfd3d7", PI_P3_HISTORY_COLOR_HEX: "#ffffff",
+    PI_P4_NAME_COLOR_HEX: "#ffffff", PI_P4_SCORE_COLOR_HEX: "#ffffff", PI_P4_AVG_COLOR_HEX: "#cfd3d7", PI_P4_HISTORY_COLOR_HEX: "#ffffff",
     // Player-card text effects (name / score / averages / history). Stackable list;
     // each item = { style:"outline"|"emboss"|"glow"|"shadow", size:1..12, color:"#rrggbb" }
     PI_TEXT_EFFECTS: [],
@@ -123,14 +125,11 @@
     ACTIVE_TRAIL_SPEED_MS: 2500,
     ACTIVE_TRAIL_COLOR_HEX: "#00cfff",
     // Active highlight per-player: off = both players share the settings above (= Player 1);
-    // on = Player 2 uses its own settings below
+    // on = Players 2-4 use their own settings below
     ACTIVE_PER_PLAYER: false,
-    ACTIVE_P2_COLOR_HEX: "#ffffff",
-    ACTIVE_P2_OUTLINE_PX: 3,
-    ACTIVE_P2_GLOW: 0.42,
-    ACTIVE_P2_TRAIL: true,
-    ACTIVE_P2_TRAIL_SPEED_MS: 2500,
-    ACTIVE_P2_TRAIL_COLOR_HEX: "#ff7b00",
+    ACTIVE_P2_COLOR_HEX: "#ffffff", ACTIVE_P2_OUTLINE_PX: 3, ACTIVE_P2_GLOW: 0.42, ACTIVE_P2_TRAIL: true, ACTIVE_P2_TRAIL_SPEED_MS: 2500, ACTIVE_P2_TRAIL_COLOR_HEX: "#ff7b00",
+    ACTIVE_P3_COLOR_HEX: "#ffffff", ACTIVE_P3_OUTLINE_PX: 3, ACTIVE_P3_GLOW: 0.42, ACTIVE_P3_TRAIL: true, ACTIVE_P3_TRAIL_SPEED_MS: 2500, ACTIVE_P3_TRAIL_COLOR_HEX: "#43e0ff",
+    ACTIVE_P4_COLOR_HEX: "#ffffff", ACTIVE_P4_OUTLINE_PX: 3, ACTIVE_P4_GLOW: 0.42, ACTIVE_P4_TRAIL: true, ACTIVE_P4_TRAIL_SPEED_MS: 2500, ACTIVE_P4_TRAIL_COLOR_HEX: "#5dff8a",
 
     THROW_VAL_FONT_PX: 100,
     THROW_VAL_COLOR_HEX: "#222222",
@@ -335,6 +334,8 @@
         perPlayer: "Játékosonként eltérő",
         p1: "1.J",
         p2: "2.J",
+        p3: "3.J",
+        p4: "4.J",
         threshold: "Pont határ",
         highlightSpeed: "Highlight sebesség",
         numberAnim: "Szám animáció",
@@ -368,9 +369,16 @@
         fxNone: "Nincs", fxOutline: "Körvonal", fxEmboss: "Dombor", fxGlow: "Ragyogás", fxShadow: "Árnyék",
         alignP1: "1. játékos igazítás ↕",
         alignP2: "2. játékos igazítás ↕",
+        alignP3: "3. játékos igazítás ↕",
+        alignP4: "4. játékos igazítás ↕",
+        secGrid: "3-4 játékos illesztés",
+        gridAdjust: "3-4 játékosnál méretezés",
+        gridScale: "3-4 méretarány",
         perPlayerColors: "Játékosonként eltérő színek",
         p1Prefix: "1.J",
         p2Prefix: "2.J",
+        p3Prefix: "3.J",
+        p4Prefix: "4.J",
         el: { avatar: "Avatar", name: "Név", score: "Pont", average: "Átlag", history: "Előzmény" },
         customColors: "Saját színek",
         nameColor: "Név szín",
@@ -514,6 +522,8 @@
         perPlayer: "Per-player",
         p1: "P1",
         p2: "P2",
+        p3: "P3",
+        p4: "P4",
         threshold: "Score threshold",
         highlightSpeed: "Highlight speed",
         numberAnim: "Number animation",
@@ -547,9 +557,16 @@
         fxNone: "None", fxOutline: "Outline", fxEmboss: "Emboss", fxGlow: "Glow", fxShadow: "Shadow",
         alignP1: "Player 1 align ↕",
         alignP2: "Player 2 align ↕",
+        alignP3: "Player 3 align ↕",
+        alignP4: "Player 4 align ↕",
+        secGrid: "3-4 player fit",
+        gridAdjust: "Scale for 3-4 players",
+        gridScale: "3-4 scale",
         perPlayerColors: "Per-player colours",
         p1Prefix: "P1",
         p2Prefix: "P2",
+        p3Prefix: "P3",
+        p4Prefix: "P4",
         el: { avatar: "Avatar", name: "Name", score: "Score", average: "Average", history: "History" },
         customColors: "Custom colors",
         nameColor: "Name color",
@@ -693,6 +710,8 @@
         perPlayer: "Pro Spieler",
         p1: "S1",
         p2: "S2",
+        p3: "S3",
+        p4: "S4",
         threshold: "Punktschwelle",
         highlightSpeed: "Highlight Speed",
         numberAnim: "Zahlenanimation",
@@ -726,9 +745,16 @@
         fxNone: "Keiner", fxOutline: "Umriss", fxEmboss: "Relief", fxGlow: "Leuchten", fxShadow: "Schatten",
         alignP1: "Spieler 1 ausrichten ↕",
         alignP2: "Spieler 2 ausrichten ↕",
+        alignP3: "Spieler 3 ausrichten ↕",
+        alignP4: "Spieler 4 ausrichten ↕",
+        secGrid: "3-4 Spieler Anpassung",
+        gridAdjust: "Skalieren bei 3-4 Spielern",
+        gridScale: "3-4 Skalierung",
         perPlayerColors: "Farben pro Spieler",
         p1Prefix: "S1",
         p2Prefix: "S2",
+        p3Prefix: "S3",
+        p4Prefix: "S4",
         el: { avatar: "Avatar", name: "Name", score: "Punkte", average: "Schnitt", history: "Verlauf" },
         customColors: "Eigene Farben",
         nameColor: "Name Farbe",
@@ -826,9 +852,9 @@
   const HOTKEY_CLOCK_TOGGLE = { shift: true, ctrl: false, alt: false, key: "t" };
   const HOTKEY_CLOCK_RESET  = { shift: true, ctrl: false, alt: false, key: "r" };
 
-  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6, ACTIVE_P2_OUTLINE_PX: 6,
+  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6, ACTIVE_P2_OUTLINE_PX: 6, ACTIVE_P3_OUTLINE_PX: 6, ACTIVE_P4_OUTLINE_PX: 6,
     PI_NAME_FONT_PX: 80, PI_SCORE_FONT_PX: 220, PI_AVG_FONT_PX: 80, PI_HISTORY_FONT_PX: 90 };
-  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12, ACTIVE_P2_OUTLINE_PX: 12,
+  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12, ACTIVE_P2_OUTLINE_PX: 12, ACTIVE_P3_OUTLINE_PX: 12, ACTIVE_P4_OUTLINE_PX: 12,
     PI_NAME_FONT_PX: 200, PI_SCORE_FONT_PX: 360, PI_AVG_FONT_PX: 200, PI_HISTORY_FONT_PX: 200 };
 
   const FONT_LINK_ID = "ad-font-barlow-condensed-core";
@@ -1091,6 +1117,8 @@
     c.CHECKOUT_FONT_PX = clampIfSafe("CHECKOUT_FONT_PX", c.CHECKOUT_FONT_PX);
     c.ACTIVE_OUTLINE_PX = clampIfSafe("ACTIVE_OUTLINE_PX", c.ACTIVE_OUTLINE_PX);
     c.ACTIVE_P2_OUTLINE_PX = clampIfSafe("ACTIVE_P2_OUTLINE_PX", c.ACTIVE_P2_OUTLINE_PX);
+    c.ACTIVE_P3_OUTLINE_PX = clampIfSafe("ACTIVE_P3_OUTLINE_PX", c.ACTIVE_P3_OUTLINE_PX);
+    c.ACTIVE_P4_OUTLINE_PX = clampIfSafe("ACTIVE_P4_OUTLINE_PX", c.ACTIVE_P4_OUTLINE_PX);
     c.PI_NAME_FONT_PX = clampIfSafe("PI_NAME_FONT_PX", c.PI_NAME_FONT_PX);
     c.PI_SCORE_FONT_PX = clampIfSafe("PI_SCORE_FONT_PX", c.PI_SCORE_FONT_PX);
     c.PI_AVG_FONT_PX = clampIfSafe("PI_AVG_FONT_PX", c.PI_AVG_FONT_PX);
@@ -1256,6 +1284,14 @@
   --ad-pi-p2-score-color: ${sanitizeHex(c.PI_P2_SCORE_COLOR_HEX, "#ffffff")};
   --ad-pi-p2-avg-color: ${sanitizeHex(c.PI_P2_AVG_COLOR_HEX, "#cfd3d7")};
   --ad-pi-p2-history-color: ${sanitizeHex(c.PI_P2_HISTORY_COLOR_HEX, "#ffffff")};
+  --ad-pi-p3-name-color: ${sanitizeHex(c.PI_P3_NAME_COLOR_HEX, "#ffffff")};
+  --ad-pi-p3-score-color: ${sanitizeHex(c.PI_P3_SCORE_COLOR_HEX, "#ffffff")};
+  --ad-pi-p3-avg-color: ${sanitizeHex(c.PI_P3_AVG_COLOR_HEX, "#cfd3d7")};
+  --ad-pi-p3-history-color: ${sanitizeHex(c.PI_P3_HISTORY_COLOR_HEX, "#ffffff")};
+  --ad-pi-p4-name-color: ${sanitizeHex(c.PI_P4_NAME_COLOR_HEX, "#ffffff")};
+  --ad-pi-p4-score-color: ${sanitizeHex(c.PI_P4_SCORE_COLOR_HEX, "#ffffff")};
+  --ad-pi-p4-avg-color: ${sanitizeHex(c.PI_P4_AVG_COLOR_HEX, "#cfd3d7")};
+  --ad-pi-p4-history-color: ${sanitizeHex(c.PI_P4_HISTORY_COLOR_HEX, "#ffffff")};
   --ad-pi-gap: ${clamp(Number.isFinite(+c.PI_STACK_GAP_PX) ? +c.PI_STACK_GAP_PX : 8, 0, 160)}px;
   --ad-pi-avatar-scale: ${clamp(Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7, 1, 12)};
   --ad-pi-avatar-x: ${clamp(Number.isFinite(+c.PI_AVATAR_X_PX) ? +c.PI_AVATAR_X_PX : 0, -300, 300)}px;
@@ -1318,23 +1354,25 @@
 `);
         const activePP = !!c.ACTIVE_PER_PLAYER;
         if (activePP) {
-          const p2rgb = hexToRgbString(sanitizeHex(c.ACTIVE_P2_COLOR_HEX, "#ffffff"));
-          const p2trailrgb = hexToRgbString(sanitizeHex(c.ACTIVE_P2_TRAIL_COLOR_HEX || c.ACTIVE_P2_COLOR_HEX, "#ff7b00"));
-          css.push(`
-/* Player 2 active-highlight overrides (Player 1 uses the base values above) */
-#ad-ext-player-display > div:nth-child(2){
-  --ad-active-rgb: ${p2rgb};
-  --ad-active-trail-rgb: ${p2trailrgb};
-  --ad-active-outline: ${clamp(+c.ACTIVE_P2_OUTLINE_PX || 3, 0, 12)}px;
-  --ad-active-glow: ${clamp(+c.ACTIVE_P2_GLOW || 0.42, 0, 1)};
-  --ad-active-trail-speed: ${clamp(+c.ACTIVE_P2_TRAIL_SPEED_MS || 2500, 500, 10000)}ms;
+          for (const n of [2, 3, 4]) {
+            const rgb = hexToRgbString(sanitizeHex(c[`ACTIVE_P${n}_COLOR_HEX`], "#ffffff"));
+            const trailrgb = hexToRgbString(sanitizeHex(c[`ACTIVE_P${n}_TRAIL_COLOR_HEX`] || c[`ACTIVE_P${n}_COLOR_HEX`], "#ffffff"));
+            css.push(`
+/* Player ${n} active-highlight overrides (Player 1 uses the base values above) */
+#ad-ext-player-display > div:nth-child(${n}){
+  --ad-active-rgb: ${rgb};
+  --ad-active-trail-rgb: ${trailrgb};
+  --ad-active-outline: ${clamp(+c[`ACTIVE_P${n}_OUTLINE_PX`] || 3, 0, 12)}px;
+  --ad-active-glow: ${clamp(+c[`ACTIVE_P${n}_GLOW`] || 0.42, 0, 1)};
+  --ad-active-trail-speed: ${clamp(+c[`ACTIVE_P${n}_TRAIL_SPEED_MS`] || 2500, 500, 10000)}ms;
   --ad-active-trail-width: calc(var(--ad-active-outline) + 4px);
 }
 `);
+            if (!c[`ACTIVE_P${n}_TRAIL`]) css.push(`#ad-ext-player-display > div:nth-child(${n}).${ACTIVE_CLASS}::before{ display:none !important; }`);
+          }
           if (!c.ACTIVE_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(1).${ACTIVE_CLASS}::before{ display:none !important; }`);
-          if (!c.ACTIVE_P2_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(2).${ACTIVE_CLASS}::before{ display:none !important; }`);
         }
-        const trailOn = activePP ? (c.ACTIVE_TRAIL || c.ACTIVE_P2_TRAIL) : c.ACTIVE_TRAIL;
+        const trailOn = activePP ? (c.ACTIVE_TRAIL || c.ACTIVE_P2_TRAIL || c.ACTIVE_P3_TRAIL || c.ACTIVE_P4_TRAIL) : c.ACTIVE_TRAIL;
         if (trailOn) {
           css.push(`
 @property --ad-trail-from {
@@ -1724,6 +1762,9 @@
       // Player info text sizing / colors / layout (name / score / averages / history)
       if (c.PLAYER_INFO) {
         const piColor = !!c.PI_CUSTOM_COLORS;
+        // 3-4 player grid scale helpers
+        const gs = clamp(Number(c.PI_GRID_SCALE) || 0.5, 0.2, 1);
+        const gpx = (v) => Math.round((Number(v) || 0) * gs) + "px";
 
         // text effects (stackable): outline -> text-stroke; emboss/glow/shadow -> text-shadow
         const fxList = Array.isArray(c.PI_TEXT_EFFECTS) ? c.PI_TEXT_EFFECTS : [];
@@ -1827,14 +1868,36 @@ ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
 /* per-player vertical alignment nudge (shifts avatar+name+averages of each player) */
 #ad-ext-player-display > div:nth-child(1){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_Y) ? +c.PI_P1_SHIFT_Y : 0, -200, 200)}px; }
 #ad-ext-player-display > div:nth-child(2){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_Y) ? +c.PI_P2_SHIFT_Y : 0, -200, 200)}px; }
-${(piColor && c.PI_PER_PLAYER_COLORS) ? `
-/* per-player colours: player 2 overrides (player 1 uses the base colours above) */
-#ad-ext-player-display > div:nth-child(2) .ad-ext-player-name{ color: var(--ad-pi-p2-name-color) !important; }
-#ad-ext-player-display > div:nth-child(2) .ad-ext-player-score{ color: var(--ad-pi-p2-score-color) !important; }
-#ad-ext-player-display > div:nth-child(2) .ad-core-pi-avg,
-#ad-ext-player-display > div:nth-child(2) p.css-1j0bqop{ color: var(--ad-pi-p2-avg-color) !important; }
-#ad-ext-player-display > div:nth-child(2) .css-1u90hiz td,
-#ad-ext-player-display > div:nth-child(2) .css-1u90hiz th{ color: var(--ad-pi-p2-history-color) !important; }` : ""}
+#ad-ext-player-display > div:nth-child(3){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_Y) ? +c.PI_P3_SHIFT_Y : 0, -200, 200)}px; }
+#ad-ext-player-display > div:nth-child(4){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_Y) ? +c.PI_P4_SHIFT_Y : 0, -200, 200)}px; }
+${(piColor && c.PI_PER_PLAYER_COLORS) ? [2,3,4].map(n => `
+/* per-player colours: player ${n} overrides (player 1 uses the base colours above) */
+#ad-ext-player-display > div:nth-child(${n}) .ad-ext-player-name{ color: var(--ad-pi-p${n}-name-color) !important; }
+#ad-ext-player-display > div:nth-child(${n}) .ad-ext-player-score{ color: var(--ad-pi-p${n}-score-color) !important; }
+#ad-ext-player-display > div:nth-child(${n}) .ad-core-pi-avg,
+#ad-ext-player-display > div:nth-child(${n}) p.css-1j0bqop{ color: var(--ad-pi-p${n}-avg-color) !important; }
+#ad-ext-player-display > div:nth-child(${n}) .css-1u90hiz td,
+#ad-ext-player-display > div:nth-child(${n}) .css-1u90hiz th{ color: var(--ad-pi-p${n}-history-color) !important; }`).join("\n") : ""}
+${(c.PI_GRID_ADJUST) ? `
+/* 3-4 player layout fit: size cards to the 2x2 grid + scale player-info to fit (avoids overlap) */
+#ad-ext-player-display#ad-ext-player-display#ad-ext-player-display:has(> div:nth-child(3)) > div{
+  height: calc((100vh - 176px) / 2 - 16px) !important;
+  width: 411px !important;
+}
+#ad-ext-player-display:has(> div:nth-child(3)){
+  --ad-pi-name-font: ${gpx(clamp(+c.PI_NAME_FONT_PX || 18, 8, 200))};
+  --ad-pi-score-font: ${gpx(clamp(+c.PI_SCORE_FONT_PX || 123, 20, 360))};
+  --ad-pi-avg-font: ${gpx(clamp(+c.PI_AVG_FONT_PX || 16, 8, 200))};
+  --ad-pi-history-font: ${gpx(clamp(+c.PI_HISTORY_FONT_PX || 35, 12, 200))};
+  --ad-pi-name-x: ${gpx(c.PI_NAME_X_PX)}; --ad-pi-name-y: ${gpx(c.PI_NAME_Y_PX)};
+  --ad-pi-score-x: ${gpx(c.PI_SCORE_X_PX)}; --ad-pi-score-y: ${gpx(c.PI_SCORE_Y_PX)};
+  --ad-pi-avg-x: ${gpx(c.PI_AVG_X_PX)}; --ad-pi-avg-y: ${gpx(c.PI_AVG_Y_PX)};
+  --ad-pi-history-x: ${gpx(c.PI_HISTORY_X_PX)}; --ad-pi-history-offset: ${gpx(c.PI_HISTORY_OFFSET_PX)};
+  --ad-pi-avatar-x: ${gpx(c.PI_AVATAR_X_PX)}; --ad-pi-avatar-offset: ${gpx(c.PI_AVATAR_OFFSET_PX)};
+  --ad-pi-gap: ${gpx(c.PI_STACK_GAP_PX)};
+  --ad-pi-avatar-scale: ${(clamp(Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7, 1, 12) * gs).toFixed(2)};
+  ${(+c.PI_HISTORY_HEIGHT_PX > 0) ? `--ad-pi-history-height: ${gpx(clamp(+c.PI_HISTORY_HEIGHT_PX, 80, 900))};` : ""}
+}` : ""}
 `);
       }
 
@@ -3875,11 +3938,15 @@ function ensureMainButtonPosition() {
                    "PI_STACK_GAP_PX","PI_HISTORY_WIDTH_PX","PI_HISTORY_HEIGHT_PX","PI_CARD_WIDTH_PX","PI_CARD_HEIGHT_PX",
                    "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
                    "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX",
-                   "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
+                   "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_P3_SHIFT_Y","PI_P4_SHIFT_Y","PI_GRID_ADJUST","PI_GRID_SCALE","PI_PER_PLAYER_COLORS",
                    "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX",
+                   "PI_P3_NAME_COLOR_HEX","PI_P3_SCORE_COLOR_HEX","PI_P3_AVG_COLOR_HEX","PI_P3_HISTORY_COLOR_HEX",
+                   "PI_P4_NAME_COLOR_HEX","PI_P4_SCORE_COLOR_HEX","PI_P4_AVG_COLOR_HEX","PI_P4_HISTORY_COLOR_HEX",
                    "PI_TEXT_EFFECTS"],
-      active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX",
-               "ACTIVE_PER_PLAYER","ACTIVE_P2_COLOR_HEX","ACTIVE_P2_OUTLINE_PX","ACTIVE_P2_GLOW","ACTIVE_P2_TRAIL","ACTIVE_P2_TRAIL_SPEED_MS","ACTIVE_P2_TRAIL_COLOR_HEX"],
+      active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX","ACTIVE_PER_PLAYER",
+               "ACTIVE_P2_COLOR_HEX","ACTIVE_P2_OUTLINE_PX","ACTIVE_P2_GLOW","ACTIVE_P2_TRAIL","ACTIVE_P2_TRAIL_SPEED_MS","ACTIVE_P2_TRAIL_COLOR_HEX",
+               "ACTIVE_P3_COLOR_HEX","ACTIVE_P3_OUTLINE_PX","ACTIVE_P3_GLOW","ACTIVE_P3_TRAIL","ACTIVE_P3_TRAIL_SPEED_MS","ACTIVE_P3_TRAIL_COLOR_HEX",
+               "ACTIVE_P4_COLOR_HEX","ACTIVE_P4_OUTLINE_PX","ACTIVE_P4_GLOW","ACTIVE_P4_TRAIL","ACTIVE_P4_TRAIL_SPEED_MS","ACTIVE_P4_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS"],
@@ -5141,6 +5208,13 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_HISTORY_HEIGHT_PX", pi.historyHeight, 0, 900, 10);
         addSliderPx("PI_P1_SHIFT_Y", pi.alignP1, -200, 200, 2);
         addSliderPx("PI_P2_SHIFT_Y", pi.alignP2, -200, 200, 2);
+        addSliderPx("PI_P3_SHIFT_Y", pi.alignP3, -200, 200, 2);
+        addSliderPx("PI_P4_SHIFT_Y", pi.alignP4, -200, 200, 2);
+
+        // ---- 3-4 PLAYER FIT ----
+        piSection(pi.secGrid);
+        addCheckbox(pi.gridAdjust, ()=>!!c.PI_GRID_ADJUST, v=>{ c.PI_GRID_ADJUST=v; });
+        addSlider01(()=>c.PI_GRID_SCALE, v=>c.PI_GRID_SCALE=v, pi.gridScale, 0.05);
 
         // ---- CARD ----
         piSection(pi.secCard);
@@ -5214,10 +5288,13 @@ function ensureMainButtonPosition() {
         addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, p1(pi.avgColor));
         addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, p1(pi.historyColor));
         if (perPlayer) {
-          addColor(()=>c.PI_P2_NAME_COLOR_HEX, v=>c.PI_P2_NAME_COLOR_HEX=v, pi.p2Prefix + " " + pi.nameColor);
-          addColor(()=>c.PI_P2_SCORE_COLOR_HEX, v=>c.PI_P2_SCORE_COLOR_HEX=v, pi.p2Prefix + " " + pi.scoreColor);
-          addColor(()=>c.PI_P2_AVG_COLOR_HEX, v=>c.PI_P2_AVG_COLOR_HEX=v, pi.p2Prefix + " " + pi.avgColor);
-          addColor(()=>c.PI_P2_HISTORY_COLOR_HEX, v=>c.PI_P2_HISTORY_COLOR_HEX=v, pi.p2Prefix + " " + pi.historyColor);
+          [2,3,4].forEach(n => {
+            const pre = pi["p" + n + "Prefix"] || ("P" + n);
+            addColor(()=>c["PI_P"+n+"_NAME_COLOR_HEX"], v=>c["PI_P"+n+"_NAME_COLOR_HEX"]=v, pre + " " + pi.nameColor);
+            addColor(()=>c["PI_P"+n+"_SCORE_COLOR_HEX"], v=>c["PI_P"+n+"_SCORE_COLOR_HEX"]=v, pre + " " + pi.scoreColor);
+            addColor(()=>c["PI_P"+n+"_AVG_COLOR_HEX"], v=>c["PI_P"+n+"_AVG_COLOR_HEX"]=v, pre + " " + pi.avgColor);
+            addColor(()=>c["PI_P"+n+"_HISTORY_COLOR_HEX"], v=>c["PI_P"+n+"_HISTORY_COLOR_HEX"]=v, pre + " " + pi.historyColor);
+          });
         }
 
         const piInfo = document.createElement("div");
@@ -5241,15 +5318,18 @@ function ensureMainButtonPosition() {
         addColor(()=>c.ACTIVE_TRAIL_COLOR_HEX||c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_TRAIL_COLOR_HEX=v, a1(L.fields.trailColor));
         addSliderMs("ACTIVE_TRAIL_SPEED_MS", a1(L.fields.trailSpeed), 500, 10000, 100);
         if (aPP) {
-          const sep = document.createElement("div");
-          sep.style.cssText = "height:1px;background:rgba(255,255,255,0.12);margin:6px 0;";
-          box.appendChild(sep);
-          addColor(()=>c.ACTIVE_P2_COLOR_HEX, v=>c.ACTIVE_P2_COLOR_HEX=v, L.fields.p2 + " " + L.fields.color);
-          addSliderPx("ACTIVE_P2_OUTLINE_PX", L.fields.p2 + " " + L.fields.outline, 0, EXT_LIMITS.ACTIVE_P2_OUTLINE_PX, 1);
-          addSlider01(()=>c.ACTIVE_P2_GLOW, v=>c.ACTIVE_P2_GLOW=v, L.fields.p2 + " " + L.fields.glow, 0.01);
-          addCheckbox(L.fields.p2 + " " + L.fields.trailEnabled, ()=>!!c.ACTIVE_P2_TRAIL, v=>{ c.ACTIVE_P2_TRAIL=v; });
-          addColor(()=>c.ACTIVE_P2_TRAIL_COLOR_HEX||c.ACTIVE_P2_COLOR_HEX, v=>c.ACTIVE_P2_TRAIL_COLOR_HEX=v, L.fields.p2 + " " + L.fields.trailColor);
-          addSliderMs("ACTIVE_P2_TRAIL_SPEED_MS", L.fields.p2 + " " + L.fields.trailSpeed, 500, 10000, 100);
+          [2,3,4].forEach(n => {
+            const sep = document.createElement("div");
+            sep.style.cssText = "height:1px;background:rgba(255,255,255,0.12);margin:6px 0;";
+            box.appendChild(sep);
+            const pre = L.fields["p" + n] || ("P" + n);
+            addColor(()=>c["ACTIVE_P"+n+"_COLOR_HEX"], v=>c["ACTIVE_P"+n+"_COLOR_HEX"]=v, pre + " " + L.fields.color);
+            addSliderPx("ACTIVE_P"+n+"_OUTLINE_PX", pre + " " + L.fields.outline, 0, EXT_LIMITS["ACTIVE_P"+n+"_OUTLINE_PX"], 1);
+            addSlider01(()=>c["ACTIVE_P"+n+"_GLOW"], v=>c["ACTIVE_P"+n+"_GLOW"]=v, pre + " " + L.fields.glow, 0.01);
+            addCheckbox(pre + " " + L.fields.trailEnabled, ()=>!!c["ACTIVE_P"+n+"_TRAIL"], v=>{ c["ACTIVE_P"+n+"_TRAIL"]=v; });
+            addColor(()=>c["ACTIVE_P"+n+"_TRAIL_COLOR_HEX"]||c["ACTIVE_P"+n+"_COLOR_HEX"], v=>c["ACTIVE_P"+n+"_TRAIL_COLOR_HEX"]=v, pre + " " + L.fields.trailColor);
+            addSliderMs("ACTIVE_P"+n+"_TRAIL_SPEED_MS", pre + " " + L.fields.trailSpeed, 500, 10000, 100);
+          });
         }
         break;
       }
