@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.15.0
+// @version      2.16.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.15.0";
+  const SCRIPT_VERSION = "2.16.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -107,10 +107,9 @@
     PI_P2_SCORE_COLOR_HEX: "#ffffff",
     PI_P2_AVG_COLOR_HEX: "#cfd3d7",
     PI_P2_HISTORY_COLOR_HEX: "#ffffff",
-    // Player-card text effect (name / score / averages / history): none|outline|emboss|glow|shadow
-    PI_TEXT_EFFECT: "none",
-    PI_TEXT_EFFECT_COLOR_HEX: "#000000",
-    PI_TEXT_EFFECT_SIZE: 2,
+    // Player-card text effects (name / score / averages / history). Stackable list;
+    // each item = { style:"outline"|"emboss"|"glow"|"shadow", size:1..12, color:"#rrggbb" }
+    PI_TEXT_EFFECTS: [],
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -329,6 +328,7 @@
         effectStyle: "Effekt",
         effectSize: "Effekt méret",
         effectColor: "Effekt szín",
+        addEffect: "Effekt hozzáadása",
         fxNone: "Nincs", fxOutline: "Körvonal", fxEmboss: "Dombor", fxGlow: "Ragyogás", fxShadow: "Árnyék",
         alignP1: "1. játékos igazítás ↕",
         alignP2: "2. játékos igazítás ↕",
@@ -507,6 +507,7 @@
         effectStyle: "Effect",
         effectSize: "Effect size",
         effectColor: "Effect colour",
+        addEffect: "Add effect",
         fxNone: "None", fxOutline: "Outline", fxEmboss: "Emboss", fxGlow: "Glow", fxShadow: "Shadow",
         alignP1: "Player 1 align ↕",
         alignP2: "Player 2 align ↕",
@@ -685,6 +686,7 @@
         effectStyle: "Effekt",
         effectSize: "Effekt-Größe",
         effectColor: "Effekt-Farbe",
+        addEffect: "Effekt hinzufügen",
         fxNone: "Keiner", fxOutline: "Umriss", fxEmboss: "Relief", fxGlow: "Leuchten", fxShadow: "Schatten",
         alignP1: "Spieler 1 ausrichten ↕",
         alignP2: "Spieler 2 ausrichten ↕",
@@ -923,11 +925,32 @@
     out.ui.lang = (out.ui.lang === "en" || out.ui.lang === "de") ? out.ui.lang : "hu";
 
     out.presets = (Array.isArray(st?.presets) && st.presets.length === 3)
-      ? st.presets.map(p => ({ ...clone(DEFAULT_CFG), ...(p || {}) }))
+      ? st.presets.map(p => sanitizeTextEffects({ ...clone(DEFAULT_CFG), ...(p || {}) }))
       : [clone(DEFAULT_CFG), clone(DEFAULT_CFG), clone(DEFAULT_CFG)];
 
     out.schemaVersion = STATE_SCHEMA_VERSION;
     return out;
+  }
+
+  const FX_STYLES = ["outline", "emboss", "glow", "shadow"];
+  function sanitizeTextEffects(cfgObj) {
+    let list = Array.isArray(cfgObj.PI_TEXT_EFFECTS) ? cfgObj.PI_TEXT_EFFECTS : [];
+    // migrate the old single-effect keys (<= v2.15.0)
+    if (!list.length && cfgObj.PI_TEXT_EFFECT && cfgObj.PI_TEXT_EFFECT !== "none") {
+      list = [{ style: cfgObj.PI_TEXT_EFFECT, size: cfgObj.PI_TEXT_EFFECT_SIZE, color: cfgObj.PI_TEXT_EFFECT_COLOR_HEX }];
+    }
+    cfgObj.PI_TEXT_EFFECTS = list
+      .filter(e => e && FX_STYLES.includes(e.style))
+      .slice(0, 6)
+      .map(e => ({
+        style: e.style,
+        size: clamp(Math.round(Number(e.size) || 2), 1, 12),
+        color: sanitizeHex(e.color, "#000000"),
+      }));
+    delete cfgObj.PI_TEXT_EFFECT;
+    delete cfgObj.PI_TEXT_EFFECT_SIZE;
+    delete cfgObj.PI_TEXT_EFFECT_COLOR_HEX;
+    return cfgObj;
   }
 
   function migrateToState(obj) {
@@ -1660,20 +1683,27 @@
       if (c.PLAYER_INFO) {
         const piColor = !!c.PI_CUSTOM_COLORS;
 
-        // text effect (outline / emboss / glow / shadow) applied to the card texts
-        const fxStyle = String(c.PI_TEXT_EFFECT || "none");
-        const fxCol = sanitizeHex(c.PI_TEXT_EFFECT_COLOR_HEX, "#000000");
-        const fxS = clamp(Number.isFinite(+c.PI_TEXT_EFFECT_SIZE) ? +c.PI_TEXT_EFFECT_SIZE : 2, 1, 12);
-        let fxDecl = "";
-        if (fxStyle === "outline") {
-          fxDecl = `-webkit-text-stroke: ${fxS}px ${fxCol} !important; paint-order: stroke fill !important;`;
-        } else if (fxStyle === "emboss") {
-          fxDecl = `text-shadow: ${fxS}px ${fxS}px ${fxS}px rgba(0,0,0,.55), -${fxS}px -${fxS}px ${fxS}px rgba(255,255,255,.35) !important;`;
-        } else if (fxStyle === "glow") {
-          fxDecl = `text-shadow: 0 0 ${fxS*3}px ${fxCol}, 0 0 ${fxS*6}px ${fxCol} !important;`;
-        } else if (fxStyle === "shadow") {
-          fxDecl = `text-shadow: ${fxS}px ${fxS}px ${Math.round(fxS*1.5)}px rgba(0,0,0,.7) !important;`;
+        // text effects (stackable): outline -> text-stroke; emboss/glow/shadow -> text-shadow
+        const fxList = Array.isArray(c.PI_TEXT_EFFECTS) ? c.PI_TEXT_EFFECTS : [];
+        const fxShadows = [];
+        let fxStroke = null;
+        for (const e of fxList) {
+          if (!e || !FX_STYLES.includes(e.style)) continue;
+          const sz = clamp(Number(e.size) || 2, 1, 12);
+          const col = sanitizeHex(e.color, "#000000");
+          if (e.style === "outline") {
+            if (!fxStroke || sz > fxStroke.sz) fxStroke = { sz, col }; // only one stroke possible; keep the largest
+          } else if (e.style === "emboss") {
+            fxShadows.push(`${sz}px ${sz}px ${sz}px rgba(0,0,0,.55)`, `-${sz}px -${sz}px ${sz}px rgba(255,255,255,.35)`);
+          } else if (e.style === "glow") {
+            fxShadows.push(`0 0 ${sz*3}px ${col}`, `0 0 ${sz*6}px ${col}`);
+          } else if (e.style === "shadow") {
+            fxShadows.push(`${sz}px ${sz}px ${Math.round(sz*1.5)}px rgba(0,0,0,.7)`);
+          }
         }
+        let fxDecl = "";
+        if (fxStroke) fxDecl += `-webkit-text-stroke: ${fxStroke.sz}px ${fxStroke.col} !important; paint-order: stroke fill !important;`;
+        if (fxShadows.length) fxDecl += `text-shadow: ${fxShadows.join(", ")} !important;`;
         if (fxDecl) {
           css.push(`
 #ad-ext-player-display .ad-ext-player-name,
@@ -3805,7 +3835,7 @@ function ensureMainButtonPosition() {
                    "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX",
                    "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
                    "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX",
-                   "PI_TEXT_EFFECT","PI_TEXT_EFFECT_COLOR_HEX","PI_TEXT_EFFECT_SIZE"],
+                   "PI_TEXT_EFFECTS"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX",
                "ACTIVE_PER_PLAYER","ACTIVE_P2_COLOR_HEX","ACTIVE_P2_OUTLINE_PX","ACTIVE_P2_GLOW","ACTIVE_P2_TRAIL","ACTIVE_P2_TRAIL_SPEED_MS","ACTIVE_P2_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN"],
@@ -3832,7 +3862,7 @@ function ensureMainButtonPosition() {
     }
 
     const keys = map[tab] || [];
-    keys.forEach(k => { c[k] = d[k]; });
+    keys.forEach(k => { c[k] = clone(d[k]); });
 
     applySafeClampsToCfg();
     saveStateDebounced();
@@ -5049,17 +5079,61 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_CARD_WIDTH_PX", pi.cardWidth, 0, 900, 10);
         addSliderPx("PI_CARD_HEIGHT_PX", pi.cardHeight, 0, 1400, 10);
 
-        // ---- TEXT EFFECT ----
+        // ---- TEXT EFFECTS (stackable list) ----
         piSection(pi.secEffect);
-        addSelect("PI_TEXT_EFFECT", pi.effectStyle, [
-          ["none", pi.fxNone], ["outline", pi.fxOutline], ["emboss", pi.fxEmboss], ["glow", pi.fxGlow], ["shadow", pi.fxShadow]
-        ], ()=>renderPanelIfOpen());
-        if (String(c.PI_TEXT_EFFECT) !== "none") {
-          addSliderPx("PI_TEXT_EFFECT_SIZE", pi.effectSize, 1, 12, 1);
-          if (c.PI_TEXT_EFFECT === "outline" || c.PI_TEXT_EFFECT === "glow") {
-            addColor(()=>c.PI_TEXT_EFFECT_COLOR_HEX, v=>c.PI_TEXT_EFFECT_COLOR_HEX=v, pi.effectColor);
+        if (!Array.isArray(c.PI_TEXT_EFFECTS)) c.PI_TEXT_EFFECTS = [];
+        const fxApply = () => { saveStateDebounced(); renderCss(); dirtyPlayers(); dirtyTurn(); scheduleUpdate(); };
+        const fxStyleOpts = [["outline", pi.fxOutline], ["emboss", pi.fxEmboss], ["glow", pi.fxGlow], ["shadow", pi.fxShadow]];
+        c.PI_TEXT_EFFECTS.forEach((eff, idx) => {
+          const card = document.createElement("div");
+          Object.assign(card.style, { border:"1px solid rgba(255,255,255,0.10)", borderRadius:"10px", padding:"8px", display:"grid", gap:"8px", marginBottom:"6px" });
+
+          // header row: "Effect N" + remove
+          const hdr = document.createElement("div");
+          Object.assign(hdr.style, { display:"flex", alignItems:"center", justifyContent:"space-between" });
+          const ht = document.createElement("div");
+          ht.textContent = `${pi.effectStyle} ${idx + 1}`;
+          ht.style.cssText = "font-weight:800;opacity:.85;font-size:12px;";
+          const rm = mkButton("✕", () => { c.PI_TEXT_EFFECTS.splice(idx, 1); fxApply(); renderPanelIfOpen(); }, "ghost", true);
+          rm.style.padding = "2px 8px";
+          hdr.appendChild(ht); hdr.appendChild(rm);
+          card.appendChild(hdr);
+
+          // style select
+          const sel = document.createElement("select");
+          Object.assign(sel.style, { background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.25)", borderRadius:"6px", color:"#fff", padding:"3px 6px", fontSize:"13px" });
+          for (const [val, txt] of fxStyleOpts) {
+            const o = document.createElement("option"); o.value = val; o.textContent = txt; o.style.color = "#000";
+            if (eff.style === val) o.selected = true; sel.appendChild(o);
           }
-        }
+          sel.addEventListener("change", () => { eff.style = sel.value; fxApply(); renderPanelIfOpen(); });
+          card.appendChild(mkRow(pi.effectStyle, sel, true));
+
+          // size slider
+          const sl = document.createElement("input");
+          sl.type = "range"; sl.min = "1"; sl.max = "12"; sl.step = "1";
+          sl.value = String(clamp(Math.round(Number(eff.size) || 2), 1, 12));
+          const slRow = mkSliderRow(pi.effectSize, sl, `${sl.value}px`, "ok", true);
+          card.appendChild(slRow.row);
+          sl.addEventListener("input", () => { eff.size = clamp(Math.round(Number(sl.value) || 2), 1, 12); slRow.setPill(`${eff.size}px`, "ok"); fxApply(); });
+          sl.addEventListener("change", () => showToast(L.saved));
+
+          // colour (outline / glow only)
+          if (eff.style === "outline" || eff.style === "glow") {
+            const inp = document.createElement("input");
+            inp.type = "color"; inp.value = sanitizeHex(eff.color, "#000000");
+            inp.addEventListener("input", () => { eff.color = sanitizeHex(inp.value, "#000000"); fxApply(); });
+            card.appendChild(mkRow(pi.effectColor, inp, true));
+          }
+
+          box.appendChild(card);
+        });
+        const addFxBtn = mkButton("➕ " + pi.addEffect, () => {
+          if (c.PI_TEXT_EFFECTS.length >= 6) return;
+          c.PI_TEXT_EFFECTS.push({ style: "outline", size: 2, color: "#000000" });
+          fxApply(); renderPanelIfOpen();
+        }, "primary", compact);
+        box.appendChild(addFxBtn);
 
         // ---- COLOURS ----
         piSection(pi.secColors);
