@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.6.0
+// @version      2.7.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.6.0";
+  const SCRIPT_VERSION = "2.7.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -80,6 +80,15 @@
     PI_SCORE_FONT_PX: 123,
     PI_AVG_FONT_PX: 16,
     PI_HISTORY_FONT_PX: 35,
+    // Player info colors (only applied when PI_CUSTOM_COLORS is on)
+    PI_CUSTOM_COLORS: false,
+    PI_NAME_COLOR_HEX: "#ffffff",
+    PI_SCORE_COLOR_HEX: "#ffffff",
+    PI_AVG_COLOR_HEX: "#cfd3d7",
+    PI_HISTORY_COLOR_HEX: "#ffffff",
+    // Player info layout (helps avoid overlap when fonts are enlarged)
+    PI_STACK_GAP_PX: 8,        // gap between avatar / score / name / averages
+    PI_HISTORY_OFFSET_PX: 0,   // move the throw-history (chalkboard) table up/down
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -261,7 +270,14 @@
         score: "Összpontszám betűméret",
         average: "Átlagok betűméret",
         history: "Dobás előzmény betűméret",
-        info: "Átméretezi a játékos kártya szövegeit. A 'Játékos infó' kapcsolót be kell kapcsolni. (Autodarts frissítésnél a szelektorok változhatnak, ekkor frissíteni kell.)",
+        spacing: "Függőleges térköz",
+        historyPos: "Előzmény tábla pozíció",
+        customColors: "Saját színek",
+        nameColor: "Név szín",
+        scoreColor: "Összpontszám szín",
+        avgColor: "Átlagok szín",
+        historyColor: "Előzmény szín",
+        info: "Átméretezi/színezi a játékos kártya szövegeit. A 'Játékos infó' kapcsolót be kell kapcsolni. Nagy betűknél a 'Függőleges térköz' és az 'Előzmény tábla pozíció' segít az átfedés ellen. A színekhez kapcsold be a 'Saját színek'-et. (Autodarts frissítésnél a szelektorok változhatnak.)",
       },
       skinText: {
         uiScale: "UI méret (scale)",
@@ -406,7 +422,14 @@
         score: "Total score font size",
         average: "Averages font size",
         history: "Throw history font size",
-        info: "Resizes the player-card texts. Turn the 'Player Info' module ON. (Selectors may change after an Autodarts update; then they need refreshing.)",
+        spacing: "Vertical spacing",
+        historyPos: "History table position",
+        customColors: "Custom colors",
+        nameColor: "Name color",
+        scoreColor: "Total score color",
+        avgColor: "Averages color",
+        historyColor: "History color",
+        info: "Resizes/colors the player-card texts. Turn the 'Player Info' module ON. For large fonts, 'Vertical spacing' and 'History table position' help avoid overlap. For colors, enable 'Custom colors'. (Selectors may change after an Autodarts update.)",
       },
       skinText: {
         uiScale: "UI scale",
@@ -551,7 +574,14 @@
         score: "Gesamtpunktzahl Schriftgröße",
         average: "Durchschnitte Schriftgröße",
         history: "Wurf-Verlauf Schriftgröße",
-        info: "Ändert die Textgrößen der Spielerkarte. Schalter 'Spieler-Info' aktivieren. (Selektoren können sich nach einem Autodarts-Update ändern und müssen dann aktualisiert werden.)",
+        spacing: "Vertikaler Abstand",
+        historyPos: "Verlauf-Tabelle Position",
+        customColors: "Eigene Farben",
+        nameColor: "Name Farbe",
+        scoreColor: "Gesamtpunktzahl Farbe",
+        avgColor: "Durchschnitte Farbe",
+        historyColor: "Verlauf Farbe",
+        info: "Ändert Größe/Farbe der Spielerkarten-Texte. Schalter 'Spieler-Info' aktivieren. Bei großen Schriften helfen 'Vertikaler Abstand' und 'Verlauf-Tabelle Position' gegen Überlappung. Für Farben 'Eigene Farben' aktivieren. (Selektoren können sich nach einem Autodarts-Update ändern.)",
       },
       skinText: {
         uiScale: "UI Skalierung",
@@ -637,9 +667,9 @@
   const HOTKEY_CLOCK_RESET  = { shift: true, ctrl: false, alt: false, key: "r" };
 
   const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6,
-    PI_NAME_FONT_PX: 48, PI_SCORE_FONT_PX: 200, PI_AVG_FONT_PX: 48, PI_HISTORY_FONT_PX: 60 };
+    PI_NAME_FONT_PX: 80, PI_SCORE_FONT_PX: 220, PI_AVG_FONT_PX: 80, PI_HISTORY_FONT_PX: 90 };
   const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12,
-    PI_NAME_FONT_PX: 120, PI_SCORE_FONT_PX: 320, PI_AVG_FONT_PX: 120, PI_HISTORY_FONT_PX: 140 };
+    PI_NAME_FONT_PX: 200, PI_SCORE_FONT_PX: 360, PI_AVG_FONT_PX: 200, PI_HISTORY_FONT_PX: 200 };
 
   const FONT_LINK_ID = "ad-font-barlow-condensed-core";
   const STYLE_ID = "ad-style-core-v245";
@@ -1032,10 +1062,16 @@
   --ad-highscore-rgb: ${highscoreRGB};
   --ad-highscore-glow: ${clamp(+c.HIGHSCORE_GLOW ?? 0.80, 0, 1)};
 
-  --ad-pi-name-font: ${clamp(+c.PI_NAME_FONT_PX || 18, 8, 120)}px;
-  --ad-pi-score-font: ${clamp(+c.PI_SCORE_FONT_PX || 123, 20, 320)}px;
-  --ad-pi-avg-font: ${clamp(+c.PI_AVG_FONT_PX || 16, 8, 120)}px;
-  --ad-pi-history-font: ${clamp(+c.PI_HISTORY_FONT_PX || 35, 12, 140)}px;
+  --ad-pi-name-font: ${clamp(+c.PI_NAME_FONT_PX || 18, 8, 200)}px;
+  --ad-pi-score-font: ${clamp(+c.PI_SCORE_FONT_PX || 123, 20, 360)}px;
+  --ad-pi-avg-font: ${clamp(+c.PI_AVG_FONT_PX || 16, 8, 200)}px;
+  --ad-pi-history-font: ${clamp(+c.PI_HISTORY_FONT_PX || 35, 12, 200)}px;
+  --ad-pi-name-color: ${sanitizeHex(c.PI_NAME_COLOR_HEX, "#ffffff")};
+  --ad-pi-score-color: ${sanitizeHex(c.PI_SCORE_COLOR_HEX, "#ffffff")};
+  --ad-pi-avg-color: ${sanitizeHex(c.PI_AVG_COLOR_HEX, "#cfd3d7")};
+  --ad-pi-history-color: ${sanitizeHex(c.PI_HISTORY_COLOR_HEX, "#ffffff")};
+  --ad-pi-gap: ${clamp(Number.isFinite(+c.PI_STACK_GAP_PX) ? +c.PI_STACK_GAP_PX : 8, 0, 160)}px;
+  --ad-pi-history-offset: ${clamp(Number.isFinite(+c.PI_HISTORY_OFFSET_PX) ? +c.PI_HISTORY_OFFSET_PX : 0, -200, 500)}px;
 }
 
 /* Total overlay: settings apply + card height unchanged */
@@ -1435,27 +1471,42 @@
 `);
       }
 
-      // Player info text sizing (name / total score / averages / throw history)
+      // Player info text sizing / colors / layout (name / score / averages / history)
       if (c.PLAYER_INFO) {
+        const piColor = !!c.PI_CUSTOM_COLORS;
         css.push(`
 #ad-ext-player-display .ad-ext-player-name{
   font-size: var(--ad-pi-name-font) !important;
-  line-height: 1.1 !important;
+  line-height: 1.05 !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+  ${piColor ? "color: var(--ad-pi-name-color) !important;" : ""}
 }
 #ad-ext-player-display .ad-ext-player-score{
   font-size: var(--ad-pi-score-font) !important;
-  line-height: 1.05 !important;
+  line-height: 1.0 !important;
+  ${piColor ? "color: var(--ad-pi-score-color) !important;" : ""}
 }
 /* averages / stats line (JS-tagged; chakra class kept as fallback) */
 #ad-ext-player-display .ad-core-pi-avg,
 #ad-ext-player-display p.css-1j0bqop{
   font-size: var(--ad-pi-avg-font) !important;
-  line-height: 1.2 !important;
+  line-height: 1.15 !important;
+  ${piColor ? "color: var(--ad-pi-avg-color) !important;" : ""}
 }
 /* recent throw history (chalkboard table) */
 #ad-ext-player-display .css-1u90hiz td,
 #ad-ext-player-display .css-1u90hiz th{
   font-size: var(--ad-pi-history-font) !important;
+  ${piColor ? "color: var(--ad-pi-history-color) !important;" : ""}
+}
+/* layout helpers: extra gap in the avatar/score/name stack + shift history table */
+#ad-ext-player-display .ad-ext-player .css-y3hfdd{
+  gap: var(--ad-pi-gap) !important;
+}
+#ad-ext-player-display .css-1u90hiz{
+  transform: translateY(var(--ad-pi-history-offset)) !important;
 }
 `);
       }
@@ -3388,7 +3439,9 @@ function ensureMainButtonPosition() {
       orig: ["ORIG_FONT_PX","ORIG_COLOR_HEX","ORIG_OPACITY"],
       total: ["TOTAL_FONT_PX","TOTAL_COLOR_HEX","TOTAL_OPACITY","TOTAL_BG_HEX","TOTAL_BG_OPACITY"],
       checkout: ["CHECKOUT_FONT_PX","CHECKOUT_COLOR_HEX","CHECKOUT_OPACITY"],
-      playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX"],
+      playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX",
+                   "PI_CUSTOM_COLORS","PI_NAME_COLOR_HEX","PI_SCORE_COLOR_HEX","PI_AVG_COLOR_HEX","PI_HISTORY_COLOR_HEX",
+                   "PI_STACK_GAP_PX","PI_HISTORY_OFFSET_PX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
@@ -4039,7 +4092,7 @@ function ensureMainButtonPosition() {
       box.appendChild(row.row);
 
       slider.addEventListener("input", () => {
-        let v = clamp(Number(slider.value) || min, min, maxExt);
+        let v = clamp(Number.isFinite(+slider.value) ? +slider.value : min, min, maxExt);
         if (state.ui.safeMode) v = clampIfSafe(key, v);
         c[key] = v;
         row.setPill(`${v}px`, pillLevel(key, v));
@@ -4521,10 +4574,22 @@ function ensureMainButtonPosition() {
         break;
 
       case "playerinfo": {
+        // sizes
         addSliderPx("PI_NAME_FONT_PX", L.piText.name, 8, EXT_LIMITS.PI_NAME_FONT_PX, 1);
         addSliderPx("PI_SCORE_FONT_PX", L.piText.score, 20, EXT_LIMITS.PI_SCORE_FONT_PX, 1);
         addSliderPx("PI_AVG_FONT_PX", L.piText.average, 8, EXT_LIMITS.PI_AVG_FONT_PX, 1);
         addSliderPx("PI_HISTORY_FONT_PX", L.piText.history, 12, EXT_LIMITS.PI_HISTORY_FONT_PX, 1);
+
+        // layout / spacing (helps when fonts are enlarged)
+        addSliderPx("PI_STACK_GAP_PX", L.piText.spacing, 0, 160, 1);
+        addSliderPx("PI_HISTORY_OFFSET_PX", L.piText.historyPos, -100, 400, 5);
+
+        // colors (color wheel); only applied when "custom colors" is on
+        addCheckbox(L.piText.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
+        addColor(()=>c.PI_NAME_COLOR_HEX, v=>c.PI_NAME_COLOR_HEX=v, L.piText.nameColor);
+        addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, L.piText.scoreColor);
+        addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, L.piText.avgColor);
+        addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, L.piText.historyColor);
 
         const piInfo = document.createElement("div");
         piInfo.style.opacity = "0.75";
