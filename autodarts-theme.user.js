@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.17.0
+// @version      2.18.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.17.0";
+  const SCRIPT_VERSION = "2.18.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -53,7 +53,7 @@
         // Skin / Layout adjustable
     SKIN_UI_SCALE: 1,
     SKIN_SPACING_PLAYER: 20,
-    SKIN_BG_URL: "https://de1.sportal365images.com/process/smp-bet365-images/news.bet365.com-gb/29112024/02053707-2cf2-453f-8ef8-6891e01bda7a.jpg",
+    SKIN_BG_URL: "https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/Background.jpg",
     SKIN_BG_OVERLAY_ALPHA: 0.55,
     SKIN_PLAYER_BG_HEX: "#c0c0c0",
     SKIN_PLAYER_BG_OPACITY: 0.10,
@@ -2165,7 +2165,7 @@ svg.ad-board-svg text{
 
   background-image:
     linear-gradient(rgba(8,26,40,.55), rgba(8,26,40,.55)),
-    url("https://de1.sportal365images.com/process/smp-bet365-images/news.bet365.com-gb/29112024/02053707-2cf2-453f-8ef8-6891e01bda7a.jpg") !important;
+    url("https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/Background.jpg") !important;
 
   background-repeat: no-repeat !important;
   background-position: center bottom !important;
