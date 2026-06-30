@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.10.0
+// @version      2.11.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.10.0";
+  const SCRIPT_VERSION = "2.11.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -99,6 +99,14 @@
     PI_NAME_X_PX: 0,    PI_NAME_Y_PX: 0,          // name X / Y
     PI_AVG_X_PX: 0,     PI_AVG_Y_PX: 0,           // averages X / Y
     PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
+    // Per-player alignment nudge (shifts avatar+name+averages of one player to line up with the other)
+    PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0,
+    // Per-player colours: off = both players share the colours above; on = player 2 uses these
+    PI_PER_PLAYER_COLORS: false,
+    PI_P2_NAME_COLOR_HEX: "#ffffff",
+    PI_P2_SCORE_COLOR_HEX: "#ffffff",
+    PI_P2_AVG_COLOR_HEX: "#cfd3d7",
+    PI_P2_HISTORY_COLOR_HEX: "#ffffff",
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -292,6 +300,11 @@
         secPos: "Pozíció (↔ vízszintes / ↕ függőleges)",
         secCard: "Játékos kártya",
         secColors: "Színek",
+        alignP1: "1. játékos igazítás ↕",
+        alignP2: "2. játékos igazítás ↕",
+        perPlayerColors: "Játékosonként eltérő színek",
+        p1Prefix: "1.J",
+        p2Prefix: "2.J",
         el: { avatar: "Avatar", name: "Név", score: "Pont", average: "Átlag", history: "Előzmény" },
         customColors: "Saját színek",
         nameColor: "Név szín",
@@ -455,6 +468,11 @@
         secPos: "Positioning (↔ horizontal / ↕ vertical)",
         secCard: "Player card",
         secColors: "Colours",
+        alignP1: "Player 1 align ↕",
+        alignP2: "Player 2 align ↕",
+        perPlayerColors: "Per-player colours",
+        p1Prefix: "P1",
+        p2Prefix: "P2",
         el: { avatar: "Avatar", name: "Name", score: "Score", average: "Average", history: "History" },
         customColors: "Custom colors",
         nameColor: "Name color",
@@ -618,6 +636,11 @@
         secPos: "Positionierung (↔ horizontal / ↕ vertikal)",
         secCard: "Spielerkarte",
         secColors: "Farben",
+        alignP1: "Spieler 1 ausrichten ↕",
+        alignP2: "Spieler 2 ausrichten ↕",
+        perPlayerColors: "Farben pro Spieler",
+        p1Prefix: "S1",
+        p2Prefix: "S2",
         el: { avatar: "Avatar", name: "Name", score: "Punkte", average: "Schnitt", history: "Verlauf" },
         customColors: "Eigene Farben",
         nameColor: "Name Farbe",
@@ -1113,6 +1136,10 @@
   --ad-pi-score-color: ${sanitizeHex(c.PI_SCORE_COLOR_HEX, "#ffffff")};
   --ad-pi-avg-color: ${sanitizeHex(c.PI_AVG_COLOR_HEX, "#cfd3d7")};
   --ad-pi-history-color: ${sanitizeHex(c.PI_HISTORY_COLOR_HEX, "#ffffff")};
+  --ad-pi-p2-name-color: ${sanitizeHex(c.PI_P2_NAME_COLOR_HEX, "#ffffff")};
+  --ad-pi-p2-score-color: ${sanitizeHex(c.PI_P2_SCORE_COLOR_HEX, "#ffffff")};
+  --ad-pi-p2-avg-color: ${sanitizeHex(c.PI_P2_AVG_COLOR_HEX, "#cfd3d7")};
+  --ad-pi-p2-history-color: ${sanitizeHex(c.PI_P2_HISTORY_COLOR_HEX, "#ffffff")};
   --ad-pi-gap: ${clamp(Number.isFinite(+c.PI_STACK_GAP_PX) ? +c.PI_STACK_GAP_PX : 8, 0, 160)}px;
   --ad-pi-avatar-scale: ${clamp(Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7, 1, 12)};
   --ad-pi-avatar-x: ${clamp(Number.isFinite(+c.PI_AVATAR_X_PX) ? +c.PI_AVATAR_X_PX : 0, -300, 300)}px;
@@ -1542,7 +1569,7 @@
 /* Name "block": move the whole identity row together (series badge + avatar +
    name + 35+ badge + the translucent backing pill), not just the name text */
 #ad-ext-player-display .css-37hv00{
-  translate: var(--ad-pi-name-x) var(--ad-pi-name-y) !important;
+  translate: var(--ad-pi-name-x) calc(var(--ad-pi-name-y) + var(--pp-shift-y, 0px)) !important;
 }
 #ad-ext-player-display .ad-ext-player-score{
   font-size: var(--ad-pi-score-font) !important;
@@ -1555,7 +1582,7 @@
 #ad-ext-player-display p.css-1j0bqop{
   font-size: var(--ad-pi-avg-font) !important;
   line-height: 1.15 !important;
-  translate: var(--ad-pi-avg-x) var(--ad-pi-avg-y) !important;
+  translate: var(--ad-pi-avg-x) calc(var(--ad-pi-avg-y) + var(--pp-shift-y, 0px)) !important;
   ${piColor ? "color: var(--ad-pi-avg-color) !important;" : ""}
 }
 /* recent throw history (chalkboard table) */
@@ -1586,7 +1613,7 @@ ${(+c.PI_HISTORY_WIDTH_PX > 0) ? `
 }` : ""}
 /* avatar: position (X/Y via translate) + size (scale); doubled id beats skin specificity */
 #ad-ext-player-display#ad-ext-player-display .css-1psdi5l{
-  translate: var(--ad-pi-avatar-x) var(--ad-pi-avatar-offset) !important;
+  translate: var(--ad-pi-avatar-x) calc(var(--ad-pi-avatar-offset) + var(--pp-shift-y, 0px)) !important;
   ${(+c.PI_AVATAR_SCALE !== 7) ? "scale: var(--ad-pi-avatar-scale) !important;" : ""}
 }
 ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
@@ -1595,6 +1622,17 @@ ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
   ${(+c.PI_CARD_WIDTH_PX > 0) ? "width: var(--ad-pi-card-w) !important;" : ""}
   ${(+c.PI_CARD_HEIGHT_PX > 0) ? "height: var(--ad-pi-card-h) !important;" : ""}
 }` : ""}
+/* per-player vertical alignment nudge (shifts avatar+name+averages of each player) */
+#ad-ext-player-display > div:nth-child(1){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_Y) ? +c.PI_P1_SHIFT_Y : 0, -200, 200)}px; }
+#ad-ext-player-display > div:nth-child(2){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_Y) ? +c.PI_P2_SHIFT_Y : 0, -200, 200)}px; }
+${(piColor && c.PI_PER_PLAYER_COLORS) ? `
+/* per-player colours: player 2 overrides (player 1 uses the base colours above) */
+#ad-ext-player-display > div:nth-child(2) .ad-ext-player-name{ color: var(--ad-pi-p2-name-color) !important; }
+#ad-ext-player-display > div:nth-child(2) .ad-ext-player-score{ color: var(--ad-pi-p2-score-color) !important; }
+#ad-ext-player-display > div:nth-child(2) .ad-core-pi-avg,
+#ad-ext-player-display > div:nth-child(2) p.css-1j0bqop{ color: var(--ad-pi-p2-avg-color) !important; }
+#ad-ext-player-display > div:nth-child(2) .css-1u90hiz td,
+#ad-ext-player-display > div:nth-child(2) .css-1u90hiz th{ color: var(--ad-pi-p2-history-color) !important; }` : ""}
 `);
       }
 
@@ -3530,7 +3568,9 @@ function ensureMainButtonPosition() {
                    "PI_CUSTOM_COLORS","PI_NAME_COLOR_HEX","PI_SCORE_COLOR_HEX","PI_AVG_COLOR_HEX","PI_HISTORY_COLOR_HEX",
                    "PI_STACK_GAP_PX","PI_HISTORY_WIDTH_PX","PI_HISTORY_HEIGHT_PX","PI_CARD_WIDTH_PX","PI_CARD_HEIGHT_PX",
                    "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
-                   "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX"],
+                   "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX",
+                   "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
+                   "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
@@ -4722,6 +4762,8 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_HISTORY_OFFSET_PX", pi.el.history + " ↕", -100, 400, 5);
         addSliderPx("PI_HISTORY_WIDTH_PX", pi.historyWidth, 0, 600, 10);
         addSliderPx("PI_HISTORY_HEIGHT_PX", pi.historyHeight, 0, 900, 10);
+        addSliderPx("PI_P1_SHIFT_Y", pi.alignP1, -200, 200, 2);
+        addSliderPx("PI_P2_SHIFT_Y", pi.alignP2, -200, 200, 2);
 
         // ---- CARD ----
         piSection(pi.secCard);
@@ -4731,10 +4773,19 @@ function ensureMainButtonPosition() {
         // ---- COLOURS ----
         piSection(pi.secColors);
         addCheckbox(pi.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
-        addColor(()=>c.PI_NAME_COLOR_HEX, v=>c.PI_NAME_COLOR_HEX=v, pi.nameColor);
-        addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, pi.scoreColor);
-        addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, pi.avgColor);
-        addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, pi.historyColor);
+        addCheckbox(pi.perPlayerColors, ()=>!!c.PI_PER_PLAYER_COLORS, v=>{ c.PI_PER_PLAYER_COLORS=v; renderPanelIfOpen(); });
+        const perPlayer = !!c.PI_PER_PLAYER_COLORS;
+        const p1 = (s)=> perPlayer ? (pi.p1Prefix + " " + s) : s;
+        addColor(()=>c.PI_NAME_COLOR_HEX, v=>c.PI_NAME_COLOR_HEX=v, p1(pi.nameColor));
+        addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, p1(pi.scoreColor));
+        addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, p1(pi.avgColor));
+        addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, p1(pi.historyColor));
+        if (perPlayer) {
+          addColor(()=>c.PI_P2_NAME_COLOR_HEX, v=>c.PI_P2_NAME_COLOR_HEX=v, pi.p2Prefix + " " + pi.nameColor);
+          addColor(()=>c.PI_P2_SCORE_COLOR_HEX, v=>c.PI_P2_SCORE_COLOR_HEX=v, pi.p2Prefix + " " + pi.scoreColor);
+          addColor(()=>c.PI_P2_AVG_COLOR_HEX, v=>c.PI_P2_AVG_COLOR_HEX=v, pi.p2Prefix + " " + pi.avgColor);
+          addColor(()=>c.PI_P2_HISTORY_COLOR_HEX, v=>c.PI_P2_HISTORY_COLOR_HEX=v, pi.p2Prefix + " " + pi.historyColor);
+        }
 
         const piInfo = document.createElement("div");
         piInfo.style.opacity = "0.75";
