@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.14.0
+// @version      2.15.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.14.0";
+  const SCRIPT_VERSION = "2.15.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -107,6 +107,10 @@
     PI_P2_SCORE_COLOR_HEX: "#ffffff",
     PI_P2_AVG_COLOR_HEX: "#cfd3d7",
     PI_P2_HISTORY_COLOR_HEX: "#ffffff",
+    // Player-card text effect (name / score / averages / history): none|outline|emboss|glow|shadow
+    PI_TEXT_EFFECT: "none",
+    PI_TEXT_EFFECT_COLOR_HEX: "#000000",
+    PI_TEXT_EFFECT_SIZE: 2,
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -119,6 +123,15 @@
     ACTIVE_TRAIL: true,
     ACTIVE_TRAIL_SPEED_MS: 2500,
     ACTIVE_TRAIL_COLOR_HEX: "#00cfff",
+    // Active highlight per-player: off = both players share the settings above (= Player 1);
+    // on = Player 2 uses its own settings below
+    ACTIVE_PER_PLAYER: false,
+    ACTIVE_P2_COLOR_HEX: "#ffffff",
+    ACTIVE_P2_OUTLINE_PX: 3,
+    ACTIVE_P2_GLOW: 0.42,
+    ACTIVE_P2_TRAIL: true,
+    ACTIVE_P2_TRAIL_SPEED_MS: 2500,
+    ACTIVE_P2_TRAIL_COLOR_HEX: "#ff7b00",
 
     THROW_VAL_FONT_PX: 100,
     THROW_VAL_COLOR_HEX: "#222222",
@@ -284,6 +297,9 @@
         throwFlash: "Dobáskártya felvillanás",
         fireworks: "Tűzijáték (magas pont)",
         spinMin: "Pörgés minimum érték",
+        perPlayer: "Játékosonként eltérő",
+        p1: "1.J",
+        p2: "2.J",
         threshold: "Pont határ",
         highlightSpeed: "Highlight sebesség",
         numberAnim: "Szám animáció",
@@ -309,6 +325,11 @@
         secPos: "Pozíció (↔ vízszintes / ↕ függőleges)",
         secCard: "Játékos kártya",
         secColors: "Színek",
+        secEffect: "Szöveg effekt",
+        effectStyle: "Effekt",
+        effectSize: "Effekt méret",
+        effectColor: "Effekt szín",
+        fxNone: "Nincs", fxOutline: "Körvonal", fxEmboss: "Dombor", fxGlow: "Ragyogás", fxShadow: "Árnyék",
         alignP1: "1. játékos igazítás ↕",
         alignP2: "2. játékos igazítás ↕",
         perPlayerColors: "Játékosonként eltérő színek",
@@ -454,6 +475,9 @@
         throwFlash: "Throw card flash",
         fireworks: "Fireworks (high score)",
         spinMin: "Spin from value",
+        perPlayer: "Per-player",
+        p1: "P1",
+        p2: "P2",
         threshold: "Score threshold",
         highlightSpeed: "Highlight speed",
         numberAnim: "Number animation",
@@ -479,6 +503,11 @@
         secPos: "Positioning (↔ horizontal / ↕ vertical)",
         secCard: "Player card",
         secColors: "Colours",
+        secEffect: "Text effect",
+        effectStyle: "Effect",
+        effectSize: "Effect size",
+        effectColor: "Effect colour",
+        fxNone: "None", fxOutline: "Outline", fxEmboss: "Emboss", fxGlow: "Glow", fxShadow: "Shadow",
         alignP1: "Player 1 align ↕",
         alignP2: "Player 2 align ↕",
         perPlayerColors: "Per-player colours",
@@ -624,6 +653,9 @@
         throwFlash: "Wurfkarten-Blitz",
         fireworks: "Feuerwerk (hoher Punktwert)",
         spinMin: "Drehen ab Wert",
+        perPlayer: "Pro Spieler",
+        p1: "S1",
+        p2: "S2",
         threshold: "Punktschwelle",
         highlightSpeed: "Highlight Speed",
         numberAnim: "Zahlenanimation",
@@ -649,6 +681,11 @@
         secPos: "Positionierung (↔ horizontal / ↕ vertikal)",
         secCard: "Spielerkarte",
         secColors: "Farben",
+        secEffect: "Text-Effekt",
+        effectStyle: "Effekt",
+        effectSize: "Effekt-Größe",
+        effectColor: "Effekt-Farbe",
+        fxNone: "Keiner", fxOutline: "Umriss", fxEmboss: "Relief", fxGlow: "Leuchten", fxShadow: "Schatten",
         alignP1: "Spieler 1 ausrichten ↕",
         alignP2: "Spieler 2 ausrichten ↕",
         perPlayerColors: "Farben pro Spieler",
@@ -745,9 +782,9 @@
   const HOTKEY_CLOCK_TOGGLE = { shift: true, ctrl: false, alt: false, key: "t" };
   const HOTKEY_CLOCK_RESET  = { shift: true, ctrl: false, alt: false, key: "r" };
 
-  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6,
+  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6, ACTIVE_P2_OUTLINE_PX: 6,
     PI_NAME_FONT_PX: 80, PI_SCORE_FONT_PX: 220, PI_AVG_FONT_PX: 80, PI_HISTORY_FONT_PX: 90 };
-  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12,
+  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12, ACTIVE_P2_OUTLINE_PX: 12,
     PI_NAME_FONT_PX: 200, PI_SCORE_FONT_PX: 360, PI_AVG_FONT_PX: 200, PI_HISTORY_FONT_PX: 200 };
 
   const FONT_LINK_ID = "ad-font-barlow-condensed-core";
@@ -988,6 +1025,7 @@
     c.TOTAL_FONT_PX = clampIfSafe("TOTAL_FONT_PX", c.TOTAL_FONT_PX);
     c.CHECKOUT_FONT_PX = clampIfSafe("CHECKOUT_FONT_PX", c.CHECKOUT_FONT_PX);
     c.ACTIVE_OUTLINE_PX = clampIfSafe("ACTIVE_OUTLINE_PX", c.ACTIVE_OUTLINE_PX);
+    c.ACTIVE_P2_OUTLINE_PX = clampIfSafe("ACTIVE_P2_OUTLINE_PX", c.ACTIVE_P2_OUTLINE_PX);
     c.PI_NAME_FONT_PX = clampIfSafe("PI_NAME_FONT_PX", c.PI_NAME_FONT_PX);
     c.PI_SCORE_FONT_PX = clampIfSafe("PI_SCORE_FONT_PX", c.PI_SCORE_FONT_PX);
     c.PI_AVG_FONT_PX = clampIfSafe("PI_AVG_FONT_PX", c.PI_AVG_FONT_PX);
@@ -1213,7 +1251,26 @@
   filter: brightness(1.05) saturate(1.06) !important;
 }
 `);
-        if (c.ACTIVE_TRAIL) {
+        const activePP = !!c.ACTIVE_PER_PLAYER;
+        if (activePP) {
+          const p2rgb = hexToRgbString(sanitizeHex(c.ACTIVE_P2_COLOR_HEX, "#ffffff"));
+          const p2trailrgb = hexToRgbString(sanitizeHex(c.ACTIVE_P2_TRAIL_COLOR_HEX || c.ACTIVE_P2_COLOR_HEX, "#ff7b00"));
+          css.push(`
+/* Player 2 active-highlight overrides (Player 1 uses the base values above) */
+#ad-ext-player-display > div:nth-child(2){
+  --ad-active-rgb: ${p2rgb};
+  --ad-active-trail-rgb: ${p2trailrgb};
+  --ad-active-outline: ${clamp(+c.ACTIVE_P2_OUTLINE_PX || 3, 0, 12)}px;
+  --ad-active-glow: ${clamp(+c.ACTIVE_P2_GLOW || 0.42, 0, 1)};
+  --ad-active-trail-speed: ${clamp(+c.ACTIVE_P2_TRAIL_SPEED_MS || 2500, 500, 10000)}ms;
+  --ad-active-trail-width: calc(var(--ad-active-outline) + 4px);
+}
+`);
+          if (!c.ACTIVE_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(1).${ACTIVE_CLASS}::before{ display:none !important; }`);
+          if (!c.ACTIVE_P2_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(2).${ACTIVE_CLASS}::before{ display:none !important; }`);
+        }
+        const trailOn = activePP ? (c.ACTIVE_TRAIL || c.ACTIVE_P2_TRAIL) : c.ACTIVE_TRAIL;
+        if (trailOn) {
           css.push(`
 @property --ad-trail-from {
   syntax: '<angle>';
@@ -1602,6 +1659,34 @@
       // Player info text sizing / colors / layout (name / score / averages / history)
       if (c.PLAYER_INFO) {
         const piColor = !!c.PI_CUSTOM_COLORS;
+
+        // text effect (outline / emboss / glow / shadow) applied to the card texts
+        const fxStyle = String(c.PI_TEXT_EFFECT || "none");
+        const fxCol = sanitizeHex(c.PI_TEXT_EFFECT_COLOR_HEX, "#000000");
+        const fxS = clamp(Number.isFinite(+c.PI_TEXT_EFFECT_SIZE) ? +c.PI_TEXT_EFFECT_SIZE : 2, 1, 12);
+        let fxDecl = "";
+        if (fxStyle === "outline") {
+          fxDecl = `-webkit-text-stroke: ${fxS}px ${fxCol} !important; paint-order: stroke fill !important;`;
+        } else if (fxStyle === "emboss") {
+          fxDecl = `text-shadow: ${fxS}px ${fxS}px ${fxS}px rgba(0,0,0,.55), -${fxS}px -${fxS}px ${fxS}px rgba(255,255,255,.35) !important;`;
+        } else if (fxStyle === "glow") {
+          fxDecl = `text-shadow: 0 0 ${fxS*3}px ${fxCol}, 0 0 ${fxS*6}px ${fxCol} !important;`;
+        } else if (fxStyle === "shadow") {
+          fxDecl = `text-shadow: ${fxS}px ${fxS}px ${Math.round(fxS*1.5)}px rgba(0,0,0,.7) !important;`;
+        }
+        if (fxDecl) {
+          css.push(`
+#ad-ext-player-display .ad-ext-player-name,
+#ad-ext-player-display .ad-ext-player-score,
+#ad-ext-player-display .ad-core-pi-avg,
+#ad-ext-player-display p.css-1j0bqop,
+#ad-ext-player-display .css-1u90hiz td,
+#ad-ext-player-display .css-1u90hiz th{
+  ${fxDecl}
+}
+`);
+        }
+
         css.push(`
 #ad-ext-player-display .ad-ext-player-name{
   font-size: var(--ad-pi-name-font) !important;
@@ -3719,8 +3804,10 @@ function ensureMainButtonPosition() {
                    "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
                    "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX",
                    "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
-                   "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX"],
-      active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
+                   "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX",
+                   "PI_TEXT_EFFECT","PI_TEXT_EFFECT_COLOR_HEX","PI_TEXT_EFFECT_SIZE"],
+      active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX",
+               "ACTIVE_PER_PLAYER","ACTIVE_P2_COLOR_HEX","ACTIVE_P2_OUTLINE_PX","ACTIVE_P2_GLOW","ACTIVE_P2_TRAIL","ACTIVE_P2_TRAIL_SPEED_MS","ACTIVE_P2_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS"],
@@ -4446,6 +4533,29 @@ function ensureMainButtonPosition() {
       slider.addEventListener("change", () => showToast(L.saved));
     }
 
+    // dropdown select; options = [[value,label],...]
+    function addSelect(key, label, options, onChange){
+      const sel = document.createElement("select");
+      Object.assign(sel.style, { background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.25)", borderRadius:"6px", color:"#fff", padding:"3px 6px", fontSize:"13px" });
+      for (const [val, txt] of options) {
+        const o = document.createElement("option");
+        o.value = val; o.textContent = txt;
+        o.style.color = "#000";
+        if (String(c[key]) === String(val)) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.addEventListener("change", () => {
+        c[key] = sel.value;
+        saveStateDebounced();
+        renderCss();
+        dirtyTurn(); dirtyPlayers();
+        scheduleUpdate();
+        if (onChange) onChange();
+        showToast(L.saved);
+      });
+      box.appendChild(mkRow(label, sel, compact));
+    }
+
     function addCheckbox(label, getter, setter){
       const wrap = document.createElement("div");
       wrap.style.display = "flex";
@@ -4939,6 +5049,18 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_CARD_WIDTH_PX", pi.cardWidth, 0, 900, 10);
         addSliderPx("PI_CARD_HEIGHT_PX", pi.cardHeight, 0, 1400, 10);
 
+        // ---- TEXT EFFECT ----
+        piSection(pi.secEffect);
+        addSelect("PI_TEXT_EFFECT", pi.effectStyle, [
+          ["none", pi.fxNone], ["outline", pi.fxOutline], ["emboss", pi.fxEmboss], ["glow", pi.fxGlow], ["shadow", pi.fxShadow]
+        ], ()=>renderPanelIfOpen());
+        if (String(c.PI_TEXT_EFFECT) !== "none") {
+          addSliderPx("PI_TEXT_EFFECT_SIZE", pi.effectSize, 1, 12, 1);
+          if (c.PI_TEXT_EFFECT === "outline" || c.PI_TEXT_EFFECT === "glow") {
+            addColor(()=>c.PI_TEXT_EFFECT_COLOR_HEX, v=>c.PI_TEXT_EFFECT_COLOR_HEX=v, pi.effectColor);
+          }
+        }
+
         // ---- COLOURS ----
         piSection(pi.secColors);
         addCheckbox(pi.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
@@ -4965,14 +5087,30 @@ function ensureMainButtonPosition() {
         break;
       }
 
-      case "active":
-        addColor(()=>c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_COLOR_HEX=v, L.fields.color);
-        addSliderPx("ACTIVE_OUTLINE_PX", L.fields.outline, 0, EXT_LIMITS.ACTIVE_OUTLINE_PX, 1);
-        addSlider01(()=>c.ACTIVE_GLOW, v=>c.ACTIVE_GLOW=v, L.fields.glow, 0.01);
-        addCheckbox(L.fields.trailEnabled, ()=>!!c.ACTIVE_TRAIL, v=>{ c.ACTIVE_TRAIL=v; });
-        addColor(()=>c.ACTIVE_TRAIL_COLOR_HEX||c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_TRAIL_COLOR_HEX=v, L.fields.trailColor);
-        addSliderMs("ACTIVE_TRAIL_SPEED_MS", L.fields.trailSpeed, 500, 10000, 100);
+      case "active": {
+        addCheckbox(L.fields.perPlayer, ()=>!!c.ACTIVE_PER_PLAYER, v=>{ c.ACTIVE_PER_PLAYER=v; renderPanelIfOpen(); });
+        const aPP = !!c.ACTIVE_PER_PLAYER;
+        const a1 = (s)=> aPP ? (L.fields.p1 + " " + s) : s;
+        // Player 1 (or shared)
+        addColor(()=>c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_COLOR_HEX=v, a1(L.fields.color));
+        addSliderPx("ACTIVE_OUTLINE_PX", a1(L.fields.outline), 0, EXT_LIMITS.ACTIVE_OUTLINE_PX, 1);
+        addSlider01(()=>c.ACTIVE_GLOW, v=>c.ACTIVE_GLOW=v, a1(L.fields.glow), 0.01);
+        addCheckbox(a1(L.fields.trailEnabled), ()=>!!c.ACTIVE_TRAIL, v=>{ c.ACTIVE_TRAIL=v; });
+        addColor(()=>c.ACTIVE_TRAIL_COLOR_HEX||c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_TRAIL_COLOR_HEX=v, a1(L.fields.trailColor));
+        addSliderMs("ACTIVE_TRAIL_SPEED_MS", a1(L.fields.trailSpeed), 500, 10000, 100);
+        if (aPP) {
+          const sep = document.createElement("div");
+          sep.style.cssText = "height:1px;background:rgba(255,255,255,0.12);margin:6px 0;";
+          box.appendChild(sep);
+          addColor(()=>c.ACTIVE_P2_COLOR_HEX, v=>c.ACTIVE_P2_COLOR_HEX=v, L.fields.p2 + " " + L.fields.color);
+          addSliderPx("ACTIVE_P2_OUTLINE_PX", L.fields.p2 + " " + L.fields.outline, 0, EXT_LIMITS.ACTIVE_P2_OUTLINE_PX, 1);
+          addSlider01(()=>c.ACTIVE_P2_GLOW, v=>c.ACTIVE_P2_GLOW=v, L.fields.p2 + " " + L.fields.glow, 0.01);
+          addCheckbox(L.fields.p2 + " " + L.fields.trailEnabled, ()=>!!c.ACTIVE_P2_TRAIL, v=>{ c.ACTIVE_P2_TRAIL=v; });
+          addColor(()=>c.ACTIVE_P2_TRAIL_COLOR_HEX||c.ACTIVE_P2_COLOR_HEX, v=>c.ACTIVE_P2_TRAIL_COLOR_HEX=v, L.fields.p2 + " " + L.fields.trailColor);
+          addSliderMs("ACTIVE_P2_TRAIL_SPEED_MS", L.fields.p2 + " " + L.fields.trailSpeed, 500, 10000, 100);
+        }
         break;
+      }
 
       case "triple":
         addColor(()=>c.TRIPLE_GLOW_HEX, v=>c.TRIPLE_GLOW_HEX=v, L.fields.glowColor);
