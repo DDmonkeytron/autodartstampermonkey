@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.11.0
+// @version      2.12.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.11.0";
+  const SCRIPT_VERSION = "2.12.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -143,6 +143,8 @@
     TRIPLE_GLOW_HEX: "#ff6600",
     TRIPLE_GLOW: 0.70,
     TRIPLE_FLASH: true,
+    TRIPLE_SPIN: false,          // spin the board on each triple
+    TRIPLE_SPIN_MS: 1200,
 
     DOUBLE_ANIM: true,
     DOUBLE_SHIMMER_MS: 1400,
@@ -152,6 +154,8 @@
     DOUBLE_GLOW_HEX: "#00aaff",
     DOUBLE_GLOW: 0.55,
     DOUBLE_FLASH: false,
+    DOUBLE_SPIN: false,          // spin the board on each double
+    DOUBLE_SPIN_MS: 1000,
 
     HIGHSCORE_ANIM: true,
     HIGHSCORE_THRESHOLD: 100,
@@ -160,9 +164,10 @@
     HIGHSCORE_GLOW: 0.80,
     HIGHSCORE_FLASH: true,
     HIGHSCORE_SPIN: true,
-    HIGHSCORE_SPIN_MS: 1400,
+    HIGHSCORE_SPIN_MS: 7000,     // board spin duration for a ton (user-set, default 7s)
     HIGHSCORE_BOARD_FLASH: true,
     HIGHSCORE_THROW_FLASH: true,
+    HIGHSCORE_FIREWORKS: true,   // CSS firework burst overlay on a ton
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
@@ -275,6 +280,7 @@
         spinDuration: "Pörgés idő",
         boardFlash: "Tábla felvillanás",
         throwFlash: "Dobáskártya felvillanás",
+        fireworks: "Tűzijáték (magas pont)",
         threshold: "Pont határ",
         highlightSpeed: "Highlight sebesség",
         numberAnim: "Szám animáció",
@@ -443,6 +449,7 @@
         spinDuration: "Spin duration",
         boardFlash: "Board flash",
         throwFlash: "Throw card flash",
+        fireworks: "Fireworks (high score)",
         threshold: "Score threshold",
         highlightSpeed: "Highlight speed",
         numberAnim: "Number animation",
@@ -611,6 +618,7 @@
         spinDuration: "Drehdauer",
         boardFlash: "Board-Blitz",
         throwFlash: "Wurfkarten-Blitz",
+        fireworks: "Feuerwerk (hoher Punktwert)",
         threshold: "Punktschwelle",
         highlightSpeed: "Highlight Speed",
         numberAnim: "Zahlenanimation",
@@ -1533,23 +1541,55 @@
   25%,75%{ background-color: rgba(var(--ad-highscore-rgb),0.5); outline-color: rgba(255,255,255,1); box-shadow: 0 0 35px rgba(var(--ad-highscore-rgb),0.8); }
   50%    { background-color: rgba(var(--ad-throw-bg-rgb),var(--ad-throw-bg-op)); outline-color: rgba(var(--ad-highscore-rgb),0.5); box-shadow: 0 0 15px rgba(var(--ad-highscore-rgb),0.4); }
 }
-.${BOARD_VISUAL_CLASS}.${HIGHSCORE_SPIN_CLASS}{
-  animation: adBoardSpin var(--ad-highscore-spin-ms) cubic-bezier(.4,0,.2,1) 1${c.HIGHSCORE_BOARD_FLASH ? ",\n  adBoardFlash 0.32s ease-in-out 0ms 6" : ""} !important;
+`);
+      }
+
+      // Unified board celebration: spin / flash (triple, double, high score) + fireworks.
+      // Matches the marked board (ad-board-host/-visual) AND the raw fallback (svg.ad-board-svg),
+      // so the spin works even when the Board Marker module is OFF. Duration is per-trigger via --ad-spin-dur.
+      if (c.TRIPLE_SPIN || c.DOUBLE_SPIN || (c.HIGHSCORE_ANIM && (c.HIGHSCORE_SPIN || c.HIGHSCORE_BOARD_FLASH))) {
+        css.push(`
+.${BOARD_HOST_CLASS}.ad-spin, .${BOARD_VISUAL_CLASS}.ad-spin, svg.ad-board-svg.ad-spin,
+.${BOARD_HOST_CLASS}.ad-spin-flash, .${BOARD_VISUAL_CLASS}.ad-spin-flash, svg.ad-board-svg.ad-spin-flash{
+  animation: adBoardSpin var(--ad-spin-dur, 1400ms) cubic-bezier(.35,0,.25,1) 1 !important;
   transform-origin: center center !important;
 }
-.${BOARD_VISUAL_CLASS}.${HIGHSCORE_BOARD_FLASH_CLASS}{
-  animation: adBoardFlash 0.32s ease-in-out 0ms 6 !important;
+.${BOARD_HOST_CLASS}.ad-spin-flash, .${BOARD_VISUAL_CLASS}.ad-spin-flash, svg.ad-board-svg.ad-spin-flash,
+.${BOARD_HOST_CLASS}.ad-flash-only, .${BOARD_VISUAL_CLASS}.ad-flash-only, svg.ad-board-svg.ad-flash-only{
+  animation: adBoardSpin var(--ad-spin-dur, 1400ms) cubic-bezier(.35,0,.25,1) 1,
+             adBoardFlash 0.4s ease-in-out 0ms infinite !important;
   transform-origin: center center !important;
+}
+.${BOARD_HOST_CLASS}.ad-flash-only, .${BOARD_VISUAL_CLASS}.ad-flash-only, svg.ad-board-svg.ad-flash-only{
+  animation: adBoardFlash 0.4s ease-in-out 0ms infinite !important;
 }
 @keyframes adBoardSpin{
   0%   { transform: rotate(0deg)   scale(1);    }
-  30%  { transform: rotate(270deg) scale(1.07); }
-  70%  { transform: rotate(630deg) scale(1.07); }
-  100% { transform: rotate(720deg) scale(1);    }
+  15%  { transform: rotate(180deg) scale(1.06); }
+  85%  { transform: rotate(1260deg) scale(1.06); }
+  100% { transform: rotate(1440deg) scale(1);   }
 }
 @keyframes adBoardFlash{
   0%,100%{ filter: none; }
   50%    { filter: brightness(2) saturate(2.5) drop-shadow(0 0 22px rgba(var(--ad-highscore-rgb),1)); }
+}
+`);
+      }
+
+      // Fireworks overlay (CSS particle burst) for a ton
+      if (c.HIGHSCORE_ANIM && c.HIGHSCORE_FIREWORKS) {
+        css.push(`
+#ad-fireworks{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
+.ad-fw-burst{ position:absolute; width:0; height:0; }
+.ad-fw-burst i{
+  position:absolute; left:0; top:0; width:8px; height:8px; border-radius:50%;
+  background: currentColor; box-shadow: 0 0 10px 1px currentColor;
+  animation: adFwParticle 1.25s cubic-bezier(.15,.6,.3,1) forwards;
+}
+@keyframes adFwParticle{
+  0%   { transform: translate(0,0) scale(1.2); opacity:1; }
+  70%  { opacity:1; }
+  100% { transform: translate(var(--tx), calc(var(--ty) + 40px)) scale(0.25); opacity:0; }
 }
 `);
       }
@@ -2177,6 +2217,79 @@ svg.ad-board-svg text{
     return fallback;
   }
 
+  const SPIN_CLASSES = ["ad-spin", "ad-spin-flash", "ad-flash-only"];
+  function clearBoardSpin() {
+    for (const cls of SPIN_CLASSES) {
+      document.querySelectorAll("." + cls).forEach(el => {
+        el.classList.remove(cls);
+        if (el.__adSpinT) { clearTimeout(el.__adSpinT); el.__adSpinT = null; }
+      });
+    }
+  }
+  // Unified board spin/flash. mode: "spin" | "spin-flash" | "flash". Duration in ms.
+  function spinBoard(durationMs, mode = "spin") {
+    const dur = clamp(Number(durationMs) || 1400, 300, 15000);
+    const cls = mode === "spin-flash" ? "ad-spin-flash" : (mode === "flash" ? "ad-flash-only" : "ad-spin");
+    const boards = getBoardVisualTargets();
+    for (const board of boards) {
+      board.classList.remove("ad-spin", "ad-spin-flash", "ad-flash-only");
+      board.style.setProperty("--ad-spin-dur", dur + "ms");
+      void board.offsetWidth; // restart animation
+      board.classList.add(cls);
+      if (board.__adSpinT) clearTimeout(board.__adSpinT);
+      board.__adSpinT = setTimeout(() => {
+        board.classList.remove(cls);
+        board.__adSpinT = null;
+      }, dur + 150);
+    }
+  }
+
+  /* ================== FIREWORKS (CSS particle burst) ================== */
+  let fireworksTimers = [];
+  function stopFireworks() {
+    fireworksTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    fireworksTimers = [];
+    const ov = document.getElementById("ad-fireworks");
+    if (ov) ov.remove();
+  }
+  function launchFireworks(durationMs) {
+    const dur = clamp(Number(durationMs) || 7000, 800, 30000);
+    stopFireworks();
+    const overlay = document.createElement("div");
+    overlay.id = "ad-fireworks";
+    (document.body || document.documentElement).appendChild(overlay);
+
+    const colors = ["#ffd700", "#ff4d4d", "#43e0ff", "#5dff8a", "#ff6bff", "#ffffff", "#ff9f1c"];
+    const spawn = () => {
+      const burst = document.createElement("div");
+      burst.className = "ad-fw-burst";
+      burst.style.left = (8 + Math.random() * 84) + "vw";
+      burst.style.top  = (10 + Math.random() * 55) + "vh";
+      const color = colors[(Math.random() * colors.length) | 0];
+      const n = 24 + ((Math.random() * 10) | 0);
+      for (let i = 0; i < n; i++) {
+        const p = document.createElement("i");
+        const ang = (i / n) * Math.PI * 2 + Math.random() * 0.25;
+        const dist = 70 + Math.random() * 110;
+        p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
+        p.style.setProperty("--ty", (Math.sin(ang) * dist).toFixed(1) + "px");
+        p.style.color = (Math.random() < 0.25) ? colors[(Math.random() * colors.length) | 0] : color;
+        const s = (5 + Math.random() * 6).toFixed(1);
+        p.style.width = s + "px"; p.style.height = s + "px";
+        burst.appendChild(p);
+      }
+      overlay.appendChild(burst);
+      fireworksTimers.push(setTimeout(() => burst.remove(), 1400));
+    };
+
+    spawn();
+    fireworksTimers.push(setTimeout(spawn, 180));
+    const iv = setInterval(spawn, 430);
+    fireworksTimers.push(iv);
+    fireworksTimers.push(setTimeout(() => clearInterval(iv), Math.max(300, dur - 250)));
+    fireworksTimers.push(setTimeout(stopFireworks, dur + 1500));
+  }
+
   function applyBoardMarkerNow() {
     const c = cfg();
 
@@ -2677,6 +2790,8 @@ function markCheckoutInTurnBar(turn) {
     card.classList.remove(TRIPLE_CLASS);
     void card.offsetWidth;
     card.classList.add(TRIPLE_CLASS);
+    const c = cfg();
+    if (c.TRIPLE_SPIN) spinBoard(c.TRIPLE_SPIN_MS, "spin");
   }
   function updateTripleHighlight(turn) {
     const c = cfg();
@@ -2724,6 +2839,8 @@ function markCheckoutInTurnBar(turn) {
     card.classList.remove(DOUBLE_CLASS);
     void card.offsetWidth;
     card.classList.add(DOUBLE_CLASS);
+    const c = cfg();
+    if (c.DOUBLE_SPIN) spinBoard(c.DOUBLE_SPIN_MS, "spin");
   }
   function updateDoubleHighlight(turn) {
     const c = cfg();
@@ -2763,14 +2880,14 @@ function markCheckoutInTurnBar(turn) {
   /* ================== HIGH SCORE ================== */
   function clearHighscoreClasses() {
     document.querySelectorAll("." + HIGHSCORE_CLASS).forEach(el => el.classList.remove(HIGHSCORE_CLASS));
-    document.querySelectorAll("." + HIGHSCORE_SPIN_CLASS).forEach(el => el.classList.remove(HIGHSCORE_SPIN_CLASS));
-    document.querySelectorAll("." + HIGHSCORE_BOARD_FLASH_CLASS).forEach(el => el.classList.remove(HIGHSCORE_BOARD_FLASH_CLASS));
     document.querySelectorAll("." + HIGHSCORE_THROW_CLASS).forEach(el => el.classList.remove(HIGHSCORE_THROW_CLASS));
+    clearBoardSpin();
+    stopFireworks();
   }
   function triggerHighscore() {
     const c = cfg();
     const dur = clamp(Number(c.HIGHSCORE_SHIMMER_MS) || 2000, 400, 6000);
-    const spinMs = clamp(Number(c.HIGHSCORE_SPIN_MS) || 1400, 400, 4000);
+    const spinMs = clamp(Number(c.HIGHSCORE_SPIN_MS) || 7000, 300, 15000);
 
     if (c.HIGHSCORE_FLASH) {
       const host = document.querySelector("#ad-ext-player-display");
@@ -2797,22 +2914,12 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (c.HIGHSCORE_SPIN) {
-      const boards = getBoardVisualTargets();
-      for (const board of boards) {
-        board.classList.remove(HIGHSCORE_SPIN_CLASS);
-        void board.offsetWidth;
-        board.classList.add(HIGHSCORE_SPIN_CLASS);
-        setTimeout(() => board.classList.remove(HIGHSCORE_SPIN_CLASS), spinMs + 200);
-      }
+      spinBoard(spinMs, c.HIGHSCORE_BOARD_FLASH ? "spin-flash" : "spin");
     } else if (c.HIGHSCORE_BOARD_FLASH) {
-      const boards = getBoardVisualTargets();
-      for (const board of boards) {
-        board.classList.remove(HIGHSCORE_BOARD_FLASH_CLASS);
-        void board.offsetWidth;
-        board.classList.add(HIGHSCORE_BOARD_FLASH_CLASS);
-        setTimeout(() => board.classList.remove(HIGHSCORE_BOARD_FLASH_CLASS), 2100);
-      }
+      spinBoard(spinMs, "flash");
     }
+
+    if (c.HIGHSCORE_FIREWORKS) launchFireworks(spinMs);
   }
   function updateHighscoreHighlight(turn) {
     const c = cfg();
@@ -2830,14 +2937,20 @@ function markCheckoutInTurnBar(turn) {
       count++;
     }
 
-    const token = `${total}-${count}`;
-    const prev = (turn.dataset && turn.dataset.adHighscoreToken) ? turn.dataset.adHighscoreToken : "";
-
-    if (total >= threshold && count > 0 && prev !== token) {
-      if (turn.dataset) turn.dataset.adHighscoreToken = token;
-      triggerHighscore();
-    } else if (total < threshold && turn.dataset) {
-      turn.dataset.adHighscoreToken = "";
+    // Fire ONCE per visit, the moment the 3-dart total first crosses the threshold
+    // (whether that crossing dart is a single, double or triple). Reset on a new visit.
+    const fired = (turn.dataset && turn.dataset.adHsFired === "1");
+    if (count === 0) {
+      if (turn.dataset) turn.dataset.adHsFired = "";
+      return;
+    }
+    if (total >= threshold) {
+      if (!fired) {
+        if (turn.dataset) turn.dataset.adHsFired = "1";
+        triggerHighscore();
+      }
+    } else if (turn.dataset) {
+      turn.dataset.adHsFired = "";
     }
   }
 
@@ -3572,9 +3685,9 @@ function ensureMainButtonPosition() {
                    "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
                    "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
-      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
-      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
-      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH"],
+      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS"],
+      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS"],
+      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
     };
@@ -4813,6 +4926,8 @@ function ensureMainButtonPosition() {
         addSliderMs("TRIPLE_SLAM_MS", L.fields.numberAnim, 80, 1200, 10);
         addSliderMs("TRIPLE_RATTLE_MS", L.fields.rattleDur, 80, 2000, 20);
         addSliderMs("TRIPLE_RATTLE_DELAY_MS", L.fields.rattleDelay, 0, 2500, 25);
+        addCheckbox(L.fields.spinEnabled, ()=>!!c.TRIPLE_SPIN, v=>{ c.TRIPLE_SPIN=v; });
+        addSliderMs("TRIPLE_SPIN_MS", L.fields.spinDuration, 300, 6000, 50);
         break;
 
       case "double":
@@ -4823,6 +4938,8 @@ function ensureMainButtonPosition() {
         addSliderMs("DOUBLE_SLAM_MS", L.fields.numberAnim, 80, 1200, 10);
         addSliderMs("DOUBLE_RATTLE_MS", L.fields.rattleDur, 80, 2000, 20);
         addSliderMs("DOUBLE_RATTLE_DELAY_MS", L.fields.rattleDelay, 0, 2500, 25);
+        addCheckbox(L.fields.spinEnabled, ()=>!!c.DOUBLE_SPIN, v=>{ c.DOUBLE_SPIN=v; });
+        addSliderMs("DOUBLE_SPIN_MS", L.fields.spinDuration, 300, 6000, 50);
         break;
 
       case "highscore": {
@@ -4852,8 +4969,9 @@ function ensureMainButtonPosition() {
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
         addCheckbox(L.fields.flashEnabled, ()=>!!c.HIGHSCORE_FLASH, v=>{ c.HIGHSCORE_FLASH=v; });
         addCheckbox(L.fields.spinEnabled, ()=>!!c.HIGHSCORE_SPIN, v=>{ c.HIGHSCORE_SPIN=v; });
-        addSliderMs("HIGHSCORE_SPIN_MS", L.fields.spinDuration, 400, 4000, 100);
+        addSliderMs("HIGHSCORE_SPIN_MS", L.fields.spinDuration, 400, 15000, 100);
         addCheckbox(L.fields.boardFlash, ()=>!!c.HIGHSCORE_BOARD_FLASH, v=>{ c.HIGHSCORE_BOARD_FLASH=v; });
+        addCheckbox(L.fields.fireworks, ()=>!!c.HIGHSCORE_FIREWORKS, v=>{ c.HIGHSCORE_FIREWORKS=v; });
         addCheckbox(L.fields.throwFlash, ()=>!!c.HIGHSCORE_THROW_FLASH, v=>{ c.HIGHSCORE_THROW_FLASH=v; });
         addSliderMs("HIGHSCORE_SHIMMER_MS", L.fields.highlightSpeed, 400, 6000, 50);
         break;
