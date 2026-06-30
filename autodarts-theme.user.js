@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.8.0
+// @version      2.9.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.8.0";
+  const SCRIPT_VERSION = "2.9.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -88,9 +88,14 @@
     PI_HISTORY_COLOR_HEX: "#ffffff",
     // Player info layout (helps avoid overlap when fonts are enlarged)
     PI_STACK_GAP_PX: 8,        // gap between avatar / score / name / averages
-    PI_HISTORY_OFFSET_PX: 0,   // move the throw-history (chalkboard) table up/down
     PI_HISTORY_WIDTH_PX: 0,    // throw-history table width: 0 = auto (fit to font), >0 = fixed px
-    PI_AVATAR_OFFSET_PX: 0,    // move the profile avatar up/down
+    PI_AVATAR_SCALE: 7,        // profile avatar size (native = 7; lower = smaller)
+    // Per-element positioning (translate px; X = left/right, Y = up/down)
+    PI_AVATAR_X_PX: 0,  PI_AVATAR_OFFSET_PX: 0,   // avatar X / Y
+    PI_SCORE_X_PX: 0,   PI_SCORE_Y_PX: 0,         // total score X / Y
+    PI_NAME_X_PX: 0,    PI_NAME_Y_PX: 0,          // name X / Y
+    PI_AVG_X_PX: 0,     PI_AVG_Y_PX: 0,           // averages X / Y
+    PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -276,6 +281,11 @@
         avatarPos: "Avatar pozíció (fel/le)",
         historyPos: "Előzmény tábla pozíció",
         historyWidth: "Előzmény tábla szélesség (0 = auto)",
+        avatarSize: "Avatar méret",
+        secSizes: "Méretek",
+        secPos: "Pozíció (↔ vízszintes / ↕ függőleges)",
+        secColors: "Színek",
+        el: { avatar: "Avatar", name: "Név", score: "Pont", average: "Átlag", history: "Előzmény" },
         customColors: "Saját színek",
         nameColor: "Név szín",
         scoreColor: "Összpontszám szín",
@@ -430,6 +440,11 @@
         avatarPos: "Avatar position (up/down)",
         historyPos: "History table position",
         historyWidth: "History table width (0 = auto)",
+        avatarSize: "Avatar size",
+        secSizes: "Sizes",
+        secPos: "Positioning (↔ horizontal / ↕ vertical)",
+        secColors: "Colours",
+        el: { avatar: "Avatar", name: "Name", score: "Score", average: "Average", history: "History" },
         customColors: "Custom colors",
         nameColor: "Name color",
         scoreColor: "Total score color",
@@ -584,6 +599,11 @@
         avatarPos: "Avatar Position (hoch/runter)",
         historyPos: "Verlauf-Tabelle Position",
         historyWidth: "Verlauf-Tabelle Breite (0 = auto)",
+        avatarSize: "Avatar Größe",
+        secSizes: "Größen",
+        secPos: "Positionierung (↔ horizontal / ↕ vertikal)",
+        secColors: "Farben",
+        el: { avatar: "Avatar", name: "Name", score: "Punkte", average: "Schnitt", history: "Verlauf" },
         customColors: "Eigene Farben",
         nameColor: "Name Farbe",
         scoreColor: "Gesamtpunktzahl Farbe",
@@ -1079,9 +1099,17 @@
   --ad-pi-avg-color: ${sanitizeHex(c.PI_AVG_COLOR_HEX, "#cfd3d7")};
   --ad-pi-history-color: ${sanitizeHex(c.PI_HISTORY_COLOR_HEX, "#ffffff")};
   --ad-pi-gap: ${clamp(Number.isFinite(+c.PI_STACK_GAP_PX) ? +c.PI_STACK_GAP_PX : 8, 0, 160)}px;
+  --ad-pi-avatar-scale: ${clamp(Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7, 1, 12)};
+  --ad-pi-avatar-x: ${clamp(Number.isFinite(+c.PI_AVATAR_X_PX) ? +c.PI_AVATAR_X_PX : 0, -300, 300)}px;
+  --ad-pi-avatar-offset: ${clamp(Number.isFinite(+c.PI_AVATAR_OFFSET_PX) ? +c.PI_AVATAR_OFFSET_PX : 0, -300, 300)}px;
+  --ad-pi-score-x: ${clamp(Number.isFinite(+c.PI_SCORE_X_PX) ? +c.PI_SCORE_X_PX : 0, -300, 300)}px;
+  --ad-pi-score-y: ${clamp(Number.isFinite(+c.PI_SCORE_Y_PX) ? +c.PI_SCORE_Y_PX : 0, -300, 300)}px;
+  --ad-pi-name-x: ${clamp(Number.isFinite(+c.PI_NAME_X_PX) ? +c.PI_NAME_X_PX : 0, -300, 300)}px;
+  --ad-pi-name-y: ${clamp(Number.isFinite(+c.PI_NAME_Y_PX) ? +c.PI_NAME_Y_PX : 0, -300, 300)}px;
+  --ad-pi-avg-x: ${clamp(Number.isFinite(+c.PI_AVG_X_PX) ? +c.PI_AVG_X_PX : 0, -300, 300)}px;
+  --ad-pi-avg-y: ${clamp(Number.isFinite(+c.PI_AVG_Y_PX) ? +c.PI_AVG_Y_PX : 0, -300, 300)}px;
+  --ad-pi-history-x: ${clamp(Number.isFinite(+c.PI_HISTORY_X_PX) ? +c.PI_HISTORY_X_PX : 0, -300, 300)}px;
   --ad-pi-history-offset: ${clamp(Number.isFinite(+c.PI_HISTORY_OFFSET_PX) ? +c.PI_HISTORY_OFFSET_PX : 0, -200, 500)}px;
-  --ad-pi-history-width: ${(+c.PI_HISTORY_WIDTH_PX > 0) ? clamp(+c.PI_HISTORY_WIDTH_PX, 120, 600) + "px" : "max-content"};
-  --ad-pi-avatar-offset: ${clamp(Number.isFinite(+c.PI_AVATAR_OFFSET_PX) ? +c.PI_AVATAR_OFFSET_PX : 0, -200, 200)}px;
 }
 
 /* Total overlay: settings apply + card height unchanged */
@@ -1491,11 +1519,13 @@
   white-space: normal !important;
   word-break: break-word !important;
   max-width: 100% !important;
+  translate: var(--ad-pi-name-x) var(--ad-pi-name-y) !important;
   ${piColor ? "color: var(--ad-pi-name-color) !important;" : ""}
 }
 #ad-ext-player-display .ad-ext-player-score{
   font-size: var(--ad-pi-score-font) !important;
   line-height: 1.0 !important;
+  translate: var(--ad-pi-score-x) var(--ad-pi-score-y) !important;
   ${piColor ? "color: var(--ad-pi-score-color) !important;" : ""}
 }
 /* averages / stats line (JS-tagged; chakra class kept as fallback) */
@@ -1503,6 +1533,7 @@
 #ad-ext-player-display p.css-1j0bqop{
   font-size: var(--ad-pi-avg-font) !important;
   line-height: 1.15 !important;
+  translate: var(--ad-pi-avg-x) var(--ad-pi-avg-y) !important;
   ${piColor ? "color: var(--ad-pi-avg-color) !important;" : ""}
 }
 /* recent throw history (chalkboard table) */
@@ -1511,23 +1542,30 @@
   font-size: var(--ad-pi-history-font) !important;
   ${piColor ? "color: var(--ad-pi-history-color) !important;" : ""}
 }
-/* layout helpers: extra gap in the avatar/score/name stack + shift history table */
+/* layout: gap in the avatar/score/name stack */
 #ad-ext-player-display .ad-ext-player .css-y3hfdd{
   gap: var(--ad-pi-gap) !important;
 }
+/* history table: span the card + center the table so width grows symmetrically */
 #ad-ext-player-display .css-1u90hiz{
-  transform: translateY(var(--ad-pi-history-offset)) !important;
-  width: var(--ad-pi-history-width) !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: auto !important;
   max-width: none !important;
+  display: flex !important;
+  justify-content: center !important;
+  transform: none !important;
+  translate: var(--ad-pi-history-x) var(--ad-pi-history-offset) !important;
 }
 ${(+c.PI_HISTORY_WIDTH_PX > 0) ? `
 #ad-ext-player-display .css-1u90hiz table{
-  width: 100% !important;
+  width: var(--ad-pi-history-width) !important;
 }` : ""}
-${(+c.PI_AVATAR_OFFSET_PX !== 0) ? `
-#ad-ext-player-display .css-1psdi5l{
-  margin-top: var(--ad-pi-avatar-offset) !important;
-}` : ""}
+/* avatar: position (X/Y via translate) + size (scale); doubled id beats skin specificity */
+#ad-ext-player-display#ad-ext-player-display .css-1psdi5l{
+  translate: var(--ad-pi-avatar-x) var(--ad-pi-avatar-offset) !important;
+  ${(+c.PI_AVATAR_SCALE !== 7) ? "scale: var(--ad-pi-avatar-scale) !important;" : ""}
+}
 `);
       }
 
@@ -3459,9 +3497,11 @@ function ensureMainButtonPosition() {
       orig: ["ORIG_FONT_PX","ORIG_COLOR_HEX","ORIG_OPACITY"],
       total: ["TOTAL_FONT_PX","TOTAL_COLOR_HEX","TOTAL_OPACITY","TOTAL_BG_HEX","TOTAL_BG_OPACITY"],
       checkout: ["CHECKOUT_FONT_PX","CHECKOUT_COLOR_HEX","CHECKOUT_OPACITY"],
-      playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX",
+      playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX","PI_AVATAR_SCALE",
                    "PI_CUSTOM_COLORS","PI_NAME_COLOR_HEX","PI_SCORE_COLOR_HEX","PI_AVG_COLOR_HEX","PI_HISTORY_COLOR_HEX",
-                   "PI_STACK_GAP_PX","PI_HISTORY_OFFSET_PX","PI_HISTORY_WIDTH_PX","PI_AVATAR_OFFSET_PX"],
+                   "PI_STACK_GAP_PX","PI_HISTORY_WIDTH_PX",
+                   "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
+                   "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
@@ -4594,30 +4634,78 @@ function ensureMainButtonPosition() {
         break;
 
       case "playerinfo": {
-        // sizes
-        addSliderPx("PI_NAME_FONT_PX", L.piText.name, 8, EXT_LIMITS.PI_NAME_FONT_PX, 1);
-        addSliderPx("PI_SCORE_FONT_PX", L.piText.score, 20, EXT_LIMITS.PI_SCORE_FONT_PX, 1);
-        addSliderPx("PI_AVG_FONT_PX", L.piText.average, 8, EXT_LIMITS.PI_AVG_FONT_PX, 1);
-        addSliderPx("PI_HISTORY_FONT_PX", L.piText.history, 12, EXT_LIMITS.PI_HISTORY_FONT_PX, 1);
+        const pi = L.piText;
+        const piSection = (txt, first=false) => {
+          const h = document.createElement("div");
+          h.textContent = txt;
+          Object.assign(h.style, {
+            fontWeight: "900",
+            fontSize: compact ? "11px" : "12px",
+            opacity: "0.7",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            marginTop: first ? "0" : "6px",
+            paddingTop: first ? "0" : "10px",
+            borderTop: first ? "none" : "1px solid rgba(255,255,255,0.12)",
+          });
+          box.appendChild(h);
+        };
+        // unitless slider (avatar scale)
+        const addSliderScale = (key, label, min, max, step) => {
+          const slider = document.createElement("input");
+          slider.type = "range";
+          slider.min = String(min); slider.max = String(max); slider.step = String(step);
+          const v0 = clamp(Number(c[key] ?? 7), min, max);
+          slider.value = String(v0);
+          const row = mkSliderRow(label, slider, `×${v0}`, "ok", compact);
+          box.appendChild(row.row);
+          slider.addEventListener("input", () => {
+            const v = clamp(Number(slider.value) || min, min, max);
+            c[key] = v;
+            row.setPill(`×${v}`, "ok");
+            saveStateDebounced();
+            renderCss();
+            dirtyTurn(); scheduleUpdate();
+          });
+          slider.addEventListener("change", () => showToast(L.saved));
+        };
 
-        // layout / spacing (helps when fonts are enlarged)
-        addSliderPx("PI_STACK_GAP_PX", L.piText.spacing, 0, 160, 1);
-        addSliderPx("PI_AVATAR_OFFSET_PX", L.piText.avatarPos, -200, 200, 5);
-        addSliderPx("PI_HISTORY_OFFSET_PX", L.piText.historyPos, -100, 400, 5);
-        addSliderPx("PI_HISTORY_WIDTH_PX", L.piText.historyWidth, 0, 600, 10);
+        // ---- SIZES ----
+        piSection(pi.secSizes, true);
+        addSliderPx("PI_NAME_FONT_PX", pi.name, 8, EXT_LIMITS.PI_NAME_FONT_PX, 1);
+        addSliderPx("PI_SCORE_FONT_PX", pi.score, 20, EXT_LIMITS.PI_SCORE_FONT_PX, 1);
+        addSliderPx("PI_AVG_FONT_PX", pi.average, 8, EXT_LIMITS.PI_AVG_FONT_PX, 1);
+        addSliderPx("PI_HISTORY_FONT_PX", pi.history, 12, EXT_LIMITS.PI_HISTORY_FONT_PX, 1);
+        addSliderScale("PI_AVATAR_SCALE", pi.avatarSize, 1, 10, 0.5);
 
-        // colors (color wheel); only applied when "custom colors" is on
-        addCheckbox(L.piText.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
-        addColor(()=>c.PI_NAME_COLOR_HEX, v=>c.PI_NAME_COLOR_HEX=v, L.piText.nameColor);
-        addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, L.piText.scoreColor);
-        addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, L.piText.avgColor);
-        addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, L.piText.historyColor);
+        // ---- POSITIONING ----
+        piSection(pi.secPos);
+        addSliderPx("PI_STACK_GAP_PX", pi.spacing, 0, 160, 1);
+        addSliderPx("PI_AVATAR_X_PX", pi.el.avatar + " ↔", -300, 300, 5);
+        addSliderPx("PI_AVATAR_OFFSET_PX", pi.el.avatar + " ↕", -300, 300, 5);
+        addSliderPx("PI_SCORE_X_PX", pi.el.score + " ↔", -300, 300, 5);
+        addSliderPx("PI_SCORE_Y_PX", pi.el.score + " ↕", -300, 300, 5);
+        addSliderPx("PI_NAME_X_PX", pi.el.name + " ↔", -300, 300, 5);
+        addSliderPx("PI_NAME_Y_PX", pi.el.name + " ↕", -300, 300, 5);
+        addSliderPx("PI_AVG_X_PX", pi.el.average + " ↔", -300, 300, 5);
+        addSliderPx("PI_AVG_Y_PX", pi.el.average + " ↕", -300, 300, 5);
+        addSliderPx("PI_HISTORY_X_PX", pi.el.history + " ↔", -300, 300, 5);
+        addSliderPx("PI_HISTORY_OFFSET_PX", pi.el.history + " ↕", -100, 400, 5);
+        addSliderPx("PI_HISTORY_WIDTH_PX", pi.historyWidth, 0, 600, 10);
+
+        // ---- COLOURS ----
+        piSection(pi.secColors);
+        addCheckbox(pi.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
+        addColor(()=>c.PI_NAME_COLOR_HEX, v=>c.PI_NAME_COLOR_HEX=v, pi.nameColor);
+        addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, pi.scoreColor);
+        addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, pi.avgColor);
+        addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, pi.historyColor);
 
         const piInfo = document.createElement("div");
         piInfo.style.opacity = "0.75";
         piInfo.style.fontSize = "12px";
         piInfo.style.lineHeight = "1.4";
-        piInfo.textContent = L.piText.info;
+        piInfo.textContent = pi.info;
         box.appendChild(piInfo);
         break;
       }
