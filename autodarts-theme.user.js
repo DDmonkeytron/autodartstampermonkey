@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.9.0
+// @version      2.10.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.9.0";
+  const SCRIPT_VERSION = "2.10.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -89,7 +89,10 @@
     // Player info layout (helps avoid overlap when fonts are enlarged)
     PI_STACK_GAP_PX: 8,        // gap between avatar / score / name / averages
     PI_HISTORY_WIDTH_PX: 0,    // throw-history table width: 0 = auto (fit to font), >0 = fixed px
+    PI_HISTORY_HEIGHT_PX: 0,   // throw-history table height: 0 = auto (fit rows), >0 = fixed px
     PI_AVATAR_SCALE: 7,        // profile avatar size (native = 7; lower = smaller)
+    PI_CARD_WIDTH_PX: 0,       // whole player card width: 0 = native, >0 = fixed px
+    PI_CARD_HEIGHT_PX: 0,      // whole player card height: 0 = native, >0 = fixed px
     // Per-element positioning (translate px; X = left/right, Y = up/down)
     PI_AVATAR_X_PX: 0,  PI_AVATAR_OFFSET_PX: 0,   // avatar X / Y
     PI_SCORE_X_PX: 0,   PI_SCORE_Y_PX: 0,         // total score X / Y
@@ -281,9 +284,13 @@
         avatarPos: "Avatar pozíció (fel/le)",
         historyPos: "Előzmény tábla pozíció",
         historyWidth: "Előzmény tábla szélesség (0 = auto)",
+        historyHeight: "Előzmény tábla magasság (0 = auto)",
         avatarSize: "Avatar méret",
+        cardWidth: "Kártya szélesség (0 = alap)",
+        cardHeight: "Kártya magasság (0 = alap)",
         secSizes: "Méretek",
         secPos: "Pozíció (↔ vízszintes / ↕ függőleges)",
+        secCard: "Játékos kártya",
         secColors: "Színek",
         el: { avatar: "Avatar", name: "Név", score: "Pont", average: "Átlag", history: "Előzmény" },
         customColors: "Saját színek",
@@ -440,9 +447,13 @@
         avatarPos: "Avatar position (up/down)",
         historyPos: "History table position",
         historyWidth: "History table width (0 = auto)",
+        historyHeight: "History table height (0 = auto)",
         avatarSize: "Avatar size",
+        cardWidth: "Card width (0 = native)",
+        cardHeight: "Card height (0 = native)",
         secSizes: "Sizes",
         secPos: "Positioning (↔ horizontal / ↕ vertical)",
+        secCard: "Player card",
         secColors: "Colours",
         el: { avatar: "Avatar", name: "Name", score: "Score", average: "Average", history: "History" },
         customColors: "Custom colors",
@@ -599,9 +610,13 @@
         avatarPos: "Avatar Position (hoch/runter)",
         historyPos: "Verlauf-Tabelle Position",
         historyWidth: "Verlauf-Tabelle Breite (0 = auto)",
+        historyHeight: "Verlauf-Tabelle Höhe (0 = auto)",
         avatarSize: "Avatar Größe",
+        cardWidth: "Karten-Breite (0 = Standard)",
+        cardHeight: "Karten-Höhe (0 = Standard)",
         secSizes: "Größen",
         secPos: "Positionierung (↔ horizontal / ↕ vertikal)",
+        secCard: "Spielerkarte",
         secColors: "Farben",
         el: { avatar: "Avatar", name: "Name", score: "Punkte", average: "Schnitt", history: "Verlauf" },
         customColors: "Eigene Farben",
@@ -1110,6 +1125,9 @@
   --ad-pi-avg-y: ${clamp(Number.isFinite(+c.PI_AVG_Y_PX) ? +c.PI_AVG_Y_PX : 0, -300, 300)}px;
   --ad-pi-history-x: ${clamp(Number.isFinite(+c.PI_HISTORY_X_PX) ? +c.PI_HISTORY_X_PX : 0, -300, 300)}px;
   --ad-pi-history-offset: ${clamp(Number.isFinite(+c.PI_HISTORY_OFFSET_PX) ? +c.PI_HISTORY_OFFSET_PX : 0, -200, 500)}px;
+  --ad-pi-history-height: ${(+c.PI_HISTORY_HEIGHT_PX > 0) ? clamp(+c.PI_HISTORY_HEIGHT_PX, 80, 900) + "px" : "auto"};
+  --ad-pi-card-w: ${(+c.PI_CARD_WIDTH_PX > 0) ? clamp(+c.PI_CARD_WIDTH_PX, 200, 900) + "px" : "auto"};
+  --ad-pi-card-h: ${(+c.PI_CARD_HEIGHT_PX > 0) ? clamp(+c.PI_CARD_HEIGHT_PX, 200, 1400) + "px" : "auto"};
 }
 
 /* Total overlay: settings apply + card height unchanged */
@@ -1519,8 +1537,12 @@
   white-space: normal !important;
   word-break: break-word !important;
   max-width: 100% !important;
-  translate: var(--ad-pi-name-x) var(--ad-pi-name-y) !important;
   ${piColor ? "color: var(--ad-pi-name-color) !important;" : ""}
+}
+/* Name "block": move the whole identity row together (series badge + avatar +
+   name + 35+ badge + the translucent backing pill), not just the name text */
+#ad-ext-player-display .css-37hv00{
+  translate: var(--ad-pi-name-x) var(--ad-pi-name-y) !important;
 }
 #ad-ext-player-display .ad-ext-player-score{
   font-size: var(--ad-pi-score-font) !important;
@@ -1552,6 +1574,7 @@
   right: 0 !important;
   width: auto !important;
   max-width: none !important;
+  height: var(--ad-pi-history-height) !important;
   display: flex !important;
   justify-content: center !important;
   transform: none !important;
@@ -1566,6 +1589,12 @@ ${(+c.PI_HISTORY_WIDTH_PX > 0) ? `
   translate: var(--ad-pi-avatar-x) var(--ad-pi-avatar-offset) !important;
   ${(+c.PI_AVATAR_SCALE !== 7) ? "scale: var(--ad-pi-avatar-scale) !important;" : ""}
 }
+${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
+/* whole player card resize (doubled id beats skin's per-layout sizing) */
+#ad-ext-player-display#ad-ext-player-display > div{
+  ${(+c.PI_CARD_WIDTH_PX > 0) ? "width: var(--ad-pi-card-w) !important;" : ""}
+  ${(+c.PI_CARD_HEIGHT_PX > 0) ? "height: var(--ad-pi-card-h) !important;" : ""}
+}` : ""}
 `);
       }
 
@@ -3499,7 +3528,7 @@ function ensureMainButtonPosition() {
       checkout: ["CHECKOUT_FONT_PX","CHECKOUT_COLOR_HEX","CHECKOUT_OPACITY"],
       playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX","PI_AVATAR_SCALE",
                    "PI_CUSTOM_COLORS","PI_NAME_COLOR_HEX","PI_SCORE_COLOR_HEX","PI_AVG_COLOR_HEX","PI_HISTORY_COLOR_HEX",
-                   "PI_STACK_GAP_PX","PI_HISTORY_WIDTH_PX",
+                   "PI_STACK_GAP_PX","PI_HISTORY_WIDTH_PX","PI_HISTORY_HEIGHT_PX","PI_CARD_WIDTH_PX","PI_CARD_HEIGHT_PX",
                    "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
                    "PI_NAME_X_PX","PI_NAME_Y_PX","PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
@@ -4692,6 +4721,12 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_HISTORY_X_PX", pi.el.history + " ↔", -300, 300, 5);
         addSliderPx("PI_HISTORY_OFFSET_PX", pi.el.history + " ↕", -100, 400, 5);
         addSliderPx("PI_HISTORY_WIDTH_PX", pi.historyWidth, 0, 600, 10);
+        addSliderPx("PI_HISTORY_HEIGHT_PX", pi.historyHeight, 0, 900, 10);
+
+        // ---- CARD ----
+        piSection(pi.secCard);
+        addSliderPx("PI_CARD_WIDTH_PX", pi.cardWidth, 0, 900, 10);
+        addSliderPx("PI_CARD_HEIGHT_PX", pi.cardHeight, 0, 1400, 10);
 
         // ---- COLOURS ----
         piSection(pi.secColors);
