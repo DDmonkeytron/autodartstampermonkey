@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.7.0
+// @version      2.8.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.7.0";
+  const SCRIPT_VERSION = "2.8.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -89,6 +89,8 @@
     // Player info layout (helps avoid overlap when fonts are enlarged)
     PI_STACK_GAP_PX: 8,        // gap between avatar / score / name / averages
     PI_HISTORY_OFFSET_PX: 0,   // move the throw-history (chalkboard) table up/down
+    PI_HISTORY_WIDTH_PX: 0,    // throw-history table width: 0 = auto (fit to font), >0 = fixed px
+    PI_AVATAR_OFFSET_PX: 0,    // move the profile avatar up/down
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -271,7 +273,9 @@
         average: "Átlagok betűméret",
         history: "Dobás előzmény betűméret",
         spacing: "Függőleges térköz",
+        avatarPos: "Avatar pozíció (fel/le)",
         historyPos: "Előzmény tábla pozíció",
+        historyWidth: "Előzmény tábla szélesség (0 = auto)",
         customColors: "Saját színek",
         nameColor: "Név szín",
         scoreColor: "Összpontszám szín",
@@ -423,7 +427,9 @@
         average: "Averages font size",
         history: "Throw history font size",
         spacing: "Vertical spacing",
+        avatarPos: "Avatar position (up/down)",
         historyPos: "History table position",
+        historyWidth: "History table width (0 = auto)",
         customColors: "Custom colors",
         nameColor: "Name color",
         scoreColor: "Total score color",
@@ -575,7 +581,9 @@
         average: "Durchschnitte Schriftgröße",
         history: "Wurf-Verlauf Schriftgröße",
         spacing: "Vertikaler Abstand",
+        avatarPos: "Avatar Position (hoch/runter)",
         historyPos: "Verlauf-Tabelle Position",
+        historyWidth: "Verlauf-Tabelle Breite (0 = auto)",
         customColors: "Eigene Farben",
         nameColor: "Name Farbe",
         scoreColor: "Gesamtpunktzahl Farbe",
@@ -1072,6 +1080,8 @@
   --ad-pi-history-color: ${sanitizeHex(c.PI_HISTORY_COLOR_HEX, "#ffffff")};
   --ad-pi-gap: ${clamp(Number.isFinite(+c.PI_STACK_GAP_PX) ? +c.PI_STACK_GAP_PX : 8, 0, 160)}px;
   --ad-pi-history-offset: ${clamp(Number.isFinite(+c.PI_HISTORY_OFFSET_PX) ? +c.PI_HISTORY_OFFSET_PX : 0, -200, 500)}px;
+  --ad-pi-history-width: ${(+c.PI_HISTORY_WIDTH_PX > 0) ? clamp(+c.PI_HISTORY_WIDTH_PX, 120, 600) + "px" : "max-content"};
+  --ad-pi-avatar-offset: ${clamp(Number.isFinite(+c.PI_AVATAR_OFFSET_PX) ? +c.PI_AVATAR_OFFSET_PX : 0, -200, 200)}px;
 }
 
 /* Total overlay: settings apply + card height unchanged */
@@ -1507,7 +1517,17 @@
 }
 #ad-ext-player-display .css-1u90hiz{
   transform: translateY(var(--ad-pi-history-offset)) !important;
+  width: var(--ad-pi-history-width) !important;
+  max-width: none !important;
 }
+${(+c.PI_HISTORY_WIDTH_PX > 0) ? `
+#ad-ext-player-display .css-1u90hiz table{
+  width: 100% !important;
+}` : ""}
+${(+c.PI_AVATAR_OFFSET_PX !== 0) ? `
+#ad-ext-player-display .css-1psdi5l{
+  margin-top: var(--ad-pi-avatar-offset) !important;
+}` : ""}
 `);
       }
 
@@ -3441,7 +3461,7 @@ function ensureMainButtonPosition() {
       checkout: ["CHECKOUT_FONT_PX","CHECKOUT_COLOR_HEX","CHECKOUT_OPACITY"],
       playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX",
                    "PI_CUSTOM_COLORS","PI_NAME_COLOR_HEX","PI_SCORE_COLOR_HEX","PI_AVG_COLOR_HEX","PI_HISTORY_COLOR_HEX",
-                   "PI_STACK_GAP_PX","PI_HISTORY_OFFSET_PX"],
+                   "PI_STACK_GAP_PX","PI_HISTORY_OFFSET_PX","PI_HISTORY_WIDTH_PX","PI_AVATAR_OFFSET_PX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
@@ -4582,7 +4602,9 @@ function ensureMainButtonPosition() {
 
         // layout / spacing (helps when fonts are enlarged)
         addSliderPx("PI_STACK_GAP_PX", L.piText.spacing, 0, 160, 1);
+        addSliderPx("PI_AVATAR_OFFSET_PX", L.piText.avatarPos, -200, 200, 5);
         addSliderPx("PI_HISTORY_OFFSET_PX", L.piText.historyPos, -100, 400, 5);
+        addSliderPx("PI_HISTORY_WIDTH_PX", L.piText.historyWidth, 0, 600, 10);
 
         // colors (color wheel); only applied when "custom colors" is on
         addCheckbox(L.piText.customColors, ()=>!!c.PI_CUSTOM_COLORS, v=>{ c.PI_CUSTOM_COLORS=v; });
