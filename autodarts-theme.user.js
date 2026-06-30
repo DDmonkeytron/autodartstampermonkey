@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.16.0
+// @version      2.17.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.16.0";
+  const SCRIPT_VERSION = "2.17.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -216,10 +216,46 @@
     clock: clone(DEFAULT_CLOCK),
   };
 
+  // ===== Preset A baked default (the user's tuned config) =====
+  // Only the keys that differ from DEFAULT_CFG; spread over DEFAULT_CFG so any
+  // future keys are filled from defaults.
+  const PRESET_A_OVERRIDES = {
+    SKIN_UI_SCALE: 0.93, SKIN_SPACING_PLAYER: 38, SKIN_BG_OVERLAY_ALPHA: 0.6, SKIN_PLAYER_BG_OPACITY: 0.15,
+    THROW_BG_HEX: "#bababa", THROW_HOVER_BG_HEX: "#848edc", THROW_HOVER_BG_OPACITY: 0.95,
+    PLAYER_INFO: true,
+    PI_NAME_FONT_PX: 60, PI_SCORE_FONT_PX: 143, PI_AVG_FONT_PX: 39, PI_HISTORY_FONT_PX: 58,
+    PI_CUSTOM_COLORS: true, PI_NAME_COLOR_HEX: "#f53232", PI_SCORE_COLOR_HEX: "#ec1842", PI_AVG_COLOR_HEX: "#e82626", PI_HISTORY_COLOR_HEX: "#f01919",
+    PI_STACK_GAP_PX: 1, PI_HISTORY_HEIGHT_PX: 560, PI_AVATAR_SCALE: 2.5, PI_CARD_WIDTH_PX: 440, PI_CARD_HEIGHT_PX: 980,
+    PI_AVATAR_OFFSET_PX: 75, PI_SCORE_Y_PX: -170, PI_NAME_Y_PX: -190, PI_AVG_X_PX: 5, PI_AVG_Y_PX: -180, PI_HISTORY_OFFSET_PX: -95,
+    PI_P1_SHIFT_Y: -36, PI_P2_SHIFT_Y: -2,
+    PI_PER_PLAYER_COLORS: true, PI_P2_NAME_COLOR_HEX: "#e356f5", PI_P2_SCORE_COLOR_HEX: "#ec6ae7", PI_P2_AVG_COLOR_HEX: "#f264be", PI_P2_HISTORY_COLOR_HEX: "#dd46d8",
+    PI_TEXT_EFFECTS: [{ style: "shadow", size: 4, color: "#000000" }, { style: "outline", size: 2, color: "#000000" }],
+    ACTIVE_COLOR_HEX: "#ff0000", ACTIVE_OUTLINE_PX: 1, ACTIVE_GLOW: 0.72, ACTIVE_TRAIL_SPEED_MS: 3000, ACTIVE_TRAIL_COLOR_HEX: "#ffffff",
+    ACTIVE_PER_PLAYER: true, ACTIVE_P2_COLOR_HEX: "#ff42ef", ACTIVE_P2_TRAIL_SPEED_MS: 3000, ACTIVE_P2_TRAIL_COLOR_HEX: "#ffffff",
+    THROW_VAL_FONT_PX: 120, THROW_VAL_COLOR_HEX: "#030303", ORIG_FONT_PX: 34, TOTAL_FONT_PX: 130, TOTAL_OPACITY: 0.95,
+    TRIPLE_SHIMMER_MS: 4700, TRIPLE_SLAM_MS: 290, TRIPLE_RATTLE_MS: 1080, TRIPLE_RATTLE_DELAY_MS: 575, TRIPLE_GLOW: 0.8,
+    TRIPLE_SPIN: true, TRIPLE_SPIN_MS: 2000, TRIPLE_SPIN_MIN: 10,
+    DOUBLE_SLAM_MS: 670, DOUBLE_RATTLE_MS: 1360, DOUBLE_FLASH: true, DOUBLE_SPIN: true, DOUBLE_SPIN_MIN: 10,
+    HIGHSCORE_THRESHOLD: 99, HIGHSCORE_SHIMMER_MS: 700, HIGHSCORE_GLOW_HEX: "#ffbb00", HIGHSCORE_SPIN_MS: 7100,
+  };
+  const presetA = () => ({ ...clone(DEFAULT_CFG), ...clone(PRESET_A_OVERRIDES) });
+  // Background shared with presets B & C (image + overlay + player-card tint)
+  const sharedBg = () => {
+    const a = presetA();
+    return {
+      SKIN_CSS: a.SKIN_CSS,
+      SKIN_BG_URL: a.SKIN_BG_URL,
+      SKIN_BG_OVERLAY_ALPHA: a.SKIN_BG_OVERLAY_ALPHA,
+      SKIN_PLAYER_BG_HEX: a.SKIN_PLAYER_BG_HEX,
+      SKIN_PLAYER_BG_OPACITY: a.SKIN_PLAYER_BG_OPACITY,
+    };
+  };
+  const presetBC = () => ({ ...clone(DEFAULT_CFG), ...sharedBg() });
+
   const DEFAULT_STATE = {
     schemaVersion: STATE_SCHEMA_VERSION,
     activePreset: 0,
-    presets: [clone(DEFAULT_CFG), clone(DEFAULT_CFG), clone(DEFAULT_CFG)],
+    presets: [presetA(), presetBC(), presetBC()],
     ui: clone(DEFAULT_UI),
   };
 
@@ -926,7 +962,7 @@
 
     out.presets = (Array.isArray(st?.presets) && st.presets.length === 3)
       ? st.presets.map(p => sanitizeTextEffects({ ...clone(DEFAULT_CFG), ...(p || {}) }))
-      : [clone(DEFAULT_CFG), clone(DEFAULT_CFG), clone(DEFAULT_CFG)];
+      : [presetA(), presetBC(), presetBC()];
 
     out.schemaVersion = STATE_SCHEMA_VERSION;
     return out;
@@ -3874,7 +3910,7 @@ function ensureMainButtonPosition() {
   }
 
   function resetPreset(idx) {
-    state.presets[idx] = clone(DEFAULT_CFG);
+    state.presets[idx] = (idx === 0) ? presetA() : presetBC();
     applySafeClampsToCfg();
     saveStateDebounced();
     renderCss();
