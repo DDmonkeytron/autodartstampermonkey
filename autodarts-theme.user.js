@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.5.3
+// @version      2.6.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.5.3";
+  const SCRIPT_VERSION = "2.6.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -73,6 +73,13 @@
     SHOW_ORIG_IN_CORNER: true,
     TOTAL_VIEW: true,
     CHECKOUT_VIEW: true,
+
+    // Player info text sizing (name / total score / averages / throw history)
+    PLAYER_INFO: false,
+    PI_NAME_FONT_PX: 18,
+    PI_SCORE_FONT_PX: 123,
+    PI_AVG_FONT_PX: 16,
+    PI_HISTORY_FONT_PX: 35,
 
     // highlight/anim/sound
     ACTIVE_PLAYER_HIGHLIGHT: true,
@@ -213,6 +220,7 @@
         orig:     "Megjelenítés – Sarok jelölés (T20)",
         total:    "Megjelenítés – Összérték",
         checkout: "Megjelenítés – Checkout tipp",
+        playerinfo: "Megjelenítés – Játékos infó",
         active:   "Kiemelés – Aktív játékos",
         triple:   "Animáció – Tripla találat",
         double:   "Animáció – Dupla találat",
@@ -248,6 +256,13 @@
         volume: "Hangerő",
       },
       totalInfo: "Fix: a Total szám overlay, így a beállítások mindig érvényesülnek és a kártya magassága nem változik.",
+      piText: {
+        name: "Név betűméret",
+        score: "Összpontszám betűméret",
+        average: "Átlagok betűméret",
+        history: "Dobás előzmény betűméret",
+        info: "Átméretezi a játékos kártya szövegeit. A 'Játékos infó' kapcsolót be kell kapcsolni. (Autodarts frissítésnél a szelektorok változhatnak, ekkor frissíteni kell.)",
+      },
       skinText: {
         uiScale: "UI méret (scale)",
         spacing: "Játékos távolság (spacing)",
@@ -350,6 +365,7 @@
         orig:     "Display – Corner Label (T20)",
         total:    "Display – Total",
         checkout: "Display – Checkout Tip",
+        playerinfo: "Display – Player Info",
         active:   "Highlight – Active Player",
         triple:   "Animation – Triple Hit",
         double:   "Animation – Double Hit",
@@ -385,6 +401,13 @@
         volume: "Volume",
       },
       totalInfo: "Fix: Total uses an overlay so settings always apply and card height won’t change.",
+      piText: {
+        name: "Name font size",
+        score: "Total score font size",
+        average: "Averages font size",
+        history: "Throw history font size",
+        info: "Resizes the player-card texts. Turn the 'Player Info' module ON. (Selectors may change after an Autodarts update; then they need refreshing.)",
+      },
       skinText: {
         uiScale: "UI scale",
         spacing: "Player spacing",
@@ -487,6 +510,7 @@
         orig:     "Anzeige – Eckenlabel (T20)",
         total:    "Anzeige – Gesamtwert",
         checkout: "Anzeige – Checkout-Tipp",
+        playerinfo: "Anzeige – Spieler-Info",
         active:   "Hervorhebung – Aktiver Spieler",
         triple:   "Animation – Triple-Treffer",
         double:   "Animation – Doppel-Treffer",
@@ -522,6 +546,13 @@
         volume: "Lautstärke",
       },
       totalInfo: "Fix: Total nutzt ein Overlay – Einstellungen wirken immer, Kartenhöhe bleibt stabil.",
+      piText: {
+        name: "Name Schriftgröße",
+        score: "Gesamtpunktzahl Schriftgröße",
+        average: "Durchschnitte Schriftgröße",
+        history: "Wurf-Verlauf Schriftgröße",
+        info: "Ändert die Textgrößen der Spielerkarte. Schalter 'Spieler-Info' aktivieren. (Selektoren können sich nach einem Autodarts-Update ändern und müssen dann aktualisiert werden.)",
+      },
       skinText: {
         uiScale: "UI Skalierung",
         spacing: "Spieler-Abstand",
@@ -605,8 +636,10 @@
   const HOTKEY_CLOCK_TOGGLE = { shift: true, ctrl: false, alt: false, key: "t" };
   const HOTKEY_CLOCK_RESET  = { shift: true, ctrl: false, alt: false, key: "r" };
 
-  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6 };
-  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12 };
+  const SAFE_LIMITS = { THROW_VAL_FONT_PX: 130, ORIG_FONT_PX: 38, TOTAL_FONT_PX: 130, CHECKOUT_FONT_PX: 130, ACTIVE_OUTLINE_PX: 6,
+    PI_NAME_FONT_PX: 48, PI_SCORE_FONT_PX: 200, PI_AVG_FONT_PX: 48, PI_HISTORY_FONT_PX: 60 };
+  const EXT_LIMITS  = { THROW_VAL_FONT_PX: 220, ORIG_FONT_PX: 80, TOTAL_FONT_PX: 220, CHECKOUT_FONT_PX: 220, ACTIVE_OUTLINE_PX: 12,
+    PI_NAME_FONT_PX: 120, PI_SCORE_FONT_PX: 320, PI_AVG_FONT_PX: 120, PI_HISTORY_FONT_PX: 140 };
 
   const FONT_LINK_ID = "ad-font-barlow-condensed-core";
   const STYLE_ID = "ad-style-core-v245";
@@ -846,6 +879,10 @@
     c.TOTAL_FONT_PX = clampIfSafe("TOTAL_FONT_PX", c.TOTAL_FONT_PX);
     c.CHECKOUT_FONT_PX = clampIfSafe("CHECKOUT_FONT_PX", c.CHECKOUT_FONT_PX);
     c.ACTIVE_OUTLINE_PX = clampIfSafe("ACTIVE_OUTLINE_PX", c.ACTIVE_OUTLINE_PX);
+    c.PI_NAME_FONT_PX = clampIfSafe("PI_NAME_FONT_PX", c.PI_NAME_FONT_PX);
+    c.PI_SCORE_FONT_PX = clampIfSafe("PI_SCORE_FONT_PX", c.PI_SCORE_FONT_PX);
+    c.PI_AVG_FONT_PX = clampIfSafe("PI_AVG_FONT_PX", c.PI_AVG_FONT_PX);
+    c.PI_HISTORY_FONT_PX = clampIfSafe("PI_HISTORY_FONT_PX", c.PI_HISTORY_FONT_PX);
   }
 
   /* ================== UI INDICATOR (sliders) ================== */
@@ -994,6 +1031,11 @@
   --ad-highscore-spin-ms: ${clamp(+c.HIGHSCORE_SPIN_MS || 1400, 400, 4000)}ms;
   --ad-highscore-rgb: ${highscoreRGB};
   --ad-highscore-glow: ${clamp(+c.HIGHSCORE_GLOW ?? 0.80, 0, 1)};
+
+  --ad-pi-name-font: ${clamp(+c.PI_NAME_FONT_PX || 18, 8, 120)}px;
+  --ad-pi-score-font: ${clamp(+c.PI_SCORE_FONT_PX || 123, 20, 320)}px;
+  --ad-pi-avg-font: ${clamp(+c.PI_AVG_FONT_PX || 16, 8, 120)}px;
+  --ad-pi-history-font: ${clamp(+c.PI_HISTORY_FONT_PX || 35, 12, 140)}px;
 }
 
 /* Total overlay: settings apply + card height unchanged */
@@ -1389,6 +1431,31 @@
 @keyframes adBoardFlash{
   0%,100%{ filter: none; }
   50%    { filter: brightness(2) saturate(2.5) drop-shadow(0 0 22px rgba(var(--ad-highscore-rgb),1)); }
+}
+`);
+      }
+
+      // Player info text sizing (name / total score / averages / throw history)
+      if (c.PLAYER_INFO) {
+        css.push(`
+#ad-ext-player-display .ad-ext-player-name{
+  font-size: var(--ad-pi-name-font) !important;
+  line-height: 1.1 !important;
+}
+#ad-ext-player-display .ad-ext-player-score{
+  font-size: var(--ad-pi-score-font) !important;
+  line-height: 1.05 !important;
+}
+/* averages / stats line (JS-tagged; chakra class kept as fallback) */
+#ad-ext-player-display .ad-core-pi-avg,
+#ad-ext-player-display p.css-1j0bqop{
+  font-size: var(--ad-pi-avg-font) !important;
+  line-height: 1.2 !important;
+}
+/* recent throw history (chalkboard table) */
+#ad-ext-player-display .css-1u90hiz td,
+#ad-ext-player-display .css-1u90hiz th{
+  font-size: var(--ad-pi-history-font) !important;
 }
 `);
       }
@@ -2407,6 +2474,22 @@ function markCheckoutInTurnBar(turn) {
     for (const p of panels) p.classList.toggle(ACTIVE_CLASS, hasActive && p === bestPanel);
   }
 
+  /* ================== PLAYER INFO ================== */
+  // The averages/stats line uses an unstable chakra class, so we tag it by its
+  // content marker (∅) with a stable class the CSS can target.
+  function tagPlayerInfo() {
+    if (!cfg().PLAYER_INFO) return;
+    const host = document.querySelector("#ad-ext-player-display");
+    if (!host) return;
+    const cards = host.querySelectorAll(".ad-ext-player");
+    for (const card of cards) {
+      const ps = card.querySelectorAll("p");
+      for (const p of ps) {
+        if ((p.textContent || "").includes("∅")) p.classList.add("ad-core-pi-avg");
+      }
+    }
+  }
+
   /* ================== TRIPLE ================== */
   function clearTripleClasses() {
     document.querySelectorAll(".ad-ext-turn-throw").forEach(card => {
@@ -2973,6 +3056,8 @@ function scanWinMusic() {
         updateActivePlayerHighlight();
       }
 
+      if (c.PLAYER_INFO) tagPlayerInfo();
+
       const turn = document.querySelector("#ad-ext-turn");
       const gameActive = !!turn;
       if (gameActive && !wasGameActive && c.BOARD_MARKER) {
@@ -3303,6 +3388,7 @@ function ensureMainButtonPosition() {
       orig: ["ORIG_FONT_PX","ORIG_COLOR_HEX","ORIG_OPACITY"],
       total: ["TOTAL_FONT_PX","TOTAL_COLOR_HEX","TOTAL_OPACITY","TOTAL_BG_HEX","TOTAL_BG_OPACITY"],
       checkout: ["CHECKOUT_FONT_PX","CHECKOUT_COLOR_HEX","CHECKOUT_OPACITY"],
+      playerinfo: ["PI_NAME_FONT_PX","PI_SCORE_FONT_PX","PI_AVG_FONT_PX","PI_HISTORY_FONT_PX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH"],
@@ -3784,6 +3870,7 @@ function ensureMainButtonPosition() {
 
     addModuleRow("total",    () => c.TOTAL_VIEW, v => { c.TOTAL_VIEW = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("checkout", () => c.CHECKOUT_VIEW, v => { c.CHECKOUT_VIEW = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
+    addModuleRow("playerinfo", () => c.PLAYER_INFO, v => { c.PLAYER_INFO = v; renderCss(); dirtyPlayers(); dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("active",   () => c.ACTIVE_PLAYER_HIGHLIGHT, v => { c.ACTIVE_PLAYER_HIGHLIGHT = v; dirtyPlayers(); scheduleUpdate(); }, false, true, false);
     addModuleRow("triple",   () => c.TRIPLE_ANIM, v => { c.TRIPLE_ANIM = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("double",   () => c.DOUBLE_ANIM, v => { c.DOUBLE_ANIM = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
@@ -3901,7 +3988,7 @@ function ensureMainButtonPosition() {
     hTitle.style.fontWeight = "900";
     hTitle.style.fontSize = compact ? "12px" : "13px";
 
-    const canResetTab = ["skin","throws","orig","total","checkout","active","triple","win","clock"].includes(state.ui.selectedTab);
+    const canResetTab = ["skin","throws","orig","total","checkout","playerinfo","active","triple","win","clock"].includes(state.ui.selectedTab);
     const resetBtn = mkButton(L.reset, () => resetTab(state.ui.selectedTab), "ghost", compact);
     resetBtn.style.opacity = canResetTab ? "1" : "0.45";
     resetBtn.style.pointerEvents = canResetTab ? "auto" : "none";
@@ -4432,6 +4519,21 @@ function ensureMainButtonPosition() {
         addColor(()=>c.CHECKOUT_COLOR_HEX, v=>c.CHECKOUT_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.CHECKOUT_OPACITY, v=>c.CHECKOUT_OPACITY=v, L.fields.opacity, 0.05);
         break;
+
+      case "playerinfo": {
+        addSliderPx("PI_NAME_FONT_PX", L.piText.name, 8, EXT_LIMITS.PI_NAME_FONT_PX, 1);
+        addSliderPx("PI_SCORE_FONT_PX", L.piText.score, 20, EXT_LIMITS.PI_SCORE_FONT_PX, 1);
+        addSliderPx("PI_AVG_FONT_PX", L.piText.average, 8, EXT_LIMITS.PI_AVG_FONT_PX, 1);
+        addSliderPx("PI_HISTORY_FONT_PX", L.piText.history, 12, EXT_LIMITS.PI_HISTORY_FONT_PX, 1);
+
+        const piInfo = document.createElement("div");
+        piInfo.style.opacity = "0.75";
+        piInfo.style.fontSize = "12px";
+        piInfo.style.lineHeight = "1.4";
+        piInfo.textContent = L.piText.info;
+        box.appendChild(piInfo);
+        break;
+      }
 
       case "active":
         addColor(()=>c.ACTIVE_COLOR_HEX, v=>c.ACTIVE_COLOR_HEX=v, L.fields.color);
