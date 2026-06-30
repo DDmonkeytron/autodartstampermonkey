@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.12.0
+// @version      2.13.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.12.0";
+  const SCRIPT_VERSION = "2.13.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -145,6 +145,7 @@
     TRIPLE_FLASH: true,
     TRIPLE_SPIN: false,          // spin the board on each triple
     TRIPLE_SPIN_MS: 1200,
+    TRIPLE_SPIN_MIN: 15,         // only triples T>=this value spin the board (1..20)
 
     DOUBLE_ANIM: true,
     DOUBLE_SHIMMER_MS: 1400,
@@ -156,6 +157,7 @@
     DOUBLE_FLASH: false,
     DOUBLE_SPIN: false,          // spin the board on each double
     DOUBLE_SPIN_MS: 1000,
+    DOUBLE_SPIN_MIN: 15,         // only doubles D>=this value spin the board (1..20)
 
     HIGHSCORE_ANIM: true,
     HIGHSCORE_THRESHOLD: 100,
@@ -281,6 +283,7 @@
         boardFlash: "Tábla felvillanás",
         throwFlash: "Dobáskártya felvillanás",
         fireworks: "Tűzijáték (magas pont)",
+        spinMin: "Pörgés minimum érték",
         threshold: "Pont határ",
         highlightSpeed: "Highlight sebesség",
         numberAnim: "Szám animáció",
@@ -450,6 +453,7 @@
         boardFlash: "Board flash",
         throwFlash: "Throw card flash",
         fireworks: "Fireworks (high score)",
+        spinMin: "Spin from value",
         threshold: "Score threshold",
         highlightSpeed: "Highlight speed",
         numberAnim: "Number animation",
@@ -619,6 +623,7 @@
         boardFlash: "Board-Blitz",
         throwFlash: "Wurfkarten-Blitz",
         fireworks: "Feuerwerk (hoher Punktwert)",
+        spinMin: "Drehen ab Wert",
         threshold: "Punktschwelle",
         highlightSpeed: "Highlight Speed",
         numberAnim: "Zahlenanimation",
@@ -2790,21 +2795,37 @@ function markCheckoutInTurnBar(turn) {
     card.classList.remove(TRIPLE_CLASS);
     void card.offsetWidth;
     card.classList.add(TRIPLE_CLASS);
-    const c = cfg();
-    if (c.TRIPLE_SPIN) spinBoard(c.TRIPLE_SPIN_MS, "spin");
   }
   function updateTripleHighlight(turn) {
     const c = cfg();
     if (!c.TRIPLE_ANIM || !turn) return;
 
     const allow = new Set(TRIPLE_VALUES.map(v => String(v).toUpperCase().trim()));
+    const spinMin = clamp(Math.round(Number(c.TRIPLE_SPIN_MIN) || 15), 1, 20);
     const cards = turn.querySelectorAll(".ad-ext-turn-throw");
 
     for (const card of cards) {
       const p = card.querySelector("p");
       const raw = (p?.textContent || "").trim().toUpperCase();
+      const placeholder = (!raw || raw === "..." || raw === "…" || raw.includes("•"));
 
-      if (!raw || raw === "..." || raw === "…" || raw.includes("•")) {
+      // Board spin on qualifying triples (T>=min) — independent of the glow list,
+      // so it works for every triple value the user opts into.
+      if (placeholder) {
+        if (card.dataset && card.dataset.adTripleSpinTok) delete card.dataset.adTripleSpinTok;
+      } else {
+        const tm = raw.match(/^T(\d{1,2})$/);
+        const tnum = tm ? parseInt(tm[1], 10) : 0;
+        const spinPrev = (card.dataset && card.dataset.adTripleSpinTok) ? card.dataset.adTripleSpinTok : "";
+        if (c.TRIPLE_SPIN && tnum >= spinMin && tnum <= 20 && spinPrev !== raw) {
+          if (card.dataset) card.dataset.adTripleSpinTok = raw;
+          spinBoard(c.TRIPLE_SPIN_MS, "spin");
+        } else if ((tnum < spinMin || !c.TRIPLE_SPIN) && spinPrev) {
+          if (card.dataset) delete card.dataset.adTripleSpinTok;
+        }
+      }
+
+      if (placeholder) {
         card.classList.remove(TRIPLE_CLASS);
         if (card.dataset) delete card.dataset.adTripleToken;
         continue;
@@ -2839,21 +2860,36 @@ function markCheckoutInTurnBar(turn) {
     card.classList.remove(DOUBLE_CLASS);
     void card.offsetWidth;
     card.classList.add(DOUBLE_CLASS);
-    const c = cfg();
-    if (c.DOUBLE_SPIN) spinBoard(c.DOUBLE_SPIN_MS, "spin");
   }
   function updateDoubleHighlight(turn) {
     const c = cfg();
     if (!c.DOUBLE_ANIM || !turn) return;
 
     const allow = new Set(DOUBLE_VALUES.map(v => String(v).toUpperCase().trim()));
+    const spinMin = clamp(Math.round(Number(c.DOUBLE_SPIN_MIN) || 15), 1, 20);
     const cards = turn.querySelectorAll(".ad-ext-turn-throw");
 
     for (const card of cards) {
       const p = card.querySelector("p");
       const raw = (p?.textContent || "").trim().toUpperCase();
+      const placeholder = (!raw || raw === "..." || raw === "…" || raw.includes("•"));
 
-      if (!raw || raw === "..." || raw === "…" || raw.includes("•")) {
+      // Board spin on qualifying doubles (D>=min), independent of the glow list.
+      if (placeholder) {
+        if (card.dataset && card.dataset.adDoubleSpinTok) delete card.dataset.adDoubleSpinTok;
+      } else {
+        const dm = raw.match(/^D(\d{1,2})$/);
+        const dnum = dm ? parseInt(dm[1], 10) : 0;
+        const spinPrev = (card.dataset && card.dataset.adDoubleSpinTok) ? card.dataset.adDoubleSpinTok : "";
+        if (c.DOUBLE_SPIN && dnum >= spinMin && dnum <= 20 && spinPrev !== raw) {
+          if (card.dataset) card.dataset.adDoubleSpinTok = raw;
+          spinBoard(c.DOUBLE_SPIN_MS, "spin");
+        } else if ((dnum < spinMin || !c.DOUBLE_SPIN) && spinPrev) {
+          if (card.dataset) delete card.dataset.adDoubleSpinTok;
+        }
+      }
+
+      if (placeholder) {
         card.classList.remove(DOUBLE_CLASS);
         if (card.dataset) delete card.dataset.adDoubleToken;
         continue;
@@ -3685,8 +3721,8 @@ function ensureMainButtonPosition() {
                    "PI_P1_SHIFT_Y","PI_P2_SHIFT_Y","PI_PER_PLAYER_COLORS",
                    "PI_P2_NAME_COLOR_HEX","PI_P2_SCORE_COLOR_HEX","PI_P2_AVG_COLOR_HEX","PI_P2_HISTORY_COLOR_HEX"],
       active: ["ACTIVE_COLOR_HEX","ACTIVE_OUTLINE_PX","ACTIVE_GLOW","ACTIVE_TRAIL","ACTIVE_TRAIL_SPEED_MS","ACTIVE_TRAIL_COLOR_HEX"],
-      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS"],
-      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS"],
+      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN"],
+      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
@@ -4390,6 +4426,26 @@ function ensureMainButtonPosition() {
       slider.addEventListener("change", () => showToast(L.saved));
     }
 
+    // integer slider with a custom pill prefix (e.g. "T≥15")
+    function addSliderInt(key, label, min, max, prefix="") {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = String(min); slider.max = String(max); slider.step = "1";
+      slider.value = String(clamp(Math.round(Number(c[key] ?? min)), min, max));
+      const v0 = clamp(Math.round(Number(slider.value) || min), min, max);
+      const row = mkSliderRow(label, slider, `${prefix}${v0}`, "ok", compact);
+      box.appendChild(row.row);
+      slider.addEventListener("input", () => {
+        const v = clamp(Math.round(Number(slider.value) || min), min, max);
+        c[key] = v;
+        row.setPill(`${prefix}${v}`, "ok");
+        saveStateDebounced();
+        dirtyTurn();
+        scheduleUpdate();
+      });
+      slider.addEventListener("change", () => showToast(L.saved));
+    }
+
     function addCheckbox(label, getter, setter){
       const wrap = document.createElement("div");
       wrap.style.display = "flex";
@@ -4927,6 +4983,7 @@ function ensureMainButtonPosition() {
         addSliderMs("TRIPLE_RATTLE_MS", L.fields.rattleDur, 80, 2000, 20);
         addSliderMs("TRIPLE_RATTLE_DELAY_MS", L.fields.rattleDelay, 0, 2500, 25);
         addCheckbox(L.fields.spinEnabled, ()=>!!c.TRIPLE_SPIN, v=>{ c.TRIPLE_SPIN=v; });
+        addSliderInt("TRIPLE_SPIN_MIN", L.fields.spinMin, 1, 20, "T≥");
         addSliderMs("TRIPLE_SPIN_MS", L.fields.spinDuration, 300, 6000, 50);
         break;
 
@@ -4939,6 +4996,7 @@ function ensureMainButtonPosition() {
         addSliderMs("DOUBLE_RATTLE_MS", L.fields.rattleDur, 80, 2000, 20);
         addSliderMs("DOUBLE_RATTLE_DELAY_MS", L.fields.rattleDelay, 0, 2500, 25);
         addCheckbox(L.fields.spinEnabled, ()=>!!c.DOUBLE_SPIN, v=>{ c.DOUBLE_SPIN=v; });
+        addSliderInt("DOUBLE_SPIN_MIN", L.fields.spinMin, 1, 20, "D≥");
         addSliderMs("DOUBLE_SPIN_MS", L.fields.spinDuration, 300, 6000, 50);
         break;
 
