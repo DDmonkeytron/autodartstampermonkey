@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.28.0
+// @version      2.29.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.28.0";
+  const SCRIPT_VERSION = "2.29.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -101,6 +101,10 @@
     PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
     // Per-player alignment nudge (shifts avatar+name+averages of a player to line up with the others)
     PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0, PI_P3_SHIFT_Y: 0, PI_P4_SHIFT_Y: 0,
+    // Per-player horizontal nudge (Layout Editor "move whole card" - same 3 elements as above;
+    // score/history have no per-player anchor, so dragging a card doesn't move them - they're
+    // shared across all players via PI_SCORE_X_PX/PI_HISTORY_X_PX)
+    PI_P1_SHIFT_X: 0, PI_P2_SHIFT_X: 0, PI_P3_SHIFT_X: 0, PI_P4_SHIFT_X: 0,
     // 3-4 player layout fit: when 3+ players, scale player-info to fit the 2x2 grid (avoids overlap).
     // Any PI_G_* key left null is derived from its 2-player counterpart × PI_GRID_SCALE (legacy
     // behavior, fully backward compatible); setting one explicitly tunes the 3-4p layout
@@ -2007,7 +2011,7 @@
 /* Name "block": move the whole identity row together (series badge + avatar +
    name + 35+ badge + the translucent backing pill), not just the name text */
 #ad-ext-player-display .css-37hv00{
-  translate: var(--ad-pi-name-x) calc(var(--ad-pi-name-y) + var(--pp-shift-y, 0px)) !important;
+  translate: calc(var(--ad-pi-name-x) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-name-y) + var(--pp-shift-y, 0px)) !important;
 }
 #ad-ext-player-display .ad-ext-player-score{
   font-size: var(--ad-pi-score-font) !important;
@@ -2020,7 +2024,7 @@
 #ad-ext-player-display p.css-1j0bqop{
   font-size: var(--ad-pi-avg-font) !important;
   line-height: 1.15 !important;
-  translate: var(--ad-pi-avg-x) calc(var(--ad-pi-avg-y) + var(--pp-shift-y, 0px)) !important;
+  translate: calc(var(--ad-pi-avg-x) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-avg-y) + var(--pp-shift-y, 0px)) !important;
   ${piColor ? "color: var(--ad-pi-avg-color) !important;" : ""}
 }
 /* recent throw history (chalkboard table) */
@@ -2051,7 +2055,7 @@ ${(+c.PI_HISTORY_WIDTH_PX > 0) ? `
 }` : ""}
 /* avatar: position (X/Y via translate) + size (scale); doubled id beats skin specificity */
 #ad-ext-player-display#ad-ext-player-display .css-1psdi5l{
-  translate: var(--ad-pi-avatar-x) calc(var(--ad-pi-avatar-offset) + var(--pp-shift-y, 0px)) !important;
+  translate: calc(var(--ad-pi-avatar-x) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-avatar-offset) + var(--pp-shift-y, 0px)) !important;
   ${(+c.PI_AVATAR_SCALE !== 7) ? "scale: var(--ad-pi-avatar-scale) !important;" : ""}
 }
 ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
@@ -2060,11 +2064,12 @@ ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
   ${(+c.PI_CARD_WIDTH_PX > 0) ? "width: var(--ad-pi-card-w) !important;" : ""}
   ${(+c.PI_CARD_HEIGHT_PX > 0) ? "height: var(--ad-pi-card-h) !important;" : ""}
 }` : ""}
-/* per-player vertical alignment nudge (shifts avatar+name+averages of each player) */
-#ad-ext-player-display > div:nth-child(1){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_Y) ? +c.PI_P1_SHIFT_Y : 0, -200, 200)}px; }
-#ad-ext-player-display > div:nth-child(2){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_Y) ? +c.PI_P2_SHIFT_Y : 0, -200, 200)}px; }
-#ad-ext-player-display > div:nth-child(3){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_Y) ? +c.PI_P3_SHIFT_Y : 0, -200, 200)}px; }
-#ad-ext-player-display > div:nth-child(4){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_Y) ? +c.PI_P4_SHIFT_Y : 0, -200, 200)}px; }
+/* per-player alignment nudge (shifts avatar+name+averages of each player; X is for the Layout
+   Editor's "move whole card" group-drag, isolated to one player at a time) */
+#ad-ext-player-display > div:nth-child(1){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_Y) ? +c.PI_P1_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_X) ? +c.PI_P1_SHIFT_X : 0, -400, 400)}px; }
+#ad-ext-player-display > div:nth-child(2){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_Y) ? +c.PI_P2_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_X) ? +c.PI_P2_SHIFT_X : 0, -400, 400)}px; }
+#ad-ext-player-display > div:nth-child(3){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_Y) ? +c.PI_P3_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_X) ? +c.PI_P3_SHIFT_X : 0, -400, 400)}px; }
+#ad-ext-player-display > div:nth-child(4){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_Y) ? +c.PI_P4_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_X) ? +c.PI_P4_SHIFT_X : 0, -400, 400)}px; }
 ${(piColor && c.PI_PER_PLAYER_COLORS) ? [2,3,4].map(n => `
 /* per-player colours: player ${n} overrides (player 1 uses the base colours above) */
 #ad-ext-player-display > div:nth-child(${n}) .ad-ext-player-name{ color: var(--ad-pi-p${n}-name-color) !important; }
@@ -2117,6 +2122,8 @@ ${(c.PI_GRID_ADJUST) ? (() => {
   })();
 
   const shiftFor = (n) => clamp(gv(`PI_G_P${n}_SHIFT_Y`, c[`PI_P${n}_SHIFT_Y`]), -400, 400);
+  // No PI_G_*_SHIFT_X override exists (new key, kept simple) - just scale the 2-player value.
+  const shiftXFor = (n) => clamp((Number(c[`PI_P${n}_SHIFT_X`]) || 0) * gs, -400, 400);
 
   return `
 /* 3-4 player layout fit: independent sizing when PI_G_* keys are set, otherwise derived from
@@ -2142,10 +2149,10 @@ ${(c.PI_GRID_ADJUST) ? (() => {
 ${histWidthCss ? `#ad-ext-player-display:has(> div:nth-child(3)) .css-1u90hiz table{ width: ${histWidthCss} !important; }` : ""}
 /* per-player vertical alignment nudge, independent from the 2-player nudge above (higher
    specificity via :has() wins when 3+ players are present) */
-#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(1){ --pp-shift-y: ${shiftFor(1)}px; }
-#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(2){ --pp-shift-y: ${shiftFor(2)}px; }
-#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(3){ --pp-shift-y: ${shiftFor(3)}px; }
-#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(4){ --pp-shift-y: ${shiftFor(4)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(1){ --pp-shift-y: ${shiftFor(1)}px; --pp-shift-x: ${shiftXFor(1)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(2){ --pp-shift-y: ${shiftFor(2)}px; --pp-shift-x: ${shiftXFor(2)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(3){ --pp-shift-y: ${shiftFor(3)}px; --pp-shift-x: ${shiftXFor(3)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(4){ --pp-shift-y: ${shiftFor(4)}px; --pp-shift-x: ${shiftXFor(4)}px; }
 `;
 })() : ""}
 `);
@@ -3383,6 +3390,17 @@ function markCheckoutInTurnBar(turn) {
     if (isGridMode()) return gridDerive(null, c[`PI_P${player}_SHIFT_Y`], gridScaleFactor());
     return 0;
   }
+  // X has no grid-specific override key (kept simple) - same key in both modes, the CSS just
+  // scales it by PI_GRID_SCALE when 3+ players are present.
+  function shiftXKeyForPlayer(player) {
+    return `PI_P${player}_SHIFT_X`;
+  }
+  function effShiftXValue(player) {
+    const c = cfg();
+    const raw = c[shiftXKeyForPlayer(player)];
+    const v = raw !== null && raw !== undefined && raw !== "" ? Number(raw) || 0 : 0;
+    return isGridMode() ? v * gridScaleFactor() : v;
+  }
 
   // "Scale all elements proportionally with the card" (card popover checkbox, ON by default -
   // uncheck to resize just the box). Each pair is [2-player key, grid key]; groupScaleActiveKey()
@@ -3406,11 +3424,6 @@ function markCheckoutInTurnBar(turn) {
   const GROUP_SCALE_BOX_PAIRS = [
     ["PI_HISTORY_WIDTH_PX", "PI_G_HISTORY_WIDTH_PX"], ["PI_HISTORY_HEIGHT_PX", "PI_G_HISTORY_HEIGHT_PX"],
   ];
-  const GROUP_MOVE_X_KEYS = ["PI_NAME_X_PX", "PI_SCORE_X_PX", "PI_AVG_X_PX", "PI_HISTORY_X_PX", "PI_AVATAR_X_PX"];
-  const GROUP_MOVE_Y_KEYS = ["PI_NAME_Y_PX", "PI_SCORE_Y_PX", "PI_AVG_Y_PX", "PI_HISTORY_OFFSET_PX", "PI_AVATAR_OFFSET_PX",
-    "PI_P1_SHIFT_Y", "PI_P2_SHIFT_Y", "PI_P3_SHIFT_Y", "PI_P4_SHIFT_Y"];
-  const GROUP_MOVE_PAIRS_X = GROUP_SCALE_PAIRS.filter((p) => GROUP_MOVE_X_KEYS.includes(p[0]));
-  const GROUP_MOVE_PAIRS_Y = GROUP_SCALE_PAIRS.filter((p) => GROUP_MOVE_Y_KEYS.includes(p[0]));
   function groupScaleActiveKey(pair) {
     return isGridMode() ? pair[1] : pair[0];
   }
@@ -3840,6 +3853,10 @@ function markCheckoutInTurnBar(turn) {
       const shiftKey = shiftKeyForPlayer(player);
       c[shiftKey] = DEFAULT_CFG[shiftKey];
     }
+    if (map.groupMove) {
+      c[shiftKeyForPlayer(player)] = DEFAULT_CFG[shiftKeyForPlayer(player)];
+      c[shiftXKeyForPlayer(player)] = DEFAULT_CFG[shiftXKeyForPlayer(player)];
+    }
     if (map.fontKey) c[map.fontKey] = DEFAULT_CFG[map.fontKey];
     if (map.scaleKey) c[map.scaleKey] = DEFAULT_CFG[map.scaleKey];
     if (map.widthKey) c[map.widthKey] = DEFAULT_CFG[map.widthKey];
@@ -3891,11 +3908,11 @@ function markCheckoutInTurnBar(turn) {
       groupBoxSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
         ? GROUP_SCALE_BOX_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
         : null,
-      groupMoveX: (mode === "move" && map.groupMove)
-        ? GROUP_MOVE_PAIRS_X.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
-        : null,
-      groupMoveY: (mode === "move" && map.groupMove)
-        ? GROUP_MOVE_PAIRS_Y.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
+      // Moving the card itself only touches THIS player's per-player X/Y shift (name/avg/avatar
+      // are the only elements with a per-player anchor) - never the shared 2-player base X/Y,
+      // which would move every player's card at once.
+      groupMoveShift: (mode === "move" && map.groupMove)
+        ? { startX: effShiftXValue(target.player), startY: effShiftValue(target.player) }
         : null,
     };
     document.body.style.userSelect = "none";
@@ -3913,8 +3930,10 @@ function markCheckoutInTurnBar(turn) {
       if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
       if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.startY + dy), -400, 400);
       else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
-      if (st.groupMoveX) for (const { key, value } of st.groupMoveX) c[key] = clamp(Math.round(value + dx), -1500, 1500);
-      if (st.groupMoveY) for (const { key, value } of st.groupMoveY) c[key] = clamp(Math.round(value + dy), -1500, 1500);
+      if (st.groupMoveShift) {
+        c[shiftXKeyForPlayer(st.target.player)] = clamp(Math.round(st.groupMoveShift.startX + dx), -400, 400);
+        c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.groupMoveShift.startY + dy), -400, 400);
+      }
     } else if (st.mode === "resize") {
       if (map.resizeMode === "box") {
         if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
