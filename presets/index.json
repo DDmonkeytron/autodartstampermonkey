@@ -1,0 +1,20 @@
+[
+  {
+    "id": "neon-blaze",
+    "name": "Neon Blaze",
+    "file": "neon-blaze.json",
+    "desc": "Bold red/pink/blue per-player Player Info, Neon Blue background, board spins on triples/doubles/tons."
+  },
+  {
+    "id": "arena-green",
+    "name": "Arena Green",
+    "file": "arena-green.json",
+    "desc": "Just swaps the arena background to the original green dart-board photo; everything else stays native."
+  },
+  {
+    "id": "native",
+    "name": "Native",
+    "file": "native.json",
+    "desc": "Resets the target preset to plain default Autodarts look (no overrides)."
+  }
+]

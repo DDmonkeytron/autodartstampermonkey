@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.21.0
+// @version      2.23.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.21.0";
+  const SCRIPT_VERSION = "2.23.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -275,6 +275,14 @@
       close: "Bezár",
       export: "Export",
       import: "Import",
+      themesTitle: "Témák",
+      themeTarget: "Betöltés ide:",
+      themeFromFile: "Téma fájlból",
+      themeBrowse: "Témák (GitHub)",
+      themeExportPreset: "Preset → téma export",
+      themeLoading: "Betöltés…",
+      themeEmpty: "Nincs elérhető téma.",
+      themeLoadError: "Téma betöltése sikertelen",
       activeRefresh: "Aktív frissítés (ms)",
       activeRefreshHint: "Aktív játékos felismerés polling. 0 = csak DOM figyelés. Ha néha késik, 100–200ms jó.",
       preset: "Preset",
@@ -296,6 +304,7 @@
       bmBackLabel: "Vissza az Autodartsba",
       skinInfo: "Skin/Layout: Ha használsz Stylebotot ehhez az oldalhoz, kapcsold ki, mert összeakadhat ezzel a userscripttel. (Autodarts frissítésnél a css-xxxxx classnevek változhatnak, ilyenkor frissíteni kell a CSS szelektorokat.)",
       diagCopy: "Debug info másolás",
+      diagGenOverrides: "Preset A → default overrides generálása",
       diagSelectors: "Szelektor ellenőrzés",
       diagOk: "OK",
       diagMissing: "HIÁNYZIK",
@@ -433,6 +442,7 @@
         preset: (p)=>`Preset ${p} ✓`,
         export: "Export ✓",
         import: "Import ✓",
+        themeApplied: "Téma alkalmazva →",
         posSaved: "Panel pozíció mentve ✓",
         btnPosSaved: "Fő gomb helye mentve ✓",
         posReset: "Panel pozíció reset ✓",
@@ -463,6 +473,14 @@
       close: "Close",
       export: "Export",
       import: "Import",
+      themesTitle: "Themes",
+      themeTarget: "Load into:",
+      themeFromFile: "Theme from file",
+      themeBrowse: "Browse themes (GitHub)",
+      themeExportPreset: "Export preset as theme",
+      themeLoading: "Loading…",
+      themeEmpty: "No themes available.",
+      themeLoadError: "Failed to load theme",
       activeRefresh: "Active refresh (ms)",
       activeRefreshHint: "Active-player detection polling. 0 = DOM only. If it lags sometimes, try 100–200ms.",
       preset: "Preset",
@@ -484,6 +502,7 @@
       bmBackLabel: "Back to Autodarts",
       skinInfo: "Skin/Layout: If you use Stylebot on this site, turn it off because it can conflict with this userscript. (After Autodarts updates, the css-xxxxx class names may change; then the CSS selectors must be updated.)",
       diagCopy: "Copy debug info",
+      diagGenOverrides: "Generate Preset A default overrides",
       diagSelectors: "Selector check",
       diagOk: "OK",
       diagMissing: "MISSING",
@@ -621,6 +640,7 @@
         preset: (p)=>`Preset ${p} ✓`,
         export: "Export ✓",
         import: "Import ✓",
+        themeApplied: "Theme applied →",
         posSaved: "Panel position saved ✓",
         btnPosSaved: "Main button position saved ✓",
         posReset: "Panel position reset ✓",
@@ -651,6 +671,14 @@
       close: "Schließen",
       export: "Export",
       import: "Import",
+      themesTitle: "Themen",
+      themeTarget: "Laden in:",
+      themeFromFile: "Thema aus Datei",
+      themeBrowse: "Themen (GitHub)",
+      themeExportPreset: "Preset als Thema exportieren",
+      themeLoading: "Lädt…",
+      themeEmpty: "Keine Themen verfügbar.",
+      themeLoadError: "Thema konnte nicht geladen werden",
       activeRefresh: "Aktualisierung aktiv (ms)",
       activeRefreshHint: "Erkennung aktiver Spieler (Polling). 0 = nur DOM. Wenn es verzögert: 100–200ms.",
       preset: "Preset",
@@ -672,6 +700,7 @@
       bmBackLabel: "Zurück zu Autodarts",
       skinInfo: "Skin/Layout: Wenn du Stylebot auf dieser Seite verwendest, schalte ihn aus, weil er mit diesem Userscript kollidieren kann. (Nach Autodarts-Updates können sich css-xxxxx Klassennamen ändern; dann müssen die CSS-Selektoren aktualisiert werden.)",
       diagCopy: "Debug-Info kopieren",
+      diagGenOverrides: "Preset-A-Standardwerte generieren",
       diagSelectors: "Selektor-Check",
       diagOk: "OK",
       diagMissing: "FEHLT",
@@ -809,6 +838,7 @@
         preset: (p)=>`Preset ${p} ✓`,
         export: "Export ✓",
         import: "Import ✓",
+        themeApplied: "Thema angewendet →",
         posSaved: "Panel-Position gespeichert ✓",
         btnPosSaved: "Hauptbutton-Pos gespeichert ✓",
         posReset: "Panel-Pos reset ✓",
@@ -847,6 +877,9 @@
     { name: "Arena Green", url: BG_REPO + "Background.jpg" },
     { name: "Neon Blue",   url: BG_REPO + "NeonBlueBG.png" },
   ];
+  // Community/gallery themes (flat config-diff JSON files hosted in this repo's presets/ folder)
+  const THEMES_MANIFEST_URL = BG_REPO + "presets/index.json";
+  const THEME_FILE_URL = (file) => BG_REPO + "presets/" + file;
   const TRIPLE_VALUES = ["T20","T19","T18","T17","T16","T15","T7","BULL","SBULL","DBULL","25","50"];
   const DOUBLE_VALUES = ["D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12","D13","D14","D15","D16","D17","D18","D19","D20","D25","DBULL"];
 
@@ -1095,6 +1128,52 @@
       saveStateNow();
     }catch{}
   })();
+
+  /* ================== DEFAULT-OVERRIDES DIFF (dev helper) ================== */
+  // Diffs a preset's live config against DEFAULT_CFG. Used both by the "generate
+  // PRESET_A_OVERRIDES source" debug tool (re-baking the default no longer needs
+  // a manual key-by-key diff) and by the theme export/gallery feature below,
+  // where a theme file is just this diff serialized as JSON.
+  function formatOverrideValue(v) {
+    return JSON.stringify(v);
+  }
+  function diffPresetVsDefault(presetIdx) {
+    const live = state.presets[presetIdx] || {};
+    const out = {};
+    for (const key of Object.keys(DEFAULT_CFG)) {
+      const a = live[key];
+      const b = DEFAULT_CFG[key];
+      if (JSON.stringify(a) !== JSON.stringify(b)) out[key] = a;
+    }
+    return out;
+  }
+  function computePresetAOverrides() {
+    return diffPresetVsDefault(0);
+  }
+  function formatPresetAOverridesSource() {
+    const diff = computePresetAOverrides();
+    const keys = Object.keys(diff);
+    if (!keys.length) return "const PRESET_A_OVERRIDES = {};";
+    const lines = keys.map(k => `    ${k}: ${formatOverrideValue(diff[k])},`);
+    return `const PRESET_A_OVERRIDES = {\n${lines.join("\n")}\n  };`;
+  }
+
+  /* ================== THEMES (gallery / file import-export) ================== */
+  // A "theme" is just a flat config-diff object (same shape diffPresetVsDefault
+  // produces): only the keys that differ from DEFAULT_CFG. Applying one merges
+  // it over DEFAULT_CFG and writes the result into a specific preset slot
+  // (chosen by the user), leaving the other two presets and UI settings alone.
+  function applyThemeDiffToPreset(diffObj, presetIdx) {
+    const merged = sanitizeTextEffects({ ...clone(DEFAULT_CFG), ...clone(diffObj || {}) });
+    state.presets[presetIdx] = merged;
+    if (presetIdx === state.activePreset) {
+      applySafeClampsToCfg();
+      dirtyTurn(); dirtyPlayers(); dirtyBoard(); dirtyBm(); dirtySkin();
+      scheduleUpdate();
+    }
+    saveStateDebounced();
+    renderPanel();
+  }
 
   /* ================== SAFE MODE HELPERS ================== */
   function getMaxFor(key) {
@@ -3684,6 +3763,9 @@ function scanWinMusic() {
   let panel = null;
   let toastEl = null;
   let fileInput = null;
+  let themeFileInput = null;
+  let themeTargetPreset = null;  // which preset slot (0/1/2) a loaded theme is written into; defaults to the active one
+  let themeGalleryCache = null;  // manifest fetched from GitHub, cached for the session
 
   function gearIconSvg() {
     return `
@@ -4155,6 +4237,26 @@ function ensureMainButtonPosition() {
         renderClockTime();
         ensureBmBackButton();
         showToast(T().toasts.import);
+      };
+      reader.readAsText(f);
+    });
+
+    themeFileInput = document.createElement("input");
+    themeFileInput.type = "file";
+    themeFileInput.accept = "application/json";
+    themeFileInput.style.display = "none";
+    document.body.appendChild(themeFileInput);
+
+    themeFileInput.addEventListener("change", (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const parsed = tryParseJSON(reader.result);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) { alert(T().alerts.invalidJson); return; }
+        const idx = themeTargetPreset ?? state.activePreset;
+        applyThemeDiffToPreset(parsed, idx);
+        showToast(`${T().toasts.themeApplied} ${presetLabel(idx)}`);
       };
       reader.readAsText(f);
     });
@@ -4809,6 +4911,130 @@ function ensureMainButtonPosition() {
         row2.appendChild(btnResetPreset);
         row2.appendChild(btnResetAll);
         box.appendChild(row2);
+
+        // ---- Themes: load a shareable config-diff into a chosen preset slot ----
+        const sepThemes = document.createElement("div");
+        sepThemes.style.height = "1px";
+        sepThemes.style.background = "rgba(255,255,255,0.10)";
+        sepThemes.style.margin = "12px 0 10px";
+        box.appendChild(sepThemes);
+
+        const themesTitle = document.createElement("div");
+        themesTitle.textContent = L.themesTitle;
+        themesTitle.style.fontWeight = "900";
+        themesTitle.style.opacity = "0.92";
+        themesTitle.style.marginBottom = "8px";
+        box.appendChild(themesTitle);
+
+        if (themeTargetPreset == null) themeTargetPreset = state.activePreset;
+
+        const targetRow = document.createElement("div");
+        targetRow.style.display = "flex";
+        targetRow.style.alignItems = "center";
+        targetRow.style.gap = "8px";
+        targetRow.style.marginBottom = "8px";
+
+        const targetLabel = document.createElement("div");
+        targetLabel.textContent = L.themeTarget;
+        targetLabel.style.opacity = "0.85";
+        targetLabel.style.fontSize = compact ? "12px" : "13px";
+        targetRow.appendChild(targetLabel);
+
+        const targetBtns = [0, 1, 2].map((i) => {
+          const b = mkButton(presetLabel(i), () => {
+            themeTargetPreset = i;
+            refreshTargetSel();
+          }, "ghost", true);
+          targetRow.appendChild(b);
+          return b;
+        });
+        const refreshTargetSel = () => {
+          targetBtns.forEach((b, i) => {
+            const on = i === themeTargetPreset;
+            b.style.background = on ? "rgba(120,200,255,.30)" : "rgba(255,255,255,.08)";
+            b.style.borderColor = on ? "rgba(120,200,255,.65)" : "rgba(255,255,255,.18)";
+          });
+        };
+        refreshTargetSel();
+        box.appendChild(targetRow);
+
+        const themeBtnRow = document.createElement("div");
+        themeBtnRow.style.display = "flex";
+        themeBtnRow.style.gap = "8px";
+        themeBtnRow.style.marginBottom = "8px";
+
+        const btnThemeFile = mkButton(L.themeFromFile, () => { themeFileInput.value = ""; themeFileInput.click(); }, "ghost", compact);
+        const btnThemeExport = mkButton(L.themeExportPreset, () => {
+          const diff = diffPresetVsDefault(state.activePreset);
+          const json = JSON.stringify(diff, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `autodarts_theme_${presetLabel(state.activePreset).toLowerCase()}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast(L.toasts.export);
+        }, "ghost", compact);
+        const btnThemeBrowse = mkButton(L.themeBrowse, () => loadThemeGallery(), "primary", compact);
+
+        btnThemeFile.style.flex = "1";
+        btnThemeExport.style.flex = "1";
+        btnThemeBrowse.style.flex = "1";
+        themeBtnRow.appendChild(btnThemeFile);
+        themeBtnRow.appendChild(btnThemeExport);
+        themeBtnRow.appendChild(btnThemeBrowse);
+        box.appendChild(themeBtnRow);
+
+        const themeListEl = document.createElement("div");
+        themeListEl.style.display = "flex";
+        themeListEl.style.flexWrap = "wrap";
+        themeListEl.style.gap = "6px";
+        themeListEl.style.opacity = "0.9";
+        themeListEl.style.fontSize = compact ? "12px" : "13px";
+        box.appendChild(themeListEl);
+
+        const renderThemeList = (list) => {
+          themeListEl.textContent = "";
+          if (!list.length) { themeListEl.textContent = L.themeEmpty; return; }
+          list.forEach((item) => {
+            if (!item || !item.file) return;
+            const b = mkButton(item.name || item.id || item.file, async () => {
+              try {
+                const r2 = await fetch(THEME_FILE_URL(item.file), { cache: "no-store" });
+                if (!r2.ok) throw new Error("HTTP " + r2.status);
+                const diff = await r2.json();
+                if (!diff || typeof diff !== "object" || Array.isArray(diff)) throw new Error("bad theme file");
+                const idx = themeTargetPreset ?? state.activePreset;
+                applyThemeDiffToPreset(diff, idx);
+                showToast(`${L.toasts.themeApplied} ${presetLabel(idx)}`);
+              } catch (err) {
+                alert(`${L.themeLoadError}: ${err?.message || err}`);
+              }
+            }, "ghost", true);
+            if (item.desc) b.title = item.desc;
+            themeListEl.appendChild(b);
+          });
+        };
+
+        async function loadThemeGallery() {
+          if (themeGalleryCache) { renderThemeList(themeGalleryCache); return; }
+          themeListEl.textContent = L.themeLoading;
+          try {
+            const res = await fetch(THEMES_MANIFEST_URL, { cache: "no-store" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const list = await res.json();
+            if (!Array.isArray(list)) throw new Error("bad manifest");
+            themeGalleryCache = list;
+            renderThemeList(list);
+          } catch (err) {
+            themeListEl.textContent = "";
+            alert(`${L.themeLoadError}: ${err?.message || err}`);
+          }
+        }
+
+        if (themeGalleryCache) renderThemeList(themeGalleryCache);
+
         break;
       }
 
@@ -4883,8 +5109,21 @@ function ensureMainButtonPosition() {
         }
       }, "primary", compact);
 
+      const btnGenOverrides = mkButton(L.diagGenOverrides, async () => {
+      const txt = formatPresetAOverridesSource();
+      try {
+        await navigator.clipboard.writeText(txt);
+        showToast(L.saved);
+      } catch {
+      // fallback
+      prompt("Másold ki:", txt);
+        }
+      }, "ghost", compact);
+
       btnCopy.style.flex = "1";
+      btnGenOverrides.style.flex = "1";
       btnRow.appendChild(btnCopy);
+      btnRow.appendChild(btnGenOverrides);
       box.appendChild(btnRow);
 
       // Selector check
