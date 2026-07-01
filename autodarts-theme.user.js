@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.23.0
+// @version      2.24.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.23.0";
+  const SCRIPT_VERSION = "2.24.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -5018,7 +5018,6 @@ function ensureMainButtonPosition() {
         };
 
         async function loadThemeGallery() {
-          if (themeGalleryCache) { renderThemeList(themeGalleryCache); return; }
           themeListEl.textContent = L.themeLoading;
           try {
             const res = await fetch(THEMES_MANIFEST_URL, { cache: "no-store" });
