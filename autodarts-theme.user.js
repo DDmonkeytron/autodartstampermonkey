@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.25.0
+// @version      2.26.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.25.0";
+  const SCRIPT_VERSION = "2.26.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -101,9 +101,24 @@
     PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
     // Per-player alignment nudge (shifts avatar+name+averages of a player to line up with the others)
     PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0, PI_P3_SHIFT_Y: 0, PI_P4_SHIFT_Y: 0,
-    // 3-4 player layout fit: when 3+ players, scale player-info to fit the 2x2 grid (avoids overlap)
+    // 3-4 player layout fit: when 3+ players, scale player-info to fit the 2x2 grid (avoids overlap).
+    // Any PI_G_* key left null is derived from its 2-player counterpart × PI_GRID_SCALE (legacy
+    // behavior, fully backward compatible); setting one explicitly tunes the 3-4p layout
+    // independently of the 2-player one (0 on a width/height key means "auto", same convention
+    // as its 2-player counterpart). The Layout Editor writes these automatically when a
+    // 3-4 player match is active.
     PI_GRID_ADJUST: true,
     PI_GRID_SCALE: 0.5,
+    PI_G_NAME_FONT_PX: null, PI_G_SCORE_FONT_PX: null, PI_G_AVG_FONT_PX: null, PI_G_HISTORY_FONT_PX: null,
+    PI_G_NAME_X_PX: null, PI_G_NAME_Y_PX: null,
+    PI_G_SCORE_X_PX: null, PI_G_SCORE_Y_PX: null,
+    PI_G_AVG_X_PX: null, PI_G_AVG_Y_PX: null,
+    PI_G_HISTORY_X_PX: null, PI_G_HISTORY_OFFSET_PX: null,
+    PI_G_HISTORY_WIDTH_PX: null, PI_G_HISTORY_HEIGHT_PX: null,
+    PI_G_AVATAR_X_PX: null, PI_G_AVATAR_OFFSET_PX: null, PI_G_AVATAR_SCALE: null,
+    PI_G_STACK_GAP_PX: null,
+    PI_G_CARD_WIDTH_PX: null, PI_G_CARD_HEIGHT_PX: null,
+    PI_G_P1_SHIFT_Y: null, PI_G_P2_SHIFT_Y: null, PI_G_P3_SHIFT_Y: null, PI_G_P4_SHIFT_Y: null,
     // Per-player colours: off = all players share the colours above; on = players 2-4 use their own
     PI_PER_PLAYER_COLORS: false,
     PI_P2_NAME_COLOR_HEX: "#ffffff", PI_P2_SCORE_COLOR_HEX: "#ffffff", PI_P2_AVG_COLOR_HEX: "#cfd3d7", PI_P2_HISTORY_COLOR_HEX: "#ffffff",
@@ -391,6 +406,7 @@
         secGrid: "3-4 játékos illesztés",
         gridAdjust: "3-4 játékosnál méretezés",
         gridScale: "3-4 méretarány",
+        gridIndependentInfo: "Tipp: nyisd meg a Layout Editort (Beta) egy 3-4 fős meccs alatt, hogy a 3-4 játékos elrendezését a 2 játékostól teljesen függetlenül, kézzel finomhangold (méret/pozíció). Amíg nem nyúlsz hozzá, a fenti arányból számolódik automatikusan.",
         perPlayerColors: "Játékosonként eltérő színek",
         p1Prefix: "1.J",
         p2Prefix: "2.J",
@@ -602,6 +618,7 @@
         secGrid: "3-4 player fit",
         gridAdjust: "Scale for 3-4 players",
         gridScale: "3-4 scale",
+        gridIndependentInfo: "Tip: open the Layout Editor (Beta) during a 3-4 player match to tune the 3-4 player layout (size/position) completely independently from the 2-player one. Until you touch it, it's derived from the scale above automatically.",
         perPlayerColors: "Per-player colours",
         p1Prefix: "P1",
         p2Prefix: "P2",
@@ -813,6 +830,7 @@
         secGrid: "3-4 Spieler Anpassung",
         gridAdjust: "Skalieren bei 3-4 Spielern",
         gridScale: "3-4 Skalierung",
+        gridIndependentInfo: "Tipp: Öffne den Layout-Editor (Beta) während eines 3-4-Spieler-Matches, um das 3-4-Spieler-Layout (Größe/Position) komplett unabhängig vom 2-Spieler-Layout anzupassen. Solange du nichts änderst, wird es automatisch aus der obigen Skalierung abgeleitet.",
         perPlayerColors: "Farben pro Spieler",
         p1Prefix: "S1",
         p2Prefix: "S2",
@@ -1889,9 +1907,8 @@
       // Player info text sizing / colors / layout (name / score / averages / history)
       if (c.PLAYER_INFO) {
         const piColor = !!c.PI_CUSTOM_COLORS;
-        // 3-4 player grid scale helpers
+        // 3-4 player grid scale (used to derive PI_G_* values that are left null)
         const gs = clamp(Number(c.PI_GRID_SCALE) || 0.5, 0.2, 1);
-        const gpx = (v) => Math.round((Number(v) || 0) * gs) + "px";
 
         // text effects (stackable): outline -> text-stroke; emboss/glow/shadow -> text-shadow
         const fxList = Array.isArray(c.PI_TEXT_EFFECTS) ? c.PI_TEXT_EFFECTS : [];
@@ -2005,26 +2022,81 @@ ${(piColor && c.PI_PER_PLAYER_COLORS) ? [2,3,4].map(n => `
 #ad-ext-player-display > div:nth-child(${n}) p.css-1j0bqop{ color: var(--ad-pi-p${n}-avg-color) !important; }
 #ad-ext-player-display > div:nth-child(${n}) .css-1u90hiz td,
 #ad-ext-player-display > div:nth-child(${n}) .css-1u90hiz th{ color: var(--ad-pi-p${n}-history-color) !important; }`).join("\n") : ""}
-${(c.PI_GRID_ADJUST) ? `
-/* 3-4 player layout fit: size cards to the 2x2 grid + scale player-info to fit (avoids overlap) */
+${(c.PI_GRID_ADJUST) ? (() => {
+  // Each PI_G_* key is either an explicit override (independent 3-4p tuning) or, when left
+  // null, derived from its 2-player counterpart × PI_GRID_SCALE (legacy/back-compat behavior).
+  const isNil = (v) => v === null || v === undefined || v === "";
+  const gv = (gKey, base2p) => isNil(c[gKey]) ? (Number(base2p) || 0) * gs : (Number(c[gKey]) || 0);
+
+  const nameFontPx  = clamp(gv("PI_G_NAME_FONT_PX", c.PI_NAME_FONT_PX || 18), 8, 200);
+  const scoreFontPx = clamp(gv("PI_G_SCORE_FONT_PX", c.PI_SCORE_FONT_PX || 123), 20, 360);
+  const avgFontPx   = clamp(gv("PI_G_AVG_FONT_PX", c.PI_AVG_FONT_PX || 16), 8, 200);
+  const histFontPx  = clamp(gv("PI_G_HISTORY_FONT_PX", c.PI_HISTORY_FONT_PX || 35), 12, 200);
+
+  const nameX  = clamp(gv("PI_G_NAME_X_PX", c.PI_NAME_X_PX), -900, 900);
+  const nameY  = clamp(gv("PI_G_NAME_Y_PX", c.PI_NAME_Y_PX), -900, 900);
+  const scoreX = clamp(gv("PI_G_SCORE_X_PX", c.PI_SCORE_X_PX), -900, 900);
+  const scoreY = clamp(gv("PI_G_SCORE_Y_PX", c.PI_SCORE_Y_PX), -900, 900);
+  const avgX   = clamp(gv("PI_G_AVG_X_PX", c.PI_AVG_X_PX), -900, 900);
+  const avgY   = clamp(gv("PI_G_AVG_Y_PX", c.PI_AVG_Y_PX), -900, 900);
+  const histX      = clamp(gv("PI_G_HISTORY_X_PX", c.PI_HISTORY_X_PX), -900, 900);
+  const histOffset = clamp(gv("PI_G_HISTORY_OFFSET_PX", c.PI_HISTORY_OFFSET_PX), -600, 900);
+  const avatarX      = clamp(gv("PI_G_AVATAR_X_PX", c.PI_AVATAR_X_PX), -900, 900);
+  const avatarOffset = clamp(gv("PI_G_AVATAR_OFFSET_PX", c.PI_AVATAR_OFFSET_PX), -900, 900);
+  const gap          = clamp(gv("PI_G_STACK_GAP_PX", c.PI_STACK_GAP_PX), 0, 160);
+  const avatarScale  = clamp(gv("PI_G_AVATAR_SCALE", Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7), 0.3, 12);
+
+  // Card box: null keeps the original hardcoded 2x2-grid fit; an explicit value overrides it;
+  // an explicit 0 means "auto" (no forced size), same convention as the 2-player card fields.
+  const gW = c.PI_G_CARD_WIDTH_PX, gH = c.PI_G_CARD_HEIGHT_PX;
+  const cardWidthCss  = isNil(gW) ? "411px" : ((+gW > 0) ? clamp(+gW, 150, 900) + "px" : "auto");
+  const cardHeightCss = isNil(gH) ? "calc((100vh - 176px) / 2 - 16px)" : ((+gH > 0) ? clamp(+gH, 120, 1400) + "px" : "auto");
+
+  // History table box: null derives from the 2-player width/height (scaled) when one is set,
+  // otherwise stays auto; an explicit value (incl. 0 = auto) always wins.
+  const histWidthCss = (() => {
+    const v = c.PI_G_HISTORY_WIDTH_PX;
+    if (isNil(v)) return (+c.PI_HISTORY_WIDTH_PX > 0) ? clamp(+c.PI_HISTORY_WIDTH_PX * gs, 40, 900) + "px" : null;
+    return (+v > 0) ? clamp(+v, 40, 900) + "px" : "auto";
+  })();
+  const histHeightCss = (() => {
+    const v = c.PI_G_HISTORY_HEIGHT_PX;
+    if (isNil(v)) return (+c.PI_HISTORY_HEIGHT_PX > 0) ? clamp(+c.PI_HISTORY_HEIGHT_PX * gs, 40, 900) + "px" : null;
+    return (+v > 0) ? clamp(+v, 40, 900) + "px" : "auto";
+  })();
+
+  const shiftFor = (n) => clamp(gv(`PI_G_P${n}_SHIFT_Y`, c[`PI_P${n}_SHIFT_Y`]), -400, 400);
+
+  return `
+/* 3-4 player layout fit: independent sizing when PI_G_* keys are set, otherwise derived from
+   the 2-player values × PI_GRID_SCALE (avoids overlap either way) */
 #ad-ext-player-display#ad-ext-player-display#ad-ext-player-display:has(> div:nth-child(3)) > div{
-  height: calc((100vh - 176px) / 2 - 16px) !important;
-  width: 411px !important;
+  height: ${cardHeightCss} !important;
+  width: ${cardWidthCss} !important;
 }
 #ad-ext-player-display:has(> div:nth-child(3)){
-  --ad-pi-name-font: ${gpx(clamp(+c.PI_NAME_FONT_PX || 18, 8, 200))};
-  --ad-pi-score-font: ${gpx(clamp(+c.PI_SCORE_FONT_PX || 123, 20, 360))};
-  --ad-pi-avg-font: ${gpx(clamp(+c.PI_AVG_FONT_PX || 16, 8, 200))};
-  --ad-pi-history-font: ${gpx(clamp(+c.PI_HISTORY_FONT_PX || 35, 12, 200))};
-  --ad-pi-name-x: ${gpx(c.PI_NAME_X_PX)}; --ad-pi-name-y: ${gpx(c.PI_NAME_Y_PX)};
-  --ad-pi-score-x: ${gpx(c.PI_SCORE_X_PX)}; --ad-pi-score-y: ${gpx(c.PI_SCORE_Y_PX)};
-  --ad-pi-avg-x: ${gpx(c.PI_AVG_X_PX)}; --ad-pi-avg-y: ${gpx(c.PI_AVG_Y_PX)};
-  --ad-pi-history-x: ${gpx(c.PI_HISTORY_X_PX)}; --ad-pi-history-offset: ${gpx(c.PI_HISTORY_OFFSET_PX)};
-  --ad-pi-avatar-x: ${gpx(c.PI_AVATAR_X_PX)}; --ad-pi-avatar-offset: ${gpx(c.PI_AVATAR_OFFSET_PX)};
-  --ad-pi-gap: ${gpx(c.PI_STACK_GAP_PX)};
-  --ad-pi-avatar-scale: ${(clamp(Number.isFinite(+c.PI_AVATAR_SCALE) ? +c.PI_AVATAR_SCALE : 7, 1, 12) * gs).toFixed(2)};
-  ${(+c.PI_HISTORY_HEIGHT_PX > 0) ? `--ad-pi-history-height: ${gpx(clamp(+c.PI_HISTORY_HEIGHT_PX, 80, 900))};` : ""}
-}` : ""}
+  --ad-pi-name-font: ${nameFontPx}px;
+  --ad-pi-score-font: ${scoreFontPx}px;
+  --ad-pi-avg-font: ${avgFontPx}px;
+  --ad-pi-history-font: ${histFontPx}px;
+  --ad-pi-name-x: ${nameX}px; --ad-pi-name-y: ${nameY}px;
+  --ad-pi-score-x: ${scoreX}px; --ad-pi-score-y: ${scoreY}px;
+  --ad-pi-avg-x: ${avgX}px; --ad-pi-avg-y: ${avgY}px;
+  --ad-pi-history-x: ${histX}px; --ad-pi-history-offset: ${histOffset}px;
+  --ad-pi-avatar-x: ${avatarX}px; --ad-pi-avatar-offset: ${avatarOffset}px;
+  --ad-pi-gap: ${gap}px;
+  --ad-pi-avatar-scale: ${avatarScale.toFixed(2)};
+  ${histHeightCss ? `--ad-pi-history-height: ${histHeightCss};` : ""}
+}
+${histWidthCss ? `#ad-ext-player-display:has(> div:nth-child(3)) .css-1u90hiz table{ width: ${histWidthCss} !important; }` : ""}
+/* per-player vertical alignment nudge, independent from the 2-player nudge above (higher
+   specificity via :has() wins when 3+ players are present) */
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(1){ --pp-shift-y: ${shiftFor(1)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(2){ --pp-shift-y: ${shiftFor(2)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(3){ --pp-shift-y: ${shiftFor(3)}px; }
+#ad-ext-player-display:has(> div:nth-child(3)) > div:nth-child(4){ --pp-shift-y: ${shiftFor(4)}px; }
+`;
+})() : ""}
 `);
       }
 
@@ -3146,15 +3218,85 @@ function markCheckoutInTurnBar(turn) {
     avatar: ".css-1psdi5l",
   };
   const PI_EL_KEY = { name: "name", score: "score", avg: "average", history: "history", avatar: "avatar" };
+  // gXKey/gYKey/gFontKey/gScaleKey/gWidthKey/gHeightKey mirror the base keys for the independent
+  // 3-4 player layout (see PI_G_* in DEFAULT_CFG). getModeKeys() swaps them in automatically.
   const EDIT_KIND_MAP = {
-    name:    { xKey: "PI_NAME_X_PX",    yKey: "PI_NAME_Y_PX",    fontKey: "PI_NAME_FONT_PX",    colorKey: "PI_NAME_COLOR_HEX",    perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_NAME_COLOR_HEX" },
-    score:   { xKey: "PI_SCORE_X_PX",   yKey: "PI_SCORE_Y_PX",   fontKey: "PI_SCORE_FONT_PX",   colorKey: "PI_SCORE_COLOR_HEX",   perPlayerShift: false, perPlayerColorPrefix: "PI_P{n}_SCORE_COLOR_HEX" },
-    avg:     { xKey: "PI_AVG_X_PX",     yKey: "PI_AVG_Y_PX",     fontKey: "PI_AVG_FONT_PX",     colorKey: "PI_AVG_COLOR_HEX",     perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_AVG_COLOR_HEX" },
+    name:    { xKey: "PI_NAME_X_PX",    yKey: "PI_NAME_Y_PX",    fontKey: "PI_NAME_FONT_PX",    colorKey: "PI_NAME_COLOR_HEX",    perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_NAME_COLOR_HEX",
+               gXKey: "PI_G_NAME_X_PX", gYKey: "PI_G_NAME_Y_PX", gFontKey: "PI_G_NAME_FONT_PX" },
+    score:   { xKey: "PI_SCORE_X_PX",   yKey: "PI_SCORE_Y_PX",   fontKey: "PI_SCORE_FONT_PX",   colorKey: "PI_SCORE_COLOR_HEX",   perPlayerShift: false, perPlayerColorPrefix: "PI_P{n}_SCORE_COLOR_HEX",
+               gXKey: "PI_G_SCORE_X_PX", gYKey: "PI_G_SCORE_Y_PX", gFontKey: "PI_G_SCORE_FONT_PX" },
+    avg:     { xKey: "PI_AVG_X_PX",     yKey: "PI_AVG_Y_PX",     fontKey: "PI_AVG_FONT_PX",     colorKey: "PI_AVG_COLOR_HEX",     perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_AVG_COLOR_HEX",
+               gXKey: "PI_G_AVG_X_PX", gYKey: "PI_G_AVG_Y_PX", gFontKey: "PI_G_AVG_FONT_PX" },
     history: { xKey: "PI_HISTORY_X_PX", yKey: "PI_HISTORY_OFFSET_PX", fontKey: "PI_HISTORY_FONT_PX", colorKey: "PI_HISTORY_COLOR_HEX", perPlayerShift: false, perPlayerColorPrefix: "PI_P{n}_HISTORY_COLOR_HEX",
-               widthKey: "PI_HISTORY_WIDTH_PX", heightKey: "PI_HISTORY_HEIGHT_PX", resizeMode: "box" },
-    avatar:  { xKey: "PI_AVATAR_X_PX",  yKey: "PI_AVATAR_OFFSET_PX", perPlayerShift: true, scaleKey: "PI_AVATAR_SCALE", resizeMode: "scale" },
-    card:    { widthKey: "PI_CARD_WIDTH_PX", heightKey: "PI_CARD_HEIGHT_PX", resizeMode: "box", moveDisabled: true },
+               widthKey: "PI_HISTORY_WIDTH_PX", heightKey: "PI_HISTORY_HEIGHT_PX", resizeMode: "box",
+               gXKey: "PI_G_HISTORY_X_PX", gYKey: "PI_G_HISTORY_OFFSET_PX", gFontKey: "PI_G_HISTORY_FONT_PX", gWidthKey: "PI_G_HISTORY_WIDTH_PX", gHeightKey: "PI_G_HISTORY_HEIGHT_PX" },
+    avatar:  { xKey: "PI_AVATAR_X_PX",  yKey: "PI_AVATAR_OFFSET_PX", perPlayerShift: true, scaleKey: "PI_AVATAR_SCALE", resizeMode: "scale",
+               gXKey: "PI_G_AVATAR_X_PX", gYKey: "PI_G_AVATAR_OFFSET_PX", gScaleKey: "PI_G_AVATAR_SCALE" },
+    card:    { widthKey: "PI_CARD_WIDTH_PX", heightKey: "PI_CARD_HEIGHT_PX", resizeMode: "box", moveDisabled: true,
+               gWidthKey: "PI_G_CARD_WIDTH_PX", gHeightKey: "PI_G_CARD_HEIGHT_PX" },
   };
+
+  function isGridMode() {
+    const host = document.querySelector("#ad-ext-player-display");
+    if (!host) return false;
+    if (!cfg().PI_GRID_ADJUST) return false;
+    return host.children.length >= 3;
+  }
+  function gridScaleFactor() {
+    return clamp(Number(cfg().PI_GRID_SCALE) || 0.5, 0.2, 1);
+  }
+  function gridDerive(explicit, base, scale) {
+    if (explicit === null || explicit === undefined || explicit === "") return (Number(base) || 0) * scale;
+    return Number(explicit) || 0;
+  }
+  // Resolves which literal config keys the editor should read/write for a kind, given whether
+  // a 3-4 player match is currently active. Falls back to the 2-player keys when not in grid mode
+  // (or when a kind has no grid counterpart, e.g. color keys stay shared between both layouts).
+  function getModeKeys(kind) {
+    const base = EDIT_KIND_MAP[kind];
+    if (!base || !isGridMode()) return base;
+    return {
+      ...base,
+      xKey: base.gXKey || base.xKey,
+      yKey: base.gYKey || base.yKey,
+      fontKey: base.gFontKey || base.fontKey,
+      scaleKey: base.gScaleKey || base.scaleKey,
+      widthKey: base.gWidthKey || base.widthKey,
+      heightKey: base.gHeightKey || base.heightKey,
+      _gridMode: true,
+      _base: base,
+    };
+  }
+  // Reads the "effective" current value of a scalar (x/y/font/scale) key, deriving it from the
+  // 2-player counterpart × grid scale when the resolved (possibly grid-mode) key is still null.
+  function effVal(map, keyName) {
+    const c = cfg();
+    if (!keyName) return 0;
+    const raw = c[keyName];
+    if (raw !== null && raw !== undefined && raw !== "") return Number(raw) || 0;
+    if (map && map._gridMode && map._base) {
+      // keyName is a grid key (e.g. PI_G_NAME_X_PX) resolved via getModeKeys; find its
+      // 2-player counterpart by matching which g*Key field points at it ("gXKey" -> "xKey").
+      const gField = Object.keys(map._base).find((k) => k.startsWith("g") && map._base[k] === keyName);
+      if (gField) {
+        const baseField = gField[1].toLowerCase() + gField.slice(2);
+        const baseKey = map._base[baseField];
+        return gridDerive(null, c[baseKey], gridScaleFactor());
+      }
+    }
+    return 0;
+  }
+  function shiftKeyForPlayer(player) {
+    return isGridMode() ? `PI_G_P${player}_SHIFT_Y` : `PI_P${player}_SHIFT_Y`;
+  }
+  function effShiftValue(player) {
+    const c = cfg();
+    const key = shiftKeyForPlayer(player);
+    const raw = c[key];
+    if (raw !== null && raw !== undefined && raw !== "") return Number(raw) || 0;
+    if (isGridMode()) return gridDerive(null, c[`PI_P${player}_SHIFT_Y`], gridScaleFactor());
+    return 0;
+  }
 
   let editModeOn = false;
   let editHoverTarget = null;
@@ -3313,7 +3455,8 @@ function markCheckoutInTurnBar(turn) {
     const c = cfg();
     const L = T();
     const pi = L.piText;
-    const map = EDIT_KIND_MAP[editSelected.kind];
+    const map = getModeKeys(editSelected.kind);
+    const gridMode = !!map._gridMode;
     const player = editSelected.player;
     const prefixes = [pi.p1Prefix, pi.p2Prefix, pi.p3Prefix, pi.p4Prefix];
     const elLabel = editSelected.kind === "card" ? pi.secCard : (pi.el[PI_EL_KEY[editSelected.kind]] || editSelected.kind);
@@ -3325,7 +3468,7 @@ function markCheckoutInTurnBar(turn) {
     const head = document.createElement("div");
     Object.assign(head.style, { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" });
     const title = document.createElement("div");
-    title.textContent = `${elLabel} — ${prefixes[player - 1] || ("P" + player)}`;
+    title.textContent = `${elLabel} — ${prefixes[player - 1] || ("P" + player)}${gridMode ? " · 3-4P" : ""}`;
     Object.assign(title.style, { fontWeight: "900", fontSize: "13px" });
     const closeX = document.createElement("div");
     closeX.textContent = "✕";
@@ -3335,10 +3478,10 @@ function markCheckoutInTurnBar(turn) {
     editPopoverEl.appendChild(head);
 
     if (map.fontKey) {
-      const v = Number(c[map.fontKey]) || DEFAULT_CFG[map.fontKey];
+      const v = effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey];
       const { row, input } = numRow(pi.editFont, v, 1, (nv) => {
         let vv = clamp(Math.round(nv), 4, 400);
-        vv = clampIfSafe(map.fontKey, vv);
+        vv = clampIfSafe((map._base || map).fontKey, vv);
         c[map.fontKey] = vv;
         input.value = String(vv);
         applyEditChange();
@@ -3348,7 +3491,7 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (map.scaleKey) {
-      const v = Number(c[map.scaleKey]) || DEFAULT_CFG[map.scaleKey];
+      const v = effVal(map, map.scaleKey) || DEFAULT_CFG[(map._base || map).scaleKey];
       const { row, input } = numRow(pi.editScale, v, 0.1, (nv) => {
         const vv = clamp(+nv.toFixed(2), 0.2, 12);
         c[map.scaleKey] = vv;
@@ -3360,7 +3503,7 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (map.xKey) {
-      const v = Number(c[map.xKey]) || 0;
+      const v = effVal(map, map.xKey);
       const { row, input } = numRow(`${elLabel} ↔`, v, 1, (nv) => {
         c[map.xKey] = clamp(Math.round(nv), -1500, 1500);
         input.value = String(c[map.xKey]);
@@ -3371,8 +3514,8 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (map.perPlayerShift) {
-      const shiftKey = `PI_P${player}_SHIFT_Y`;
-      const v = Number(c[shiftKey]) || 0;
+      const shiftKey = shiftKeyForPlayer(player);
+      const v = effShiftValue(player);
       const { row, input } = numRow(`${elLabel} ↕`, v, 1, (nv) => {
         c[shiftKey] = clamp(Math.round(nv), -400, 400);
         input.value = String(c[shiftKey]);
@@ -3381,7 +3524,7 @@ function markCheckoutInTurnBar(turn) {
       editPopoverEl.appendChild(row);
       fields.y = input;
     } else if (map.yKey) {
-      const v = Number(c[map.yKey]) || 0;
+      const v = effVal(map, map.yKey);
       const { row, input } = numRow(`${elLabel} ↕`, v, 1, (nv) => {
         c[map.yKey] = clamp(Math.round(nv), -1500, 1500);
         input.value = String(c[map.yKey]);
@@ -3477,27 +3620,33 @@ function markCheckoutInTurnBar(turn) {
   function updateEditPopoverFields() {
     if (!editPopoverEl || !editSelected || !editPopoverEl._fields) return;
     const c = cfg();
-    const map = EDIT_KIND_MAP[editSelected.kind];
+    const map = getModeKeys(editSelected.kind);
     const f = editPopoverEl._fields;
     if (f.font && map.fontKey) f.font.value = String(c[map.fontKey]);
     if (f.scale && map.scaleKey) f.scale.value = String(c[map.scaleKey]);
     if (f.x && map.xKey) f.x.value = String(c[map.xKey]);
     if (f.y) {
-      if (map.perPlayerShift) f.y.value = String(c[`PI_P${editSelected.player}_SHIFT_Y`]);
+      if (map.perPlayerShift) f.y.value = String(c[shiftKeyForPlayer(editSelected.player)]);
       else if (map.yKey) f.y.value = String(c[map.yKey]);
     }
     if (f.w && map.widthKey) f.w.value = String(c[map.widthKey]);
     if (f.h && map.heightKey) f.h.value = String(c[map.heightKey]);
   }
 
+  // Resets whichever layer (2-player or, during a 3-4 player match, the independent 3-4p
+  // layer) is currently being edited back to its default - for grid keys that means reverting
+  // to "auto" (null), i.e. back to deriving from the 2-player value × grid scale.
   function resetEditTarget() {
     if (!editSelected) return;
     const c = cfg();
-    const map = EDIT_KIND_MAP[editSelected.kind];
+    const map = getModeKeys(editSelected.kind);
     const player = editSelected.player;
     if (map.xKey) c[map.xKey] = DEFAULT_CFG[map.xKey];
     if (map.yKey) c[map.yKey] = DEFAULT_CFG[map.yKey];
-    if (map.perPlayerShift) c[`PI_P${player}_SHIFT_Y`] = DEFAULT_CFG[`PI_P${player}_SHIFT_Y`];
+    if (map.perPlayerShift) {
+      const shiftKey = shiftKeyForPlayer(player);
+      c[shiftKey] = DEFAULT_CFG[shiftKey];
+    }
     if (map.fontKey) c[map.fontKey] = DEFAULT_CFG[map.fontKey];
     if (map.scaleKey) c[map.scaleKey] = DEFAULT_CFG[map.scaleKey];
     if (map.widthKey) c[map.widthKey] = DEFAULT_CFG[map.widthKey];
@@ -3528,18 +3677,18 @@ function markCheckoutInTurnBar(turn) {
   }
 
   function beginDrag(target, e, mode) {
-    const map = EDIT_KIND_MAP[target.kind];
+    const map = getModeKeys(target.kind);
     if (!map) return;
     if (mode === "move" && map.moveDisabled) return;
     const c = cfg();
     const rect = target.el.getBoundingClientRect();
     editDragState = {
-      mode, target,
+      mode, target, map,
       startClientX: e.clientX, startClientY: e.clientY,
-      startX: map.xKey ? (Number(c[map.xKey]) || 0) : 0,
-      startY: map.perPlayerShift ? (Number(c[`PI_P${target.player}_SHIFT_Y`]) || 0) : (map.yKey ? (Number(c[map.yKey]) || 0) : 0),
-      startFont: map.fontKey ? (Number(c[map.fontKey]) || DEFAULT_CFG[map.fontKey]) : 0,
-      startScale: map.scaleKey ? (Number(c[map.scaleKey]) || DEFAULT_CFG[map.scaleKey]) : 0,
+      startX: map.xKey ? effVal(map, map.xKey) : 0,
+      startY: map.perPlayerShift ? effShiftValue(target.player) : (map.yKey ? effVal(map, map.yKey) : 0),
+      startFont: map.fontKey ? (effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey]) : 0,
+      startScale: map.scaleKey ? (effVal(map, map.scaleKey) || DEFAULT_CFG[(map._base || map).scaleKey]) : 0,
       startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(rect.width)) : 0,
       startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(rect.height)) : 0,
     };
@@ -3549,14 +3698,14 @@ function markCheckoutInTurnBar(turn) {
   function onEditDragMove(e) {
     const st = editDragState;
     if (!st) return;
-    const map = EDIT_KIND_MAP[st.target.kind];
+    const map = st.map || getModeKeys(st.target.kind);
     const c = cfg();
     const dx = e.clientX - st.startClientX;
     const dy = e.clientY - st.startClientY;
 
     if (st.mode === "move") {
       if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
-      if (map.perPlayerShift) c[`PI_P${st.target.player}_SHIFT_Y`] = clamp(Math.round(st.startY + dy), -400, 400);
+      if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.startY + dy), -400, 400);
       else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
     } else if (st.mode === "resize") {
       if (map.resizeMode === "box") {
@@ -3566,7 +3715,7 @@ function markCheckoutInTurnBar(turn) {
         c[map.scaleKey] = clamp(+(st.startScale + dx / 80).toFixed(2), 0.2, 12);
       } else if (map.fontKey) {
         let v = clamp(Math.round(st.startFont + dx), 4, 400);
-        v = clampIfSafe(map.fontKey, v);
+        v = clampIfSafe((map._base || map).fontKey, v);
         c[map.fontKey] = v;
       }
     }
@@ -6087,6 +6236,12 @@ function ensureMainButtonPosition() {
         piSection(pi.secGrid);
         addCheckbox(pi.gridAdjust, ()=>!!c.PI_GRID_ADJUST, v=>{ c.PI_GRID_ADJUST=v; });
         addSlider01(()=>c.PI_GRID_SCALE, v=>c.PI_GRID_SCALE=v, pi.gridScale, 0.05);
+        {
+          const gridInfo = document.createElement("div");
+          gridInfo.textContent = pi.gridIndependentInfo;
+          Object.assign(gridInfo.style, { opacity: "0.7", fontSize: compact ? "11px" : "12px", marginTop: "2px" });
+          box.appendChild(gridInfo);
+        }
 
         // ---- CARD ----
         piSection(pi.secCard);
