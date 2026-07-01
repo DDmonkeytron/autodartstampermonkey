@@ -6,6 +6,12 @@
     "desc": "Bold red/pink/blue per-player Player Info, Neon Blue background, board spins on triples/doubles/tons."
   },
   {
+    "id": "neon-blue",
+    "name": "Neon Blue",
+    "file": "neon-blue.json",
+    "desc": "Same proven Player Info layout, recolored into an all-blue palette (electric cyan, indigo, turquoise, deep navy) over the Neon Blue background, blue triple/double glow. Each player gets a slightly different blue shade, no other colors mixed in."
+  },
+  {
     "id": "neon-green",
     "name": "Neon Green",
     "file": "neon-green.json",
