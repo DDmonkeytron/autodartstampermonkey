@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.26.0
+// @version      2.27.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.26.0";
+  const SCRIPT_VERSION = "2.27.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -199,6 +199,12 @@
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
+
+    // Board / Undo / Next repositioning (Layout Editor, Beta). translate/scale compose with the
+    // existing spin/flash animations instead of clobbering them (same technique as Player Info).
+    BOARD_X_PX: 0, BOARD_Y_PX: 0, BOARD_SCALE: 1,
+    UNDO_BTN_X_PX: 0, UNDO_BTN_Y_PX: 0, UNDO_BTN_SCALE: 1,
+    NEXT_BTN_X_PX: 0, NEXT_BTN_Y_PX: 0, NEXT_BTN_SCALE: 1,
   };
 
   const DEFAULT_CLOCK = {
@@ -432,6 +438,12 @@
         editSharedColor: "Szín (közös minden játékosnál)",
         editPlayerColor: "Szín (csak ennél a játékosnál)",
         editReset: "Elem reset",
+        editOpacity: "Áttetszőség",
+        editGroupScale: "Minden elem méretezése arányosan a kártyával",
+        editGlobalLabel: {
+          throwVal: "Dobás érték", orig: "Eredeti dobás (sarok)", total: "Összpontszám",
+          checkout: "Kiszálló javaslat", board: "Tábla (SVG/kép)", undoBtn: "Vissza gomb", nextBtn: "Következő gomb",
+        },
       },
       skinText: {
         uiScale: "UI méret (scale)",
@@ -644,6 +656,12 @@
         editSharedColor: "Color (shared by all players)",
         editPlayerColor: "Color (this player only)",
         editReset: "Reset element",
+        editOpacity: "Opacity",
+        editGroupScale: "Scale all elements proportionally with the card",
+        editGlobalLabel: {
+          throwVal: "Throw value", orig: "Original throw (corner)", total: "Total score",
+          checkout: "Checkout suggestion", board: "Board (SVG/image)", undoBtn: "Undo button", nextBtn: "Next button",
+        },
       },
       skinText: {
         uiScale: "UI scale",
@@ -856,6 +874,12 @@
         editSharedColor: "Farbe (gemeinsam für alle Spieler)",
         editPlayerColor: "Farbe (nur dieser Spieler)",
         editReset: "Element zurücksetzen",
+        editOpacity: "Deckkraft",
+        editGroupScale: "Alle Elemente proportional mit der Karte skalieren",
+        editGlobalLabel: {
+          throwVal: "Wurfwert", orig: "Ursprünglicher Wurf (Ecke)", total: "Gesamtpunktzahl",
+          checkout: "Checkout-Vorschlag", board: "Board (SVG/Bild)", undoBtn: "Rückgängig-Button", nextBtn: "Weiter-Button",
+        },
       },
       skinText: {
         uiScale: "UI Skalierung",
@@ -1689,6 +1713,24 @@
 }
 `);
       }
+
+      // Board / Undo / Next repositioning (Layout Editor, Beta). translate/scale are independent
+      // CSS properties, so they compose with the spin/flash keyframe animations (which animate
+      // `transform`) instead of clobbering them - same technique as the Player Info elements.
+      css.push(`
+.${BOARD_HOST_CLASS}, .${BOARD_VISUAL_CLASS}, svg.ad-board-svg, img.ad-board-img{
+  translate: ${clamp(Number.isFinite(+c.BOARD_X_PX) ? +c.BOARD_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.BOARD_Y_PX) ? +c.BOARD_Y_PX : 0, -1000, 1000)}px !important;
+  scale: ${clamp(Number.isFinite(+c.BOARD_SCALE) ? +c.BOARD_SCALE : 1, 0.3, 3)} !important;
+}
+.ad-core-btn-undo{
+  translate: ${clamp(Number.isFinite(+c.UNDO_BTN_X_PX) ? +c.UNDO_BTN_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.UNDO_BTN_Y_PX) ? +c.UNDO_BTN_Y_PX : 0, -1000, 1000)}px !important;
+  scale: ${clamp(Number.isFinite(+c.UNDO_BTN_SCALE) ? +c.UNDO_BTN_SCALE : 1, 0.3, 3)} !important;
+}
+.ad-core-btn-next{
+  translate: ${clamp(Number.isFinite(+c.NEXT_BTN_X_PX) ? +c.NEXT_BTN_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.NEXT_BTN_Y_PX) ? +c.NEXT_BTN_Y_PX : 0, -1000, 1000)}px !important;
+  scale: ${clamp(Number.isFinite(+c.NEXT_BTN_SCALE) ? +c.NEXT_BTN_SCALE : 1, 0.3, 3)} !important;
+}
+`);
 
       if (c.TRIPLE_ANIM) {
         css.push(`
@@ -3236,6 +3278,37 @@ function markCheckoutInTurnBar(turn) {
                gWidthKey: "PI_G_CARD_WIDTH_PX", gHeightKey: "PI_G_CARD_HEIGHT_PX" },
   };
 
+  // Global (not per-player) targets: exist once on the page, not once per card. throwVal/orig/
+  // total/checkout style-only (font/color/opacity, no position - Autodarts positions them
+  // natively); board/undoBtn/nextBtn are move+scale only (Beta - board/button detection has no
+  // stable id/class to key off, see BOARD_VISUAL_CLASS / tagActionButtons()).
+  const GLOBAL_EDIT_MAP = {
+    throwVal: { fontKey: "THROW_VAL_FONT_PX", colorKey: "THROW_VAL_COLOR_HEX", opacityKey: "THROW_VAL_OPACITY", global: true },
+    orig:     { fontKey: "ORIG_FONT_PX",      colorKey: "ORIG_COLOR_HEX",      opacityKey: "ORIG_OPACITY",      global: true },
+    total:    { fontKey: "TOTAL_FONT_PX",     colorKey: "TOTAL_COLOR_HEX",     opacityKey: "TOTAL_OPACITY",     global: true },
+    checkout: { fontKey: "CHECKOUT_FONT_PX",  colorKey: "CHECKOUT_COLOR_HEX",  opacityKey: "CHECKOUT_OPACITY",  global: true },
+    board:    { xKey: "BOARD_X_PX",        yKey: "BOARD_Y_PX",        scaleKey: "BOARD_SCALE",        resizeMode: "scale", global: true },
+    undoBtn:  { xKey: "UNDO_BTN_X_PX",     yKey: "UNDO_BTN_Y_PX",     scaleKey: "UNDO_BTN_SCALE",      resizeMode: "scale", global: true },
+    nextBtn:  { xKey: "NEXT_BTN_X_PX",     yKey: "NEXT_BTN_Y_PX",     scaleKey: "NEXT_BTN_SCALE",      resizeMode: "scale", global: true },
+  };
+  const GLOBAL_EDIT_SELECTORS = {
+    total: ".ad-ext-turn-total-value",
+    checkout: ".ad-ext-turn-checkout-value",
+    board: "." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
+    undoBtn: ".ad-core-btn-undo",
+    nextBtn: ".ad-core-btn-next",
+  };
+  // throwVal and orig share the same <p> (the big value renders via ::after, the small corner
+  // origin label via ::before - both pseudo-elements, so the real hit target is the <p> itself).
+  // Disambiguate by click position: bottom-right ~35% of the card is "orig" (it's CSS-anchored
+  // there via right/bottom), everything else is "throwVal".
+  function classifyThrowClick(el, clientX, clientY) {
+    const r = el.getBoundingClientRect();
+    const fx = (clientX - r.left) / (r.width || 1);
+    const fy = (clientY - r.top) / (r.height || 1);
+    return (fx > 0.65 && fy > 0.65) ? "orig" : "throwVal";
+  }
+
   function isGridMode() {
     const host = document.querySelector("#ad-ext-player-display");
     if (!host) return false;
@@ -3253,8 +3326,8 @@ function markCheckoutInTurnBar(turn) {
   // a 3-4 player match is currently active. Falls back to the 2-player keys when not in grid mode
   // (or when a kind has no grid counterpart, e.g. color keys stay shared between both layouts).
   function getModeKeys(kind) {
-    const base = EDIT_KIND_MAP[kind];
-    if (!base || !isGridMode()) return base;
+    const base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
+    if (!base || base.global || !isGridMode()) return base;
     return {
       ...base,
       xKey: base.gXKey || base.xKey,
@@ -3298,6 +3371,39 @@ function markCheckoutInTurnBar(turn) {
     return 0;
   }
 
+  // "Scale all elements proportionally with the card" (card popover checkbox, off by default -
+  // normal card resize only touches PI_CARD_WIDTH/HEIGHT_PX). Each pair is [2-player key, grid key];
+  // groupScaleActiveKey() picks whichever is live right now, groupScaleEffValue() derives its
+  // current effective number (same null-handling as effVal, just against explicit key pairs
+  // instead of an EDIT_KIND_MAP entry).
+  let groupResizeEnabled = false;
+  const GROUP_SCALE_PAIRS = [
+    ["PI_NAME_FONT_PX", "PI_G_NAME_FONT_PX"], ["PI_SCORE_FONT_PX", "PI_G_SCORE_FONT_PX"],
+    ["PI_AVG_FONT_PX", "PI_G_AVG_FONT_PX"], ["PI_HISTORY_FONT_PX", "PI_G_HISTORY_FONT_PX"],
+    ["PI_AVATAR_SCALE", "PI_G_AVATAR_SCALE"], ["PI_STACK_GAP_PX", "PI_G_STACK_GAP_PX"],
+    ["PI_NAME_X_PX", "PI_G_NAME_X_PX"], ["PI_NAME_Y_PX", "PI_G_NAME_Y_PX"],
+    ["PI_SCORE_X_PX", "PI_G_SCORE_X_PX"], ["PI_SCORE_Y_PX", "PI_G_SCORE_Y_PX"],
+    ["PI_AVG_X_PX", "PI_G_AVG_X_PX"], ["PI_AVG_Y_PX", "PI_G_AVG_Y_PX"],
+    ["PI_HISTORY_X_PX", "PI_G_HISTORY_X_PX"], ["PI_HISTORY_OFFSET_PX", "PI_G_HISTORY_OFFSET_PX"],
+    ["PI_AVATAR_X_PX", "PI_G_AVATAR_X_PX"], ["PI_AVATAR_OFFSET_PX", "PI_G_AVATAR_OFFSET_PX"],
+    ["PI_P1_SHIFT_Y", "PI_G_P1_SHIFT_Y"], ["PI_P2_SHIFT_Y", "PI_G_P2_SHIFT_Y"],
+    ["PI_P3_SHIFT_Y", "PI_G_P3_SHIFT_Y"], ["PI_P4_SHIFT_Y", "PI_G_P4_SHIFT_Y"],
+  ];
+  const GROUP_SCALE_BOX_PAIRS = [
+    ["PI_HISTORY_WIDTH_PX", "PI_G_HISTORY_WIDTH_PX"], ["PI_HISTORY_HEIGHT_PX", "PI_G_HISTORY_HEIGHT_PX"],
+  ];
+  function groupScaleActiveKey(pair) {
+    return isGridMode() ? pair[1] : pair[0];
+  }
+  function groupScaleEffValue(pair) {
+    const c = cfg();
+    const key = groupScaleActiveKey(pair);
+    const raw = c[key];
+    if (raw !== null && raw !== undefined && raw !== "") return Number(raw) || 0;
+    if (isGridMode()) return gridDerive(null, c[pair[0]], gridScaleFactor());
+    return Number(DEFAULT_CFG[key]) || 0;
+  }
+
   let editModeOn = false;
   let editHoverTarget = null;
   let editSelected = null;
@@ -3307,38 +3413,63 @@ function markCheckoutInTurnBar(turn) {
   let __adEditInit = false;
 
   function getEditTargets() {
-    const host = document.querySelector("#ad-ext-player-display");
-    if (!host) return [];
     const out = [];
-    Array.from(host.children).forEach((cardEl, i) => {
-      const player = i + 1;
-      if (player > 4) return;
-      for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
-        const el = cardEl.querySelector(sel);
-        if (el) out.push({ el, kind, player, card: cardEl });
-      }
-      out.push({ el: cardEl, kind: "card", player, card: cardEl });
-    });
+    const host = document.querySelector("#ad-ext-player-display");
+    if (host) {
+      Array.from(host.children).forEach((cardEl, i) => {
+        const player = i + 1;
+        if (player > 4) return;
+        for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
+          const el = cardEl.querySelector(sel);
+          if (el) out.push({ el, kind, player, card: cardEl });
+        }
+        out.push({ el: cardEl, kind: "card", player, card: cardEl });
+      });
+    }
+    const throwP = document.querySelector(".ad-ext-turn-throw p");
+    if (throwP) {
+      out.push({ el: throwP, kind: "throwVal", player: 0, card: null });
+      out.push({ el: throwP, kind: "orig", player: 0, card: null });
+    }
+    for (const [kind, sel] of Object.entries(GLOBAL_EDIT_SELECTORS)) {
+      const el = document.querySelector(sel);
+      if (el) out.push({ el, kind, player: 0, card: null });
+    }
     return out;
   }
 
-  function hitTestEditTarget(rawTarget) {
+  function hitTestEditTarget(rawTarget, clientX, clientY) {
     if (!rawTarget || !rawTarget.closest) return null;
+
     const host = document.querySelector("#ad-ext-player-display");
-    if (!host || !host.contains(rawTarget)) return null;
-    const cards = Array.from(host.children);
-    for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
-      const el = rawTarget.closest(sel);
-      if (el && host.contains(el)) {
-        const card = cards.find((c) => c.contains(el));
-        const player = card ? cards.indexOf(card) + 1 : 0;
-        if (player >= 1 && player <= 4) return { el, kind, player, card };
+    if (host && host.contains(rawTarget)) {
+      const cards = Array.from(host.children);
+      for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
+        const el = rawTarget.closest(sel);
+        if (el && host.contains(el)) {
+          const card = cards.find((c) => c.contains(el));
+          const player = card ? cards.indexOf(card) + 1 : 0;
+          if (player >= 1 && player <= 4) return { el, kind, player, card };
+        }
       }
+      const card = cards.find((c) => c.contains(rawTarget));
+      if (card) {
+        const player = cards.indexOf(card) + 1;
+        if (player >= 1 && player <= 4) return { el: card, kind: "card", player, card };
+      }
+      return null;
     }
-    const card = cards.find((c) => c.contains(rawTarget));
-    if (card) {
-      const player = cards.indexOf(card) + 1;
-      if (player >= 1 && player <= 4) return { el: card, kind: "card", player, card };
+
+    // throwVal/orig share the same <p> (both render via ::before/::after pseudo-content)
+    const throwEl = rawTarget.closest(".ad-ext-turn-throw p");
+    if (throwEl) {
+      const kind = classifyThrowClick(throwEl, clientX, clientY);
+      return { el: throwEl, kind, player: 0, card: null };
+    }
+
+    for (const [kind, sel] of Object.entries(GLOBAL_EDIT_SELECTORS)) {
+      const el = rawTarget.closest(sel);
+      if (el) return { el, kind, player: 0, card: null };
     }
     return null;
   }
@@ -3459,7 +3590,9 @@ function markCheckoutInTurnBar(turn) {
     const gridMode = !!map._gridMode;
     const player = editSelected.player;
     const prefixes = [pi.p1Prefix, pi.p2Prefix, pi.p3Prefix, pi.p4Prefix];
-    const elLabel = editSelected.kind === "card" ? pi.secCard : (pi.el[PI_EL_KEY[editSelected.kind]] || editSelected.kind);
+    const elLabel = editSelected.kind === "card" ? pi.secCard
+      : (map.global ? (pi.editGlobalLabel[editSelected.kind] || editSelected.kind)
+      : (pi.el[PI_EL_KEY[editSelected.kind]] || editSelected.kind));
 
     editPopoverEl.textContent = "";
     editPopoverEl._fields = {};
@@ -3468,7 +3601,7 @@ function markCheckoutInTurnBar(turn) {
     const head = document.createElement("div");
     Object.assign(head.style, { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" });
     const title = document.createElement("div");
-    title.textContent = `${elLabel} — ${prefixes[player - 1] || ("P" + player)}${gridMode ? " · 3-4P" : ""}`;
+    title.textContent = map.global ? elLabel : `${elLabel} — ${prefixes[player - 1] || ("P" + player)}${gridMode ? " · 3-4P" : ""}`;
     Object.assign(title.style, { fontWeight: "900", fontSize: "13px" });
     const closeX = document.createElement("div");
     closeX.textContent = "✕";
@@ -3555,7 +3688,48 @@ function markCheckoutInTurnBar(turn) {
       fields.h = input;
     }
 
-    if (map.colorKey) {
+    if (editSelected.kind === "card") {
+      const chkRow = document.createElement("label");
+      Object.assign(chkRow.style, { display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", opacity: "0.85", cursor: "pointer", margin: "2px 0 6px" });
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.checked = groupResizeEnabled;
+      chk.addEventListener("change", () => { groupResizeEnabled = chk.checked; });
+      chkRow.appendChild(chk);
+      chkRow.appendChild(document.createTextNode(pi.editGroupScale));
+      editPopoverEl.appendChild(chkRow);
+    }
+
+    if (map.opacityKey) {
+      const v = Number(c[map.opacityKey]);
+      const { row, input } = numRow(pi.editOpacity, Number.isFinite(v) ? v : 1, 0.05, (nv) => {
+        const vv = clamp(+nv.toFixed(2), 0, 1);
+        c[map.opacityKey] = vv;
+        input.value = String(vv);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.opacity = input;
+    }
+
+    if (map.global && map.colorKey) {
+      const sep = document.createElement("div");
+      Object.assign(sep.style, { height: "1px", background: "rgba(255,255,255,.12)", margin: "8px 0" });
+      editPopoverEl.appendChild(sep);
+
+      const row = document.createElement("div");
+      Object.assign(row.style, { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" });
+      const lab = document.createElement("div");
+      lab.textContent = pi.editSharedColor;
+      Object.assign(lab.style, { opacity: "0.85", fontSize: "12px" });
+      const inp = document.createElement("input");
+      inp.type = "color";
+      inp.value = sanitizeHex(c[map.colorKey], "#ffffff");
+      Object.assign(inp.style, { width: "36px", height: "26px", border: "none", background: "none", cursor: "pointer" });
+      inp.addEventListener("input", () => { c[map.colorKey] = inp.value; applyEditChange(); });
+      row.appendChild(lab); row.appendChild(inp);
+      editPopoverEl.appendChild(row);
+    } else if (map.colorKey) {
       const sep = document.createElement("div");
       Object.assign(sep.style, { height: "1px", background: "rgba(255,255,255,.12)", margin: "8px 0" });
       editPopoverEl.appendChild(sep);
@@ -3651,6 +3825,7 @@ function markCheckoutInTurnBar(turn) {
     if (map.scaleKey) c[map.scaleKey] = DEFAULT_CFG[map.scaleKey];
     if (map.widthKey) c[map.widthKey] = DEFAULT_CFG[map.widthKey];
     if (map.heightKey) c[map.heightKey] = DEFAULT_CFG[map.heightKey];
+    if (map.opacityKey) c[map.opacityKey] = DEFAULT_CFG[map.opacityKey];
     if (map.colorKey) {
       c[map.colorKey] = DEFAULT_CFG[map.colorKey];
       if (map.perPlayerColorPrefix && player >= 2) {
@@ -3691,6 +3866,12 @@ function markCheckoutInTurnBar(turn) {
       startScale: map.scaleKey ? (effVal(map, map.scaleKey) || DEFAULT_CFG[(map._base || map).scaleKey]) : 0,
       startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(rect.width)) : 0,
       startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(rect.height)) : 0,
+      groupSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
+        ? GROUP_SCALE_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
+        : null,
+      groupBoxSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
+        ? GROUP_SCALE_BOX_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
+        : null,
     };
     document.body.style.userSelect = "none";
   }
@@ -3711,6 +3892,17 @@ function markCheckoutInTurnBar(turn) {
       if (map.resizeMode === "box") {
         if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
         if (map.heightKey) c[map.heightKey] = clamp(Math.round(st.startH + dy), 20, 2000);
+        if (st.groupSnapshot) {
+          const ratio = clamp((st.startW + dx) / (st.startW || 1), 0.4, 3);
+          for (const { key, value } of st.groupSnapshot) {
+            c[key] = /_FONT_PX$|_SCALE$|_GAP_PX$/.test(key)
+              ? clamp(+(value * ratio).toFixed(2), 0.2, 400)
+              : Math.round(value * ratio);
+          }
+          for (const { key, value } of st.groupBoxSnapshot) {
+            if (value > 0) c[key] = clamp(Math.round(value * ratio), 20, 2000);
+          }
+        }
       } else if (map.resizeMode === "scale") {
         c[map.scaleKey] = clamp(+(st.startScale + dx / 80).toFixed(2), 0.2, 12);
       } else if (map.fontKey) {
@@ -3788,24 +3980,22 @@ function markCheckoutInTurnBar(turn) {
       if (e.button != null && e.button !== 0) return;
       if (e.target.closest && e.target.closest("#ad-edit-popover, #ad-edit-handle, #ad-edit-hint")) return;
 
-      // Only intercept clicks inside the player-display area, so Undo/Next/board
-      // clicks elsewhere on the page keep working normally while editing.
-      const host = document.querySelector("#ad-ext-player-display");
-      if (!host || !host.contains(e.target)) return;
-
-      const hit = hitTestEditTarget(e.target);
-      e.preventDefault(); e.stopImmediatePropagation();
+      // Only intercept the click if it actually hit something we know how to edit, so anything
+      // else on the page (settings gear, Undo/Next when they DON'T resolve to a known target,
+      // etc.) keeps working normally while editing.
+      const hit = hitTestEditTarget(e.target, e.clientX, e.clientY);
       if (!hit) { selectEditTarget(null); return; }
 
+      e.preventDefault(); e.stopImmediatePropagation();
       selectEditTarget(hit);
-      const map = EDIT_KIND_MAP[hit.kind];
+      const map = EDIT_KIND_MAP[hit.kind] || GLOBAL_EDIT_MAP[hit.kind];
       if (!map.moveDisabled) beginDrag(hit, e, "move");
     }, true);
 
     document.addEventListener("pointermove", (e) => {
       if (!editModeOn) return;
       if (editDragState) { onEditDragMove(e); return; }
-      const hit = hitTestEditTarget(e.target);
+      const hit = hitTestEditTarget(e.target, e.clientX, e.clientY);
       setHoverTarget(hit);
     }, true);
 
@@ -4074,6 +4264,20 @@ const RE_FINISH = /(finish|befejez|beenden)/i;
 
 // ✅ ezekre a gombokra azonnal álljon le
 const RE_STOP_BTN = /(finish|befejez|beenden|next\s*leg|következő\s*leg|nächste\s*leg|naechste\s*leg|next\s*set|következő\s*set|nächste\s*set|naechste\s*set)/i;
+
+// Layout Editor (Beta): best-effort text-based detection for the Undo/Next buttons, since Autodarts
+// gives them no stable id/class. Matched on trimmed textContent + aria-label, HU/EN/DE only - if
+// your Autodarts UI language differs, or these labels change, the buttons just won't tag (no error).
+const RE_UNDO_BTN = /^(undo|vissza|rückgängig|rueckgaengig)$/i;
+const RE_NEXT_BTN = /^(next|következő|kovetkezo|weiter)$/i;
+function tagActionButtons() {
+  const btns = document.querySelectorAll("button");
+  for (const b of btns) {
+    const txt = ((b.textContent || "").trim());
+    if (RE_UNDO_BTN.test(txt)) b.classList.add("ad-core-btn-undo");
+    else if (RE_NEXT_BTN.test(txt)) b.classList.add("ad-core-btn-next");
+  }
+}
 
 function safe(fn) { try { return fn(); } catch {} }
 
@@ -4450,6 +4654,7 @@ function scanWinMusic() {
       }
 
       if (c.PLAYER_INFO) tagPlayerInfo();
+      tagActionButtons();
 
       const turn = document.querySelector("#ad-ext-turn");
       const gameActive = !!turn;
@@ -6160,8 +6365,6 @@ function ensureMainButtonPosition() {
         editRow.style.marginBottom = "10px";
         const editBtn = mkButton(pi.editModeOn, () => setEditMode(true), "primary", compact);
         editBtn.style.width = "100%";
-        editBtn.style.opacity = c.PLAYER_INFO ? "1" : "0.45";
-        editBtn.style.pointerEvents = c.PLAYER_INFO ? "auto" : "none";
         editRow.appendChild(editBtn);
         const editHintRow = document.createElement("div");
         editHintRow.textContent = pi.editHint;
