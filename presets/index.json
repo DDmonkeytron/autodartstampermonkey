@@ -12,6 +12,18 @@
     "desc": "Full Player Info sizing (same layout as Neon Blaze) in a green/teal/lime palette, dark-tinted cards, green triple/double glow. Each player gets a slightly different green shade."
   },
   {
+    "id": "black-gold",
+    "name": "Black & Gold",
+    "file": "black-gold.json",
+    "desc": "Same proven Player Info layout, recolored gold/amber/champagne on near-black tinted cards, heavier background darkening, gold triple glow. Each player gets a slightly different gold shade."
+  },
+  {
+    "id": "silver",
+    "name": "Silver",
+    "file": "silver.json",
+    "desc": "Platinum/steel-grey per-player palette over the Neon Blue background, dark slate-tinted cards, white/steel-blue board glow. Each player gets a slightly different silver-blue shade."
+  },
+  {
     "id": "native",
     "name": "Native",
     "file": "native.json",
