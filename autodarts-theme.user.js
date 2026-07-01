@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.24.1
+// @version      2.25.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -11,13 +11,13 @@
 // @supportURL   https://github.com/DDmonkeytron/autodartstampermonkey/issues
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
-// @description  CORE panel with presets + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module. Includes performance optimizations (dirty flags + scoped observers).
+// @description  CORE panel with presets + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module + theme gallery (GitHub-hosted) + click/drag Layout Editor (Beta) for Player Info. Includes performance optimizations (dirty flags + scoped observers).
 // ==/UserScript==
 
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.24.1";
+  const SCRIPT_VERSION = "2.25.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -403,6 +403,19 @@
         avgColor: "Átlagok szín",
         historyColor: "Előzmény szín",
         info: "Átméretezi/színezi a játékos kártya szövegeit. A 'Játékos infó' kapcsolót be kell kapcsolni. Nagy betűknél a 'Függőleges térköz' és az 'Előzmény tábla pozíció' segít az átfedés ellen. A színekhez kapcsold be a 'Saját színek'-et. (Autodarts frissítésnél a szelektorok változhatnak.)",
+        editModeOn: "🖱️ Elrendezés szerkesztő (Beta)",
+        editModeOff: "✖ Szerkesztés befejezése",
+        editHint: "BETA: Kattints egy elemre a kijelöléshez, húzd az áthelyezéshez, a sárga négyzetet az átméretezéshez. Esc vagy Befejezés a kilépéshez.",
+        editNeedMatch: "Nyiss meg egy meccset a szerkesztéshez.",
+        editWidth: "Szélesség",
+        editHeight: "Magasság",
+        editScale: "Méret (scale)",
+        editFont: "Betűméret",
+        editEnableCustom: "Saját színek bekapcsolása",
+        editEnablePerPlayer: "Játékosonkénti színek bekapcsolása",
+        editSharedColor: "Szín (közös minden játékosnál)",
+        editPlayerColor: "Szín (csak ennél a játékosnál)",
+        editReset: "Elem reset",
       },
       skinText: {
         uiScale: "UI méret (scale)",
@@ -601,6 +614,19 @@
         avgColor: "Averages color",
         historyColor: "History color",
         info: "Resizes/colors the player-card texts. Turn the 'Player Info' module ON. For large fonts, 'Vertical spacing' and 'History table position' help avoid overlap. For colors, enable 'Custom colors'. (Selectors may change after an Autodarts update.)",
+        editModeOn: "🖱️ Layout Editor (Beta)",
+        editModeOff: "✖ Exit Layout Editor",
+        editHint: "BETA: Click an element to select it, drag to move, drag the yellow square to resize. Esc or Exit to finish.",
+        editNeedMatch: "Open a match to use the layout editor.",
+        editWidth: "Width",
+        editHeight: "Height",
+        editScale: "Scale",
+        editFont: "Font size",
+        editEnableCustom: "Enable custom colors",
+        editEnablePerPlayer: "Enable per-player colors",
+        editSharedColor: "Color (shared by all players)",
+        editPlayerColor: "Color (this player only)",
+        editReset: "Reset element",
       },
       skinText: {
         uiScale: "UI scale",
@@ -799,6 +825,19 @@
         avgColor: "Durchschnitte Farbe",
         historyColor: "Verlauf Farbe",
         info: "Ändert Größe/Farbe der Spielerkarten-Texte. Schalter 'Spieler-Info' aktivieren. Bei großen Schriften helfen 'Vertikaler Abstand' und 'Verlauf-Tabelle Position' gegen Überlappung. Für Farben 'Eigene Farben' aktivieren. (Selektoren können sich nach einem Autodarts-Update ändern.)",
+        editModeOn: "🖱️ Layout-Editor (Beta)",
+        editModeOff: "✖ Editor beenden",
+        editHint: "BETA: Klick auf ein Element zum Auswählen, ziehen zum Verschieben, das gelbe Quadrat zum Ändern der Größe. Esc oder Beenden zum Schließen.",
+        editNeedMatch: "Öffne ein Match, um den Layout-Editor zu nutzen.",
+        editWidth: "Breite",
+        editHeight: "Höhe",
+        editScale: "Größe (scale)",
+        editFont: "Schriftgröße",
+        editEnableCustom: "Eigene Farben aktivieren",
+        editEnablePerPlayer: "Farben je Spieler aktivieren",
+        editSharedColor: "Farbe (gemeinsam für alle Spieler)",
+        editPlayerColor: "Farbe (nur dieser Spieler)",
+        editReset: "Element zurücksetzen",
       },
       skinText: {
         uiScale: "UI Skalierung",
@@ -3089,6 +3128,578 @@ function markCheckoutInTurnBar(turn) {
       for (const p of ps) {
         if ((p.textContent || "").includes("∅")) p.classList.add("ad-core-pi-avg");
       }
+    }
+  }
+
+  /* ================== LAYOUT EDITOR (click/drag Player Info elements live) ================== */
+  // Photoshop-style direct manipulation for the same PI_* config keys the
+  // Player Info sliders already control. Body-drag = move (translate X/Y or,
+  // for name/avg/avatar, that player's PI_P{n}_SHIFT_Y nudge, since those are
+  // the only per-player position keys that exist). Corner-handle drag = resize:
+  // font-size for text elements, PI_AVATAR_SCALE for the avatar, width/height
+  // for the two elements that actually have box dimensions (history, card).
+  const EDIT_ELEMENT_SELECTORS = {
+    name: ".ad-ext-player-name",
+    score: ".ad-ext-player-score",
+    avg: ".ad-core-pi-avg",
+    history: ".css-1u90hiz",
+    avatar: ".css-1psdi5l",
+  };
+  const PI_EL_KEY = { name: "name", score: "score", avg: "average", history: "history", avatar: "avatar" };
+  const EDIT_KIND_MAP = {
+    name:    { xKey: "PI_NAME_X_PX",    yKey: "PI_NAME_Y_PX",    fontKey: "PI_NAME_FONT_PX",    colorKey: "PI_NAME_COLOR_HEX",    perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_NAME_COLOR_HEX" },
+    score:   { xKey: "PI_SCORE_X_PX",   yKey: "PI_SCORE_Y_PX",   fontKey: "PI_SCORE_FONT_PX",   colorKey: "PI_SCORE_COLOR_HEX",   perPlayerShift: false, perPlayerColorPrefix: "PI_P{n}_SCORE_COLOR_HEX" },
+    avg:     { xKey: "PI_AVG_X_PX",     yKey: "PI_AVG_Y_PX",     fontKey: "PI_AVG_FONT_PX",     colorKey: "PI_AVG_COLOR_HEX",     perPlayerShift: true,  perPlayerColorPrefix: "PI_P{n}_AVG_COLOR_HEX" },
+    history: { xKey: "PI_HISTORY_X_PX", yKey: "PI_HISTORY_OFFSET_PX", fontKey: "PI_HISTORY_FONT_PX", colorKey: "PI_HISTORY_COLOR_HEX", perPlayerShift: false, perPlayerColorPrefix: "PI_P{n}_HISTORY_COLOR_HEX",
+               widthKey: "PI_HISTORY_WIDTH_PX", heightKey: "PI_HISTORY_HEIGHT_PX", resizeMode: "box" },
+    avatar:  { xKey: "PI_AVATAR_X_PX",  yKey: "PI_AVATAR_OFFSET_PX", perPlayerShift: true, scaleKey: "PI_AVATAR_SCALE", resizeMode: "scale" },
+    card:    { widthKey: "PI_CARD_WIDTH_PX", heightKey: "PI_CARD_HEIGHT_PX", resizeMode: "box", moveDisabled: true },
+  };
+
+  let editModeOn = false;
+  let editHoverTarget = null;
+  let editSelected = null;
+  let editDragState = null;
+  let editRafHandle = null;
+  let editHoverBox = null, editSelectBox = null, editHandleEl = null, editPopoverEl = null, editHintEl = null, editHintTextEl = null, editExitBtn = null;
+  let __adEditInit = false;
+
+  function getEditTargets() {
+    const host = document.querySelector("#ad-ext-player-display");
+    if (!host) return [];
+    const out = [];
+    Array.from(host.children).forEach((cardEl, i) => {
+      const player = i + 1;
+      if (player > 4) return;
+      for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
+        const el = cardEl.querySelector(sel);
+        if (el) out.push({ el, kind, player, card: cardEl });
+      }
+      out.push({ el: cardEl, kind: "card", player, card: cardEl });
+    });
+    return out;
+  }
+
+  function hitTestEditTarget(rawTarget) {
+    if (!rawTarget || !rawTarget.closest) return null;
+    const host = document.querySelector("#ad-ext-player-display");
+    if (!host || !host.contains(rawTarget)) return null;
+    const cards = Array.from(host.children);
+    for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
+      const el = rawTarget.closest(sel);
+      if (el && host.contains(el)) {
+        const card = cards.find((c) => c.contains(el));
+        const player = card ? cards.indexOf(card) + 1 : 0;
+        if (player >= 1 && player <= 4) return { el, kind, player, card };
+      }
+    }
+    const card = cards.find((c) => c.contains(rawTarget));
+    if (card) {
+      const player = cards.indexOf(card) + 1;
+      if (player >= 1 && player <= 4) return { el: card, kind: "card", player, card };
+    }
+    return null;
+  }
+
+  function reresolveSelection() {
+    if (!editSelected) return;
+    if (editSelected.el && editSelected.el.isConnected) return;
+    const match = getEditTargets().find((t) => t.kind === editSelected.kind && t.player === editSelected.player);
+    editSelected = match || null;
+    if (!editSelected) renderEditPopoverContent();
+  }
+
+  function ensureEditOverlayEls() {
+    if (editHoverBox) return;
+
+    editHoverBox = document.createElement("div");
+    Object.assign(editHoverBox.style, {
+      position: "fixed", pointerEvents: "none", zIndex: 2147483000,
+      border: "2px dashed rgba(120,200,255,.9)", borderRadius: "6px",
+      display: "none", boxSizing: "border-box",
+    });
+    document.body.appendChild(editHoverBox);
+
+    editSelectBox = document.createElement("div");
+    Object.assign(editSelectBox.style, {
+      position: "fixed", pointerEvents: "none", zIndex: 2147483001,
+      border: "2px solid rgba(255,210,60,.95)", borderRadius: "6px",
+      display: "none", boxSizing: "border-box",
+    });
+    document.body.appendChild(editSelectBox);
+
+    editHandleEl = document.createElement("div");
+    editHandleEl.id = "ad-edit-handle";
+    Object.assign(editHandleEl.style, {
+      position: "fixed", width: "14px", height: "14px", marginLeft: "-7px", marginTop: "-7px",
+      background: "rgba(255,210,60,.95)", border: "2px solid #000", borderRadius: "3px",
+      cursor: "nwse-resize", zIndex: 2147483002, display: "none", pointerEvents: "auto",
+    });
+    document.body.appendChild(editHandleEl);
+    editHandleEl.addEventListener("pointerdown", (e) => {
+      if (!editSelected) return;
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      beginDrag(editSelected, e, "resize");
+    });
+
+    editHintEl = document.createElement("div");
+    editHintEl.id = "ad-edit-hint";
+    Object.assign(editHintEl.style, {
+      position: "fixed", left: "50%", top: "12px", transform: "translateX(-50%)",
+      display: "none", alignItems: "center", gap: "10px",
+      padding: "8px 10px 8px 14px", background: "rgba(0,0,0,.85)", color: "#fff",
+      fontFamily: "Arial, system-ui, sans-serif", fontWeight: "800", fontSize: "12.5px",
+      borderRadius: "10px", zIndex: 2147483003, border: "1px solid rgba(255,255,255,.18)",
+      maxWidth: "640px", textAlign: "left",
+    });
+    editHintTextEl = document.createElement("span");
+    editHintEl.appendChild(editHintTextEl);
+    const exitBtn = document.createElement("button");
+    exitBtn.id = "ad-edit-exit";
+    exitBtn.textContent = "✖";
+    Object.assign(exitBtn.style, {
+      flex: "0 0 auto", padding: "4px 10px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.3)",
+      background: "rgba(255,255,255,.12)", color: "#fff", fontWeight: "900", cursor: "pointer",
+    });
+    exitBtn.addEventListener("click", () => exitEditModeAndReopenPanel());
+    editHintEl.appendChild(exitBtn);
+    document.body.appendChild(editHintEl);
+    editExitBtn = exitBtn;
+  }
+
+  function ensureEditPopover() {
+    if (editPopoverEl) return;
+    editPopoverEl = document.createElement("div");
+    editPopoverEl.id = "ad-edit-popover";
+    Object.assign(editPopoverEl.style, {
+      position: "fixed", zIndex: 2147483004, minWidth: "230px",
+      background: "rgba(10,10,14,.94)", color: "#fff", border: "1px solid rgba(255,255,255,.18)",
+      borderRadius: "12px", padding: "10px 12px", boxShadow: "0 10px 30px rgba(0,0,0,.5)",
+      fontFamily: "Arial, system-ui, sans-serif", display: "none",
+    });
+    document.body.appendChild(editPopoverEl);
+  }
+
+  function numRow(labelText, value, step, onChange) {
+    const row = document.createElement("div");
+    Object.assign(row.style, { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "6px" });
+    const lab = document.createElement("div");
+    lab.textContent = labelText;
+    Object.assign(lab.style, { opacity: "0.85", fontSize: "12px" });
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = String(step);
+    inp.value = String(value);
+    Object.assign(inp.style, {
+      width: "90px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.18)",
+      background: "rgba(255,255,255,.08)", color: "#fff", padding: "4px 6px", fontWeight: "800", fontSize: "12px",
+    });
+    inp.addEventListener("change", () => onChange(Number(inp.value) || 0));
+    row.appendChild(lab); row.appendChild(inp);
+    return { row, input: inp };
+  }
+
+  function applyEditChange() {
+    saveStateDebounced();
+    renderCss();
+    dirtyPlayers(); dirtyTurn();
+    scheduleUpdate();
+  }
+
+  function renderEditPopoverContent() {
+    if (!editPopoverEl) return;
+    if (!editSelected) { editPopoverEl.style.display = "none"; return; }
+    const c = cfg();
+    const L = T();
+    const pi = L.piText;
+    const map = EDIT_KIND_MAP[editSelected.kind];
+    const player = editSelected.player;
+    const prefixes = [pi.p1Prefix, pi.p2Prefix, pi.p3Prefix, pi.p4Prefix];
+    const elLabel = editSelected.kind === "card" ? pi.secCard : (pi.el[PI_EL_KEY[editSelected.kind]] || editSelected.kind);
+
+    editPopoverEl.textContent = "";
+    editPopoverEl._fields = {};
+    const fields = editPopoverEl._fields;
+
+    const head = document.createElement("div");
+    Object.assign(head.style, { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" });
+    const title = document.createElement("div");
+    title.textContent = `${elLabel} — ${prefixes[player - 1] || ("P" + player)}`;
+    Object.assign(title.style, { fontWeight: "900", fontSize: "13px" });
+    const closeX = document.createElement("div");
+    closeX.textContent = "✕";
+    Object.assign(closeX.style, { cursor: "pointer", opacity: "0.7", fontWeight: "900", padding: "0 4px" });
+    closeX.addEventListener("click", () => selectEditTarget(null));
+    head.appendChild(title); head.appendChild(closeX);
+    editPopoverEl.appendChild(head);
+
+    if (map.fontKey) {
+      const v = Number(c[map.fontKey]) || DEFAULT_CFG[map.fontKey];
+      const { row, input } = numRow(pi.editFont, v, 1, (nv) => {
+        let vv = clamp(Math.round(nv), 4, 400);
+        vv = clampIfSafe(map.fontKey, vv);
+        c[map.fontKey] = vv;
+        input.value = String(vv);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.font = input;
+    }
+
+    if (map.scaleKey) {
+      const v = Number(c[map.scaleKey]) || DEFAULT_CFG[map.scaleKey];
+      const { row, input } = numRow(pi.editScale, v, 0.1, (nv) => {
+        const vv = clamp(+nv.toFixed(2), 0.2, 12);
+        c[map.scaleKey] = vv;
+        input.value = String(vv);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.scale = input;
+    }
+
+    if (map.xKey) {
+      const v = Number(c[map.xKey]) || 0;
+      const { row, input } = numRow(`${elLabel} ↔`, v, 1, (nv) => {
+        c[map.xKey] = clamp(Math.round(nv), -1500, 1500);
+        input.value = String(c[map.xKey]);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.x = input;
+    }
+
+    if (map.perPlayerShift) {
+      const shiftKey = `PI_P${player}_SHIFT_Y`;
+      const v = Number(c[shiftKey]) || 0;
+      const { row, input } = numRow(`${elLabel} ↕`, v, 1, (nv) => {
+        c[shiftKey] = clamp(Math.round(nv), -400, 400);
+        input.value = String(c[shiftKey]);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.y = input;
+    } else if (map.yKey) {
+      const v = Number(c[map.yKey]) || 0;
+      const { row, input } = numRow(`${elLabel} ↕`, v, 1, (nv) => {
+        c[map.yKey] = clamp(Math.round(nv), -1500, 1500);
+        input.value = String(c[map.yKey]);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.y = input;
+    }
+
+    if (map.widthKey) {
+      const v = Number(c[map.widthKey]) || 0;
+      const { row, input } = numRow(pi.editWidth, v, 10, (nv) => {
+        c[map.widthKey] = clamp(Math.round(nv), 0, 2000);
+        input.value = String(c[map.widthKey]);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.w = input;
+    }
+    if (map.heightKey) {
+      const v = Number(c[map.heightKey]) || 0;
+      const { row, input } = numRow(pi.editHeight, v, 10, (nv) => {
+        c[map.heightKey] = clamp(Math.round(nv), 0, 2000);
+        input.value = String(c[map.heightKey]);
+        applyEditChange();
+      });
+      editPopoverEl.appendChild(row);
+      fields.h = input;
+    }
+
+    if (map.colorKey) {
+      const sep = document.createElement("div");
+      Object.assign(sep.style, { height: "1px", background: "rgba(255,255,255,.12)", margin: "8px 0" });
+      editPopoverEl.appendChild(sep);
+
+      if (!c.PI_CUSTOM_COLORS) {
+        const btn = document.createElement("button");
+        btn.textContent = pi.editEnableCustom;
+        Object.assign(btn.style, {
+          width: "100%", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.2)",
+          background: "rgba(255,255,255,.08)", color: "#fff", fontWeight: "800", cursor: "pointer", fontSize: "12px",
+        });
+        btn.addEventListener("click", () => { c.PI_CUSTOM_COLORS = true; renderEditPopoverContent(); applyEditChange(); });
+        editPopoverEl.appendChild(btn);
+      } else {
+        const usePerPlayer = player >= 2 && !!c.PI_PER_PLAYER_COLORS;
+        const perKey = map.perPlayerColorPrefix.replace("{n}", player);
+        const activeKey = usePerPlayer ? perKey : map.colorKey;
+        const label = usePerPlayer ? pi.editPlayerColor : pi.editSharedColor;
+
+        const row = document.createElement("div");
+        Object.assign(row.style, { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "6px" });
+        const lab = document.createElement("div");
+        lab.textContent = label;
+        Object.assign(lab.style, { opacity: "0.85", fontSize: "12px" });
+        const inp = document.createElement("input");
+        inp.type = "color";
+        inp.value = sanitizeHex(c[activeKey], "#ffffff");
+        Object.assign(inp.style, { width: "36px", height: "26px", border: "none", background: "none", cursor: "pointer" });
+        inp.addEventListener("input", () => { c[activeKey] = inp.value; applyEditChange(); });
+        row.appendChild(lab); row.appendChild(inp);
+        editPopoverEl.appendChild(row);
+
+        if (player >= 2) {
+          const chkRow = document.createElement("label");
+          Object.assign(chkRow.style, { display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", opacity: "0.85", cursor: "pointer", marginTop: "4px" });
+          const chk = document.createElement("input");
+          chk.type = "checkbox";
+          chk.checked = !!c.PI_PER_PLAYER_COLORS;
+          chk.addEventListener("change", () => { c.PI_PER_PLAYER_COLORS = chk.checked; renderEditPopoverContent(); applyEditChange(); });
+          chkRow.appendChild(chk);
+          chkRow.appendChild(document.createTextNode(pi.editEnablePerPlayer));
+          editPopoverEl.appendChild(chkRow);
+        }
+      }
+    }
+
+    const btnRow = document.createElement("div");
+    Object.assign(btnRow.style, { display: "flex", gap: "8px", marginTop: "10px" });
+    const resetBtn = document.createElement("button");
+    resetBtn.textContent = pi.editReset;
+    Object.assign(resetBtn.style, {
+      flex: "1", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.2)",
+      background: "rgba(255,255,255,.08)", color: "#fff", fontWeight: "800", cursor: "pointer", fontSize: "12px",
+    });
+    resetBtn.addEventListener("click", () => resetEditTarget());
+    btnRow.appendChild(resetBtn);
+    editPopoverEl.appendChild(btnRow);
+
+    editPopoverEl.style.display = "block";
+  }
+
+  function updateEditPopoverFields() {
+    if (!editPopoverEl || !editSelected || !editPopoverEl._fields) return;
+    const c = cfg();
+    const map = EDIT_KIND_MAP[editSelected.kind];
+    const f = editPopoverEl._fields;
+    if (f.font && map.fontKey) f.font.value = String(c[map.fontKey]);
+    if (f.scale && map.scaleKey) f.scale.value = String(c[map.scaleKey]);
+    if (f.x && map.xKey) f.x.value = String(c[map.xKey]);
+    if (f.y) {
+      if (map.perPlayerShift) f.y.value = String(c[`PI_P${editSelected.player}_SHIFT_Y`]);
+      else if (map.yKey) f.y.value = String(c[map.yKey]);
+    }
+    if (f.w && map.widthKey) f.w.value = String(c[map.widthKey]);
+    if (f.h && map.heightKey) f.h.value = String(c[map.heightKey]);
+  }
+
+  function resetEditTarget() {
+    if (!editSelected) return;
+    const c = cfg();
+    const map = EDIT_KIND_MAP[editSelected.kind];
+    const player = editSelected.player;
+    if (map.xKey) c[map.xKey] = DEFAULT_CFG[map.xKey];
+    if (map.yKey) c[map.yKey] = DEFAULT_CFG[map.yKey];
+    if (map.perPlayerShift) c[`PI_P${player}_SHIFT_Y`] = DEFAULT_CFG[`PI_P${player}_SHIFT_Y`];
+    if (map.fontKey) c[map.fontKey] = DEFAULT_CFG[map.fontKey];
+    if (map.scaleKey) c[map.scaleKey] = DEFAULT_CFG[map.scaleKey];
+    if (map.widthKey) c[map.widthKey] = DEFAULT_CFG[map.widthKey];
+    if (map.heightKey) c[map.heightKey] = DEFAULT_CFG[map.heightKey];
+    if (map.colorKey) {
+      c[map.colorKey] = DEFAULT_CFG[map.colorKey];
+      if (map.perPlayerColorPrefix && player >= 2) {
+        const perKey = map.perPlayerColorPrefix.replace("{n}", player);
+        c[perKey] = DEFAULT_CFG[perKey];
+      }
+    }
+    renderEditPopoverContent();
+    applyEditChange();
+    showToast(T().saved);
+  }
+
+  function selectEditTarget(hit) {
+    editSelected = hit;
+    editHoverTarget = null;
+    renderEditPopoverContent();
+    positionEditBoxes();
+  }
+
+  function setHoverTarget(hit) {
+    if (editDragState) return;
+    editHoverTarget = hit;
+    document.body.style.cursor = hit ? (hit.kind === "card" ? "default" : "move") : "";
+  }
+
+  function beginDrag(target, e, mode) {
+    const map = EDIT_KIND_MAP[target.kind];
+    if (!map) return;
+    if (mode === "move" && map.moveDisabled) return;
+    const c = cfg();
+    const rect = target.el.getBoundingClientRect();
+    editDragState = {
+      mode, target,
+      startClientX: e.clientX, startClientY: e.clientY,
+      startX: map.xKey ? (Number(c[map.xKey]) || 0) : 0,
+      startY: map.perPlayerShift ? (Number(c[`PI_P${target.player}_SHIFT_Y`]) || 0) : (map.yKey ? (Number(c[map.yKey]) || 0) : 0),
+      startFont: map.fontKey ? (Number(c[map.fontKey]) || DEFAULT_CFG[map.fontKey]) : 0,
+      startScale: map.scaleKey ? (Number(c[map.scaleKey]) || DEFAULT_CFG[map.scaleKey]) : 0,
+      startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(rect.width)) : 0,
+      startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(rect.height)) : 0,
+    };
+    document.body.style.userSelect = "none";
+  }
+
+  function onEditDragMove(e) {
+    const st = editDragState;
+    if (!st) return;
+    const map = EDIT_KIND_MAP[st.target.kind];
+    const c = cfg();
+    const dx = e.clientX - st.startClientX;
+    const dy = e.clientY - st.startClientY;
+
+    if (st.mode === "move") {
+      if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
+      if (map.perPlayerShift) c[`PI_P${st.target.player}_SHIFT_Y`] = clamp(Math.round(st.startY + dy), -400, 400);
+      else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
+    } else if (st.mode === "resize") {
+      if (map.resizeMode === "box") {
+        if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
+        if (map.heightKey) c[map.heightKey] = clamp(Math.round(st.startH + dy), 20, 2000);
+      } else if (map.resizeMode === "scale") {
+        c[map.scaleKey] = clamp(+(st.startScale + dx / 80).toFixed(2), 0.2, 12);
+      } else if (map.fontKey) {
+        let v = clamp(Math.round(st.startFont + dx), 4, 400);
+        v = clampIfSafe(map.fontKey, v);
+        c[map.fontKey] = v;
+      }
+    }
+
+    applyEditChange();
+    updateEditPopoverFields();
+  }
+
+  function endDrag() {
+    if (!editDragState) return;
+    editDragState = null;
+    document.body.style.userSelect = "";
+    showToast(T().saved);
+  }
+
+  function positionPopover(rect) {
+    if (!editPopoverEl || editPopoverEl.style.display === "none") return;
+    const margin = 10;
+    let left = rect.right + margin;
+    let top = rect.top;
+    const pw = editPopoverEl.offsetWidth || 240;
+    const ph = editPopoverEl.offsetHeight || 200;
+    if (left + pw > window.innerWidth - margin) left = rect.left - pw - margin;
+    if (left < margin) left = margin;
+    if (top + ph > window.innerHeight - margin) top = window.innerHeight - ph - margin;
+    if (top < margin) top = margin;
+    Object.assign(editPopoverEl.style, { left: left + "px", top: top + "px" });
+  }
+
+  function positionEditBoxes() {
+    if (!document.querySelector("#ad-ext-player-display")) { setEditMode(false); return; }
+
+    if (editHoverTarget && (!editSelected || editHoverTarget.el !== editSelected.el)) {
+      const r = editHoverTarget.el.getBoundingClientRect();
+      Object.assign(editHoverBox.style, { display: "block", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+    } else {
+      editHoverBox.style.display = "none";
+    }
+
+    if (editSelected) reresolveSelection();
+
+    if (editSelected && editSelected.el && editSelected.el.isConnected) {
+      const r = editSelected.el.getBoundingClientRect();
+      Object.assign(editSelectBox.style, { display: "block", left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+      Object.assign(editHandleEl.style, { display: "block", left: r.right + "px", top: r.bottom + "px" });
+      positionPopover(r);
+    } else {
+      editSelectBox.style.display = "none";
+      editHandleEl.style.display = "none";
+      if (editPopoverEl) editPopoverEl.style.display = "none";
+    }
+  }
+
+  function startEditRafLoop() {
+    if (editRafHandle) return;
+    const tick = () => {
+      if (!editModeOn) { editRafHandle = null; return; }
+      positionEditBoxes();
+      editRafHandle = requestAnimationFrame(tick);
+    };
+    editRafHandle = requestAnimationFrame(tick);
+  }
+
+  function initLayoutEditorOnce() {
+    if (__adEditInit) return;
+    __adEditInit = true;
+
+    document.addEventListener("pointerdown", (e) => {
+      if (!editModeOn) return;
+      if (e.button != null && e.button !== 0) return;
+      if (e.target.closest && e.target.closest("#ad-edit-popover, #ad-edit-handle, #ad-edit-hint")) return;
+
+      // Only intercept clicks inside the player-display area, so Undo/Next/board
+      // clicks elsewhere on the page keep working normally while editing.
+      const host = document.querySelector("#ad-ext-player-display");
+      if (!host || !host.contains(e.target)) return;
+
+      const hit = hitTestEditTarget(e.target);
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!hit) { selectEditTarget(null); return; }
+
+      selectEditTarget(hit);
+      const map = EDIT_KIND_MAP[hit.kind];
+      if (!map.moveDisabled) beginDrag(hit, e, "move");
+    }, true);
+
+    document.addEventListener("pointermove", (e) => {
+      if (!editModeOn) return;
+      if (editDragState) { onEditDragMove(e); return; }
+      const hit = hitTestEditTarget(e.target);
+      setHoverTarget(hit);
+    }, true);
+
+    window.addEventListener("pointerup", () => { if (editDragState) endDrag(); });
+
+    window.addEventListener("keydown", (e) => {
+      if (!editModeOn) return;
+      if (e.key === "Escape") exitEditModeAndReopenPanel();
+    });
+  }
+
+  function exitEditModeAndReopenPanel() {
+    setEditMode(false);
+    state.ui.selectedTab = "playerinfo";
+    setUIOpen(true);
+    renderPanel();
+  }
+
+  function setEditMode(on) {
+    if (on) {
+      const host = document.querySelector("#ad-ext-player-display");
+      if (!host) { showToast(T().piText.editNeedMatch); return; }
+      editModeOn = true;
+      ensureEditOverlayEls();
+      ensureEditPopover();
+      initLayoutEditorOnce();
+      setUIOpen(false);
+      editHintTextEl.textContent = T().piText.editHint;
+      if (editExitBtn) editExitBtn.title = T().piText.editModeOff;
+      editHintEl.style.display = "flex";
+      startEditRafLoop();
+    } else {
+      editModeOn = false;
+      editSelected = null;
+      editHoverTarget = null;
+      editDragState = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (editHintEl) editHintEl.style.display = "none";
+      if (editHoverBox) editHoverBox.style.display = "none";
+      if (editSelectBox) editSelectBox.style.display = "none";
+      if (editHandleEl) editHandleEl.style.display = "none";
+      if (editPopoverEl) editPopoverEl.style.display = "none";
     }
   }
 
@@ -5395,6 +6006,20 @@ function ensureMainButtonPosition() {
 
       case "playerinfo": {
         const pi = L.piText;
+
+        const editRow = document.createElement("div");
+        editRow.style.marginBottom = "10px";
+        const editBtn = mkButton(pi.editModeOn, () => setEditMode(true), "primary", compact);
+        editBtn.style.width = "100%";
+        editBtn.style.opacity = c.PLAYER_INFO ? "1" : "0.45";
+        editBtn.style.pointerEvents = c.PLAYER_INFO ? "auto" : "none";
+        editRow.appendChild(editBtn);
+        const editHintRow = document.createElement("div");
+        editHintRow.textContent = pi.editHint;
+        Object.assign(editHintRow.style, { opacity: "0.7", fontSize: compact ? "11px" : "12px", marginTop: "6px" });
+        editRow.appendChild(editHintRow);
+        box.appendChild(editRow);
+
         const piSection = (txt, first=false) => {
           const h = document.createElement("div");
           h.textContent = txt;
