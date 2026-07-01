@@ -6,10 +6,10 @@
     "desc": "Bold red/pink/blue per-player Player Info, Neon Blue background, board spins on triples/doubles/tons."
   },
   {
-    "id": "arena-green",
-    "name": "Arena Green",
-    "file": "arena-green.json",
-    "desc": "Just swaps the arena background to the original green dart-board photo; everything else stays native."
+    "id": "neon-green",
+    "name": "Neon Green",
+    "file": "neon-green.json",
+    "desc": "Full Player Info sizing (same layout as Neon Blaze) in a green/teal/lime palette, dark-tinted cards, green triple/double glow. Each player gets a slightly different green shade."
   },
   {
     "id": "native",
