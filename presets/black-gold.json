@@ -8,7 +8,7 @@
   "THROW_HOVER_BG_HEX": "#3d3320",
   "THROW_HOVER_BG_OPACITY": 0.95,
   "PLAYER_INFO": true,
-  "PI_NAME_FONT_PX": 80,
+  "PI_NAME_FONT_PX": 63,
   "PI_SCORE_FONT_PX": 220,
   "PI_AVG_FONT_PX": 39,
   "PI_HISTORY_FONT_PX": 58,
@@ -18,18 +18,18 @@
   "PI_AVG_COLOR_HEX": "#f0e68c",
   "PI_HISTORY_COLOR_HEX": "#e6be5a",
   "PI_STACK_GAP_PX": 80,
-  "PI_HISTORY_HEIGHT_PX": 560,
+  "PI_HISTORY_HEIGHT_PX": 422,
   "PI_AVATAR_SCALE": 2.5,
-  "PI_CARD_WIDTH_PX": 440,
-  "PI_CARD_HEIGHT_PX": 810,
-  "PI_AVATAR_OFFSET_PX": 75,
-  "PI_SCORE_Y_PX": -170,
+  "PI_CARD_WIDTH_PX": 460,
+  "PI_CARD_HEIGHT_PX": 972,
+  "PI_AVATAR_OFFSET_PX": 110,
+  "PI_SCORE_Y_PX": -193,
   "PI_NAME_Y_PX": -190,
   "PI_AVG_X_PX": 5,
-  "PI_AVG_Y_PX": -180,
-  "PI_HISTORY_OFFSET_PX": -95,
-  "PI_P1_SHIFT_Y": -36,
-  "PI_P2_SHIFT_Y": -34,
+  "PI_AVG_Y_PX": -245,
+  "PI_HISTORY_OFFSET_PX": -100,
+  "PI_P1_SHIFT_Y": -120,
+  "PI_P2_SHIFT_Y": -116,
   "PI_P3_SHIFT_Y": -32,
   "PI_P4_SHIFT_Y": -36,
   "PI_PER_PLAYER_COLORS": true,
@@ -46,8 +46,16 @@
   "PI_P4_AVG_COLOR_HEX": "#d9a441",
   "PI_P4_HISTORY_COLOR_HEX": "#c68e17",
   "PI_TEXT_EFFECTS": [
-    { "style": "shadow", "size": 4, "color": "#000000" },
-    { "style": "outline", "size": 2, "color": "#000000" }
+    {
+      "style": "shadow",
+      "size": 4,
+      "color": "#000000"
+    },
+    {
+      "style": "outline",
+      "size": 2,
+      "color": "#000000"
+    }
   ],
   "ACTIVE_COLOR_HEX": "#ffd700",
   "ACTIVE_OUTLINE_PX": 1,
@@ -87,5 +95,6 @@
   "HIGHSCORE_THRESHOLD": 99,
   "HIGHSCORE_SHIMMER_MS": 700,
   "HIGHSCORE_GLOW_HEX": "#ffec8b",
-  "HIGHSCORE_SPIN_MS": 7100
+  "HIGHSCORE_SPIN_MS": 7100,
+  "PI_HISTORY_WIDTH_PX": 373
 }
