@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.27.0
+// @version      2.28.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.27.0";
+  const SCRIPT_VERSION = "2.28.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -205,6 +205,8 @@
     BOARD_X_PX: 0, BOARD_Y_PX: 0, BOARD_SCALE: 1,
     UNDO_BTN_X_PX: 0, UNDO_BTN_Y_PX: 0, UNDO_BTN_SCALE: 1,
     NEXT_BTN_X_PX: 0, NEXT_BTN_Y_PX: 0, NEXT_BTN_SCALE: 1,
+    // Whole turn bar (the 3 dart-throw cards + total score, moved/scaled as one linked unit)
+    TURN_BAR_X_PX: 0, TURN_BAR_Y_PX: 0, TURN_BAR_SCALE: 1,
   };
 
   const DEFAULT_CLOCK = {
@@ -439,10 +441,11 @@
         editPlayerColor: "Szín (csak ennél a játékosnál)",
         editReset: "Elem reset",
         editOpacity: "Áttetszőség",
-        editGroupScale: "Minden elem méretezése arányosan a kártyával",
+        editGroupScale: "Sarok húzása: minden elem méretezése is (kikapcsolva: csak a doboz). A kártya húzása mindig mindent együtt mozgat.",
         editGlobalLabel: {
           throwVal: "Dobás érték", orig: "Eredeti dobás (sarok)", total: "Összpontszám",
           checkout: "Kiszálló javaslat", board: "Tábla (SVG/kép)", undoBtn: "Vissza gomb", nextBtn: "Következő gomb",
+          turnBar: "Dobás sáv (kártyák + összpontszám együtt)",
         },
       },
       skinText: {
@@ -657,10 +660,11 @@
         editPlayerColor: "Color (this player only)",
         editReset: "Reset element",
         editOpacity: "Opacity",
-        editGroupScale: "Scale all elements proportionally with the card",
+        editGroupScale: "Corner drag also resizes every element (off = box only). Dragging the card body always moves everything together.",
         editGlobalLabel: {
           throwVal: "Throw value", orig: "Original throw (corner)", total: "Total score",
           checkout: "Checkout suggestion", board: "Board (SVG/image)", undoBtn: "Undo button", nextBtn: "Next button",
+          turnBar: "Turn bar (cards + total together)",
         },
       },
       skinText: {
@@ -875,10 +879,11 @@
         editPlayerColor: "Farbe (nur dieser Spieler)",
         editReset: "Element zurücksetzen",
         editOpacity: "Deckkraft",
-        editGroupScale: "Alle Elemente proportional mit der Karte skalieren",
+        editGroupScale: "Eckenziehen skaliert auch alle Elemente (aus = nur Box). Ziehen der Karte selbst bewegt immer alles zusammen.",
         editGlobalLabel: {
           throwVal: "Wurfwert", orig: "Ursprünglicher Wurf (Ecke)", total: "Gesamtpunktzahl",
           checkout: "Checkout-Vorschlag", board: "Board (SVG/Bild)", undoBtn: "Rückgängig-Button", nextBtn: "Weiter-Button",
+          turnBar: "Wurfleiste (Karten + Gesamtpunktzahl zusammen)",
         },
       },
       skinText: {
@@ -1729,6 +1734,10 @@
 .ad-core-btn-next{
   translate: ${clamp(Number.isFinite(+c.NEXT_BTN_X_PX) ? +c.NEXT_BTN_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.NEXT_BTN_Y_PX) ? +c.NEXT_BTN_Y_PX : 0, -1000, 1000)}px !important;
   scale: ${clamp(Number.isFinite(+c.NEXT_BTN_SCALE) ? +c.NEXT_BTN_SCALE : 1, 0.3, 3)} !important;
+}
+#ad-ext-turn{
+  translate: ${clamp(Number.isFinite(+c.TURN_BAR_X_PX) ? +c.TURN_BAR_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.TURN_BAR_Y_PX) ? +c.TURN_BAR_Y_PX : 0, -1000, 1000)}px !important;
+  scale: ${clamp(Number.isFinite(+c.TURN_BAR_SCALE) ? +c.TURN_BAR_SCALE : 1, 0.3, 3)} !important;
 }
 `);
 
@@ -3274,7 +3283,7 @@ function markCheckoutInTurnBar(turn) {
                gXKey: "PI_G_HISTORY_X_PX", gYKey: "PI_G_HISTORY_OFFSET_PX", gFontKey: "PI_G_HISTORY_FONT_PX", gWidthKey: "PI_G_HISTORY_WIDTH_PX", gHeightKey: "PI_G_HISTORY_HEIGHT_PX" },
     avatar:  { xKey: "PI_AVATAR_X_PX",  yKey: "PI_AVATAR_OFFSET_PX", perPlayerShift: true, scaleKey: "PI_AVATAR_SCALE", resizeMode: "scale",
                gXKey: "PI_G_AVATAR_X_PX", gYKey: "PI_G_AVATAR_OFFSET_PX", gScaleKey: "PI_G_AVATAR_SCALE" },
-    card:    { widthKey: "PI_CARD_WIDTH_PX", heightKey: "PI_CARD_HEIGHT_PX", resizeMode: "box", moveDisabled: true,
+    card:    { widthKey: "PI_CARD_WIDTH_PX", heightKey: "PI_CARD_HEIGHT_PX", resizeMode: "box", groupMove: true,
                gWidthKey: "PI_G_CARD_WIDTH_PX", gHeightKey: "PI_G_CARD_HEIGHT_PX" },
   };
 
@@ -3290,13 +3299,17 @@ function markCheckoutInTurnBar(turn) {
     board:    { xKey: "BOARD_X_PX",        yKey: "BOARD_Y_PX",        scaleKey: "BOARD_SCALE",        resizeMode: "scale", global: true },
     undoBtn:  { xKey: "UNDO_BTN_X_PX",     yKey: "UNDO_BTN_Y_PX",     scaleKey: "UNDO_BTN_SCALE",      resizeMode: "scale", global: true },
     nextBtn:  { xKey: "NEXT_BTN_X_PX",     yKey: "NEXT_BTN_Y_PX",     scaleKey: "NEXT_BTN_SCALE",      resizeMode: "scale", global: true },
+    turnBar:  { xKey: "TURN_BAR_X_PX",     yKey: "TURN_BAR_Y_PX",     scaleKey: "TURN_BAR_SCALE",      resizeMode: "scale", global: true },
   };
+  // Order matters: more specific targets first, #ad-ext-turn (the shared container) last as a
+  // fallback for empty background clicks - otherwise it would shadow total/checkout/throw clicks.
   const GLOBAL_EDIT_SELECTORS = {
     total: ".ad-ext-turn-total-value",
     checkout: ".ad-ext-turn-checkout-value",
     board: "." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
     undoBtn: ".ad-core-btn-undo",
     nextBtn: ".ad-core-btn-next",
+    turnBar: "#ad-ext-turn",
   };
   // throwVal and orig share the same <p> (the big value renders via ::after, the small corner
   // origin label via ::before - both pseudo-elements, so the real hit target is the <p> itself).
@@ -3371,12 +3384,13 @@ function markCheckoutInTurnBar(turn) {
     return 0;
   }
 
-  // "Scale all elements proportionally with the card" (card popover checkbox, off by default -
-  // normal card resize only touches PI_CARD_WIDTH/HEIGHT_PX). Each pair is [2-player key, grid key];
-  // groupScaleActiveKey() picks whichever is live right now, groupScaleEffValue() derives its
-  // current effective number (same null-handling as effVal, just against explicit key pairs
-  // instead of an EDIT_KIND_MAP entry).
-  let groupResizeEnabled = false;
+  // "Scale all elements proportionally with the card" (card popover checkbox, ON by default -
+  // uncheck to resize just the box). Each pair is [2-player key, grid key]; groupScaleActiveKey()
+  // picks whichever is live right now, groupScaleEffValue() derives its current effective number
+  // (same null-handling as effVal, just against explicit key pairs instead of an EDIT_KIND_MAP
+  // entry). Dragging the card BODY (not the resize handle) always moves this same set as a group -
+  // there's no other sensible meaning for "move the card", since it has no X/Y key of its own.
+  let groupResizeEnabled = true;
   const GROUP_SCALE_PAIRS = [
     ["PI_NAME_FONT_PX", "PI_G_NAME_FONT_PX"], ["PI_SCORE_FONT_PX", "PI_G_SCORE_FONT_PX"],
     ["PI_AVG_FONT_PX", "PI_G_AVG_FONT_PX"], ["PI_HISTORY_FONT_PX", "PI_G_HISTORY_FONT_PX"],
@@ -3392,6 +3406,11 @@ function markCheckoutInTurnBar(turn) {
   const GROUP_SCALE_BOX_PAIRS = [
     ["PI_HISTORY_WIDTH_PX", "PI_G_HISTORY_WIDTH_PX"], ["PI_HISTORY_HEIGHT_PX", "PI_G_HISTORY_HEIGHT_PX"],
   ];
+  const GROUP_MOVE_X_KEYS = ["PI_NAME_X_PX", "PI_SCORE_X_PX", "PI_AVG_X_PX", "PI_HISTORY_X_PX", "PI_AVATAR_X_PX"];
+  const GROUP_MOVE_Y_KEYS = ["PI_NAME_Y_PX", "PI_SCORE_Y_PX", "PI_AVG_Y_PX", "PI_HISTORY_OFFSET_PX", "PI_AVATAR_OFFSET_PX",
+    "PI_P1_SHIFT_Y", "PI_P2_SHIFT_Y", "PI_P3_SHIFT_Y", "PI_P4_SHIFT_Y"];
+  const GROUP_MOVE_PAIRS_X = GROUP_SCALE_PAIRS.filter((p) => GROUP_MOVE_X_KEYS.includes(p[0]));
+  const GROUP_MOVE_PAIRS_Y = GROUP_SCALE_PAIRS.filter((p) => GROUP_MOVE_Y_KEYS.includes(p[0]));
   function groupScaleActiveKey(pair) {
     return isGridMode() ? pair[1] : pair[0];
   }
@@ -3872,6 +3891,12 @@ function markCheckoutInTurnBar(turn) {
       groupBoxSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
         ? GROUP_SCALE_BOX_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
         : null,
+      groupMoveX: (mode === "move" && map.groupMove)
+        ? GROUP_MOVE_PAIRS_X.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
+        : null,
+      groupMoveY: (mode === "move" && map.groupMove)
+        ? GROUP_MOVE_PAIRS_Y.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
+        : null,
     };
     document.body.style.userSelect = "none";
   }
@@ -3888,6 +3913,8 @@ function markCheckoutInTurnBar(turn) {
       if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
       if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.startY + dy), -400, 400);
       else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
+      if (st.groupMoveX) for (const { key, value } of st.groupMoveX) c[key] = clamp(Math.round(value + dx), -1500, 1500);
+      if (st.groupMoveY) for (const { key, value } of st.groupMoveY) c[key] = clamp(Math.round(value + dy), -1500, 1500);
     } else if (st.mode === "resize") {
       if (map.resizeMode === "box") {
         if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
