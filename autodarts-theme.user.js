@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.24.0
+// @version      2.24.1
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.24.0";
+  const SCRIPT_VERSION = "2.24.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -921,6 +921,7 @@
     if (s === "SBULL" || s === "25") return 25;
     if (s.startsWith("T")) return (parseInt(s.slice(1), 10) || 0) * 3;
     if (s.startsWith("D")) return (parseInt(s.slice(1), 10) || 0) * 2;
+    if (s.startsWith("S")) return (parseInt(s.slice(1), 10) || 0);
     return parseInt(s, 10) || 0;
   }
 
