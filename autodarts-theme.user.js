@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.30.0
+// @version      2.31.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.30.0";
+  const SCRIPT_VERSION = "2.31.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -1728,8 +1728,12 @@
       // Board / Undo / Next repositioning (Layout Editor, Beta). translate/scale are independent
       // CSS properties, so they compose with the spin/flash keyframe animations (which animate
       // `transform`) instead of clobbering them - same technique as the Player Info elements.
+      // Autodarts renders the board's ambient glow as a box-shadow on the SVG's own parent
+      // wrapper (chakra class, unstable - e.g. "css-13u3cwk"), not on the board itself, so it's
+      // targeted structurally via :has() instead of by that class name.
       css.push(`
-.${BOARD_HOST_CLASS}, .${BOARD_VISUAL_CLASS}, svg.ad-board-svg, img.ad-board-img{
+.${BOARD_HOST_CLASS}, .${BOARD_VISUAL_CLASS}, svg.ad-board-svg, img.ad-board-img,
+*:has(> svg.ad-board-svg), *:has(> img.ad-board-img){
   translate: ${clamp(Number.isFinite(+c.BOARD_X_PX) ? +c.BOARD_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.BOARD_Y_PX) ? +c.BOARD_Y_PX : 0, -1000, 1000)}px !important;
   scale: ${clamp(Number.isFinite(+c.BOARD_SCALE) ? +c.BOARD_SCALE : 1, 0.3, 3)} !important;
 }
