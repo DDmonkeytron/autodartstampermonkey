@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.32.0
+// @version      2.33.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.32.0";
+  const SCRIPT_VERSION = "2.33.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -178,6 +178,7 @@
     TRIPLE_SPIN: false,          // spin the board on each triple
     TRIPLE_SPIN_MS: 1200,
     TRIPLE_SPIN_MIN: 15,         // only triples T>=this value spin the board (1..20)
+    TRIPLE_VARIETY: true,        // pick a random animation style each hit instead of always the same one
 
     DOUBLE_ANIM: true,
     DOUBLE_SHIMMER_MS: 1400,
@@ -190,6 +191,7 @@
     DOUBLE_SPIN: false,          // spin the board on each double
     DOUBLE_SPIN_MS: 1000,
     DOUBLE_SPIN_MIN: 15,         // only doubles D>=this value spin the board (1..20)
+    DOUBLE_VARIETY: true,        // pick a random animation style each hit instead of always the same one
 
     HIGHSCORE_ANIM: true,
     HIGHSCORE_THRESHOLD: 100,
@@ -202,6 +204,14 @@
     HIGHSCORE_BOARD_FLASH: true,
     HIGHSCORE_THROW_FLASH: true,
     HIGHSCORE_FIREWORKS: true,   // CSS firework burst overlay on a ton
+    // Tier 2 (ton-forty) and tier 3 (180/max) escalate the tier-1 effects above (bigger spin/
+    // fireworks) instead of re-configuring them from scratch; tier 3 additionally unlocks the
+    // wildcard celebration (confetti board explosion / dinosaur run, picked at random).
+    HIGHSCORE2_ENABLED: true,
+    HIGHSCORE2_THRESHOLD: 140,
+    HIGHSCORE3_ENABLED: true,
+    HIGHSCORE3_THRESHOLD: 180,
+    HIGHSCORE3_WILDCARD: true,
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
@@ -385,6 +395,10 @@
         throwFlash: "Dobáskártya felvillanás",
         fireworks: "Tűzijáték (magas pont)",
         spinMin: "Pörgés minimum érték",
+        varietyEnabled: "Változatos animáció",
+        tier2: "2. szint (Ton-forty)",
+        tier3: "3. szint (Max/180)",
+        wildcard: "Wildcard (konfetti / dínó)",
         perPlayer: "Játékosonként eltérő",
         p1: "1.J",
         p2: "2.J",
@@ -611,6 +625,10 @@
         throwFlash: "Throw card flash",
         fireworks: "Fireworks (high score)",
         spinMin: "Spin from value",
+        varietyEnabled: "Varied animation",
+        tier2: "Tier 2 (Ton-forty)",
+        tier3: "Tier 3 (Max/180)",
+        wildcard: "Wildcard (confetti / dino)",
         perPlayer: "Per-player",
         p1: "P1",
         p2: "P2",
@@ -837,6 +855,10 @@
         throwFlash: "Wurfkarten-Blitz",
         fireworks: "Feuerwerk (hoher Punktwert)",
         spinMin: "Drehen ab Wert",
+        varietyEnabled: "Abwechslungsreiche Animation",
+        tier2: "Stufe 2 (Ton-Forty)",
+        tier3: "Stufe 3 (Max/180)",
+        wildcard: "Wildcard (Konfetti / Dino)",
         perPlayer: "Pro Spieler",
         p1: "S1",
         p2: "S2",
@@ -1798,13 +1820,26 @@ svg.ad-board-svg, img.ad-board-img{
   overflow: hidden !important;
   outline: 2px solid rgba(var(--ad-triple-glow-rgb), 0.9) !important;
   outline-offset: 1px !important;
-  animation:
-    adRattle var(--ad-triple-rattle-ms) ease-out var(--ad-triple-rattle-delay-ms) 1,
-    adTriplePulse var(--ad-triple-shimmer-ms) ease-in-out infinite${c.TRIPLE_FLASH ? ",\n    adTripleFlash 0.4s ease-out 0ms 4" : ""};
   box-shadow:
     0 0 25px rgba(var(--ad-triple-glow-rgb), var(--ad-triple-glow)),
     0 0 80px rgba(var(--ad-triple-glow-rgb), calc(var(--ad-triple-glow) * 0.5)),
     inset 0 0 20px rgba(var(--ad-triple-glow-rgb), 0.25) !important;
+}
+.${TRIPLE_CLASS}.ad-anim-classic{
+  animation:
+    adRattle var(--ad-triple-rattle-ms) ease-out var(--ad-triple-rattle-delay-ms) 1,
+    adTriplePulse var(--ad-triple-shimmer-ms) ease-in-out infinite${c.TRIPLE_FLASH ? ",\n    adTripleFlash 0.4s ease-out 0ms 4" : ""};
+}
+.${TRIPLE_CLASS}.ad-anim-punch{
+  animation:
+    adTriplePulse var(--ad-triple-shimmer-ms) ease-in-out infinite,
+    adTripleFlash 0.25s ease-out 0ms 6;
+}
+.${TRIPLE_CLASS}.ad-anim-wild{
+  animation:
+    adRattle var(--ad-triple-rattle-ms) ease-out var(--ad-triple-rattle-delay-ms) 1,
+    adTriplePulse var(--ad-triple-shimmer-ms) ease-in-out infinite,
+    adTripleFlash 0.3s ease-out 0ms 5;
 }
 .${TRIPLE_CLASS}::after{
   content:'';
@@ -1822,6 +1857,22 @@ svg.ad-board-svg, img.ad-board-img{
   font-weight:900 !important;
   position:relative;
   z-index:3;
+}
+.${TRIPLE_CLASS}.ad-anim-punch p{
+  animation: adSlamBig var(--ad-triple-slam-ms) ease-in 1;
+}
+.${TRIPLE_CLASS}.ad-anim-wild p{
+  animation: adSlam var(--ad-triple-slam-ms) ease-in 1, adBigPop 0.5s ease-in-out infinite;
+}
+@keyframes adBigPop{
+  0%,100%{ filter: brightness(1) saturate(1); }
+  50%{ filter: brightness(1.7) saturate(1.9); }
+}
+@keyframes adSlamBig{
+  0%   { transform: scale(14,14) rotate(8deg); opacity:0; }
+  50%  { opacity:0; }
+  75%  { transform: scale(0.9,0.9) rotate(-3deg); opacity:1; }
+  100% { transform: scale(1,1) rotate(0deg); opacity:1; }
 }
 @keyframes adTriplePulse{
   0%,100%{
@@ -1867,13 +1918,26 @@ svg.ad-board-svg, img.ad-board-img{
   overflow: hidden !important;
   outline: 2px solid rgba(var(--ad-double-glow-rgb), 0.8) !important;
   outline-offset: 1px !important;
-  animation:
-    adRattle var(--ad-double-rattle-ms) ease-out var(--ad-double-rattle-delay-ms) 1,
-    adDoublePulse var(--ad-double-shimmer-ms) ease-in-out infinite${c.DOUBLE_FLASH ? ",\n    adDoubleFlash 0.4s ease-out 0ms 3" : ""};
   box-shadow:
     0 0 18px rgba(var(--ad-double-glow-rgb), var(--ad-double-glow)),
     0 0 55px rgba(var(--ad-double-glow-rgb), calc(var(--ad-double-glow) * 0.45)),
     inset 0 0 14px rgba(var(--ad-double-glow-rgb), 0.18) !important;
+}
+.${DOUBLE_CLASS}.ad-anim-classic{
+  animation:
+    adRattle var(--ad-double-rattle-ms) ease-out var(--ad-double-rattle-delay-ms) 1,
+    adDoublePulse var(--ad-double-shimmer-ms) ease-in-out infinite${c.DOUBLE_FLASH ? ",\n    adDoubleFlash 0.4s ease-out 0ms 3" : ""};
+}
+.${DOUBLE_CLASS}.ad-anim-punch{
+  animation:
+    adDoublePulse var(--ad-double-shimmer-ms) ease-in-out infinite,
+    adDoubleFlash 0.25s ease-out 0ms 5;
+}
+.${DOUBLE_CLASS}.ad-anim-wild{
+  animation:
+    adRattle var(--ad-double-rattle-ms) ease-out var(--ad-double-rattle-delay-ms) 1,
+    adDoublePulse var(--ad-double-shimmer-ms) ease-in-out infinite,
+    adDoubleFlash 0.3s ease-out 0ms 4;
 }
 .${DOUBLE_CLASS}::after{
   content:'';
@@ -1892,6 +1956,12 @@ svg.ad-board-svg, img.ad-board-img{
   position:relative;
   z-index:3;
 }
+.${DOUBLE_CLASS}.ad-anim-punch p{
+  animation: adSlamBig var(--ad-double-slam-ms) ease-in 1;
+}
+.${DOUBLE_CLASS}.ad-anim-wild p{
+  animation: adSlam var(--ad-double-slam-ms) ease-in 1, adBigPop 0.5s ease-in-out infinite;
+}
 @keyframes adDoublePulse{
   0%,100%{
     outline-color: rgba(var(--ad-double-glow-rgb),0.8);
@@ -1906,6 +1976,16 @@ svg.ad-board-svg, img.ad-board-img{
   0%,100%{ background-color: rgba(var(--ad-throw-bg-rgb),var(--ad-throw-bg-op)); outline-color: rgba(var(--ad-double-glow-rgb),0.8); }
   25%,75%{ background-color: rgba(var(--ad-double-glow-rgb),0.55); outline-color: rgba(255,255,255,0.9); }
   50%    { background-color: rgba(var(--ad-throw-bg-rgb),var(--ad-throw-bg-op)); outline-color: rgba(var(--ad-double-glow-rgb),0.5); }
+}
+@keyframes adBigPop{
+  0%,100%{ filter: brightness(1) saturate(1); }
+  50%{ filter: brightness(1.7) saturate(1.9); }
+}
+@keyframes adSlamBig{
+  0%   { transform: scale(14,14) rotate(8deg); opacity:0; }
+  50%  { opacity:0; }
+  75%  { transform: scale(0.9,0.9) rotate(-3deg); opacity:1; }
+  100% { transform: scale(1,1) rotate(0deg); opacity:1; }
 }
 @keyframes adShimmerSlide{ 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
 @keyframes adSlam{
@@ -2001,6 +2081,55 @@ svg.ad-board-svg, img.ad-board-img{
   0%   { transform: translate(0,0) scale(1.2); opacity:1; }
   70%  { opacity:1; }
   100% { transform: translate(var(--tx), calc(var(--ty) + 40px)) scale(0.25); opacity:0; }
+}
+`);
+      }
+
+      // Wildcard celebration (180 only): board-implode + confetti burst, and/or the dinosaur run
+      if (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_WILDCARD) {
+        css.push(`
+.${BOARD_HOST_CLASS}.ad-board-implode, .${BOARD_VISUAL_CLASS}.ad-board-implode, svg.ad-board-svg.ad-board-implode{
+  animation: adBoardImplode var(--ad-implode-dur, 2000ms) cubic-bezier(.5,0,.4,1) 1 !important;
+  transform-origin: center center !important;
+}
+@keyframes adBoardImplode{
+  0%   { transform: scale(1) rotate(0deg);   opacity:1; }
+  42%  { transform: scale(0.04) rotate(-18deg); opacity:1; }
+  55%  { transform: scale(0.04) rotate(-18deg); opacity:0; }
+  70%  { transform: scale(0) rotate(0deg);   opacity:0; }
+  100% { transform: scale(1) rotate(0deg);   opacity:1; }
+}
+#ad-confetti{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
+.ad-confetti-piece{
+  position:absolute; border-radius:2px;
+  animation: adConfettiFall 1.8s cubic-bezier(.25,.6,.35,1) forwards;
+}
+@keyframes adConfettiFall{
+  0%   { transform: translate(0,0) rotate(0deg); opacity:1; }
+  100% { transform: translate(var(--tx), calc(var(--ty) + 260px)) rotate(var(--rot)); opacity:0; }
+}
+#ad-dino{
+  position:fixed; left:-15vw; bottom:4vh; z-index:2147483601; pointer-events:none;
+  animation: adDinoWalk var(--ad-dino-dur, 3200ms) ease-in-out forwards;
+}
+.ad-dino-body{
+  display:inline-block; font-size:14vh; line-height:1;
+  animation: adDinoBob 0.32s ease-in-out infinite;
+}
+#ad-dino.ad-dino-bite .ad-dino-body{
+  animation: adDinoBob 0.32s ease-in-out infinite, adDinoBite 0.35s ease-in-out 2;
+}
+@keyframes adDinoWalk{
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(85vw); }
+}
+@keyframes adDinoBob{
+  0%,100%{ transform: translateY(0) scaleY(1); }
+  50%    { transform: translateY(-1.5vh) scaleY(0.96); }
+}
+@keyframes adDinoBite{
+  0%,100%{ transform: scaleX(1) scaleY(1); }
+  50%    { transform: scaleX(1.35) scaleY(0.8); }
 }
 `);
       }
@@ -2819,6 +2948,96 @@ svg.ad-board-svg text{
     fireworksTimers.push(iv);
     fireworksTimers.push(setTimeout(() => clearInterval(iv), Math.max(300, dur - 250)));
     fireworksTimers.push(setTimeout(stopFireworks, dur + 1500));
+  }
+
+  /* ================== WILDCARD (180 only): confetti board explosion / dinosaur run ========== */
+  const CONFETTI_COLORS = ["#ffd700", "#ff4d4d", "#43e0ff", "#5dff8a", "#ff6bff", "#ffffff", "#ff9f1c", "#b16bff"];
+  let confettiTimers = [];
+  function stopConfetti() {
+    confettiTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    confettiTimers = [];
+    const ov = document.getElementById("ad-confetti");
+    if (ov) ov.remove();
+    for (const board of getBoardVisualTargets()) board.classList.remove("ad-board-implode");
+  }
+  function spawnConfettiBurst(cx, cy, count = 70) {
+    let overlay = document.getElementById("ad-confetti");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "ad-confetti";
+      (document.body || document.documentElement).appendChild(overlay);
+    }
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement("i");
+      p.className = "ad-confetti-piece";
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 60 + Math.random() * 220;
+      p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
+      p.style.setProperty("--ty", (Math.sin(ang) * dist * 0.6).toFixed(1) + "px");
+      p.style.setProperty("--rot", (360 + Math.random() * 720).toFixed(0) + "deg");
+      p.style.left = cx + "px";
+      p.style.top = cy + "px";
+      p.style.background = CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0];
+      const w = (5 + Math.random() * 5).toFixed(1), h = (8 + Math.random() * 8).toFixed(1);
+      p.style.width = w + "px"; p.style.height = h + "px";
+      overlay.appendChild(p);
+      confettiTimers.push(setTimeout(() => p.remove(), 1900));
+    }
+    confettiTimers.push(setTimeout(() => { const ov = document.getElementById("ad-confetti"); if (ov && !ov.children.length) ov.remove(); }, 2100));
+  }
+  // Board shrinks away then pops back (adBoardImplode), spawning a confetti burst from its
+  // center partway through the shrink - a bigger, one-off "wow" moment reserved for 180s.
+  function launchConfettiExplosion(durationMs) {
+    stopConfetti();
+    const dur = clamp(Number(durationMs) || 2000, 900, 6000);
+    const boards = getBoardVisualTargets();
+    for (const board of boards) {
+      board.style.setProperty("--ad-implode-dur", dur + "ms");
+      board.classList.remove("ad-board-implode");
+      void board.offsetWidth;
+      board.classList.add("ad-board-implode");
+      confettiTimers.push(setTimeout(() => board.classList.remove("ad-board-implode"), dur + 150));
+    }
+    confettiTimers.push(setTimeout(() => {
+      const target = boards[0];
+      const r = target ? target.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
+      spawnConfettiBurst(r.left + r.width / 2, r.top + r.height / 2);
+    }, dur * 0.42));
+  }
+
+  let dinoTimers = [];
+  function stopDinosaur() {
+    dinoTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    dinoTimers = [];
+    const el = document.getElementById("ad-dino");
+    if (el) el.remove();
+  }
+  // Emoji sprite walks across the screen, "bites" (quick squash/stretch), then explodes into
+  // confetti and disappears - the other half of the 180 wildcard pool alongside the confetti
+  // board explosion above (launchWildcard picks one at random).
+  function launchDinosaurRun(durationMs) {
+    stopDinosaur();
+    const dur = clamp(Number(durationMs) || 3200, 1500, 8000);
+    const dino = document.createElement("div");
+    dino.id = "ad-dino";
+    dino.style.setProperty("--ad-dino-dur", dur + "ms");
+    const body = document.createElement("span");
+    body.className = "ad-dino-body";
+    body.textContent = Math.random() < 0.5 ? "🦖" : "🦕";
+    dino.appendChild(body);
+    (document.body || document.documentElement).appendChild(dino);
+
+    dinoTimers.push(setTimeout(() => dino.classList.add("ad-dino-bite"), dur * 0.72));
+    dinoTimers.push(setTimeout(() => {
+      const r = dino.getBoundingClientRect();
+      spawnConfettiBurst(r.left + r.width / 2, r.top + r.height / 2, 90);
+      dino.remove();
+    }, dur * 0.92));
+  }
+
+  function launchWildcard(durationMs) {
+    if (Math.random() < 0.5) launchConfettiExplosion(durationMs);
+    else launchDinosaurRun(durationMs);
   }
 
   function applyBoardMarkerNow() {
@@ -4342,16 +4561,32 @@ function markCheckoutInTurnBar(turn) {
   }
 
   /* ================== TRIPLE ================== */
+  // Random-variety animation classes for triple/double hits (Layout Editor-adjacent CSS at
+  // ~1804/1902 defines the "classic"/"punch"/"wild" looks each maps to). Picking one at random
+  // per hit keeps a long session from feeling like the same three darts over and over.
+  const ANIM_VARIANT_CLASSES = ["ad-anim-classic", "ad-anim-punch", "ad-anim-wild"];
+  function pickAnimVariant(varietyOn) {
+    return varietyOn ? ANIM_VARIANT_CLASSES[(Math.random() * ANIM_VARIANT_CLASSES.length) | 0] : ANIM_VARIANT_CLASSES[0];
+  }
+  // Triple and double share the same variant class names, so a card only loses its variant
+  // class when it's actually losing markerClass too - otherwise processing an unrelated card
+  // in the OTHER handler's loop (e.g. a double card while updateTripleHighlight walks the
+  // turn's 3 cards) would strip the wrong hit's animation out from under it.
+  function stripAnimMarker(card, markerClass) {
+    if (!card.classList.contains(markerClass)) return;
+    card.classList.remove(markerClass, ...ANIM_VARIANT_CLASSES);
+  }
+
   function clearTripleClasses() {
     document.querySelectorAll(".ad-ext-turn-throw").forEach(card => {
-      card.classList.remove(TRIPLE_CLASS);
+      stripAnimMarker(card, TRIPLE_CLASS);
       if (card.dataset) delete card.dataset.adTripleToken;
     });
   }
-  function restartTriple(card) {
-    card.classList.remove(TRIPLE_CLASS);
+  function restartTriple(card, varietyOn) {
+    card.classList.remove(TRIPLE_CLASS, ...ANIM_VARIANT_CLASSES);
     void card.offsetWidth;
-    card.classList.add(TRIPLE_CLASS);
+    card.classList.add(TRIPLE_CLASS, pickAnimVariant(varietyOn));
   }
   function updateTripleHighlight(turn) {
     const c = cfg();
@@ -4383,7 +4618,7 @@ function markCheckoutInTurnBar(turn) {
       }
 
       if (placeholder) {
-        card.classList.remove(TRIPLE_CLASS);
+        stripAnimMarker(card, TRIPLE_CLASS);
         if (card.dataset) delete card.dataset.adTripleToken;
         continue;
       }
@@ -4392,16 +4627,16 @@ function markCheckoutInTurnBar(turn) {
       const prev = (card.dataset && card.dataset.adTripleToken) ? card.dataset.adTripleToken : "";
 
       if (!isTriple) {
-        card.classList.remove(TRIPLE_CLASS);
+        stripAnimMarker(card, TRIPLE_CLASS);
         if (card.dataset) delete card.dataset.adTripleToken;
         continue;
       }
 
       if (prev !== raw) {
         if (card.dataset) card.dataset.adTripleToken = raw;
-        restartTriple(card);
-      } else {
-        if (!card.classList.contains(TRIPLE_CLASS)) card.classList.add(TRIPLE_CLASS);
+        restartTriple(card, c.TRIPLE_VARIETY);
+      } else if (!card.classList.contains(TRIPLE_CLASS) || !ANIM_VARIANT_CLASSES.some(v => card.classList.contains(v))) {
+        restartTriple(card, c.TRIPLE_VARIETY);
       }
     }
   }
@@ -4409,14 +4644,14 @@ function markCheckoutInTurnBar(turn) {
   /* ================== DOUBLE ================== */
   function clearDoubleClasses() {
     document.querySelectorAll(".ad-ext-turn-throw").forEach(card => {
-      card.classList.remove(DOUBLE_CLASS);
+      stripAnimMarker(card, DOUBLE_CLASS);
       if (card.dataset) delete card.dataset.adDoubleToken;
     });
   }
-  function restartDouble(card) {
-    card.classList.remove(DOUBLE_CLASS);
+  function restartDouble(card, varietyOn) {
+    card.classList.remove(DOUBLE_CLASS, ...ANIM_VARIANT_CLASSES);
     void card.offsetWidth;
-    card.classList.add(DOUBLE_CLASS);
+    card.classList.add(DOUBLE_CLASS, pickAnimVariant(varietyOn));
   }
   function updateDoubleHighlight(turn) {
     const c = cfg();
@@ -4447,7 +4682,7 @@ function markCheckoutInTurnBar(turn) {
       }
 
       if (placeholder) {
-        card.classList.remove(DOUBLE_CLASS);
+        stripAnimMarker(card, DOUBLE_CLASS);
         if (card.dataset) delete card.dataset.adDoubleToken;
         continue;
       }
@@ -4456,16 +4691,16 @@ function markCheckoutInTurnBar(turn) {
       const prev = (card.dataset && card.dataset.adDoubleToken) ? card.dataset.adDoubleToken : "";
 
       if (!isDouble) {
-        card.classList.remove(DOUBLE_CLASS);
+        stripAnimMarker(card, DOUBLE_CLASS);
         if (card.dataset) delete card.dataset.adDoubleToken;
         continue;
       }
 
       if (prev !== raw) {
         if (card.dataset) card.dataset.adDoubleToken = raw;
-        restartDouble(card);
-      } else {
-        if (!card.classList.contains(DOUBLE_CLASS)) card.classList.add(DOUBLE_CLASS);
+        restartDouble(card, c.DOUBLE_VARIETY);
+      } else if (!card.classList.contains(DOUBLE_CLASS) || !ANIM_VARIANT_CLASSES.some(v => card.classList.contains(v))) {
+        restartDouble(card, c.DOUBLE_VARIETY);
       }
     }
   }
@@ -4476,11 +4711,18 @@ function markCheckoutInTurnBar(turn) {
     document.querySelectorAll("." + HIGHSCORE_THROW_CLASS).forEach(el => el.classList.remove(HIGHSCORE_THROW_CLASS));
     clearBoardSpin();
     stopFireworks();
+    stopConfetti();
+    stopDinosaur();
   }
-  function triggerHighscore() {
+  // tier: 1 = ton (>=100), 2 = ton-forty (>=140, escalates tier 1's effects), 3 = max/180
+  // (escalates further and, if HIGHSCORE3_WILDCARD is on, adds the confetti/dinosaur wildcard).
+  // Escalation reuses the same effects at longer durations rather than needing separate settings
+  // per tier - a longer spin/fireworks window naturally reads as "bigger" without new CSS.
+  function triggerHighscore(tier) {
     const c = cfg();
-    const dur = clamp(Number(c.HIGHSCORE_SHIMMER_MS) || 2000, 400, 6000);
-    const spinMs = clamp(Number(c.HIGHSCORE_SPIN_MS) || 7000, 300, 15000);
+    const intensity = tier >= 3 ? 1.6 : tier >= 2 ? 1.35 : 1;
+    const dur = clamp((Number(c.HIGHSCORE_SHIMMER_MS) || 2000) * intensity, 400, 9000);
+    const spinMs = clamp((Number(c.HIGHSCORE_SPIN_MS) || 7000) * intensity, 300, 20000);
 
     if (c.HIGHSCORE_FLASH) {
       const host = document.querySelector("#ad-ext-player-display");
@@ -4513,12 +4755,16 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (c.HIGHSCORE_FIREWORKS) launchFireworks(spinMs);
+
+    if (tier >= 3 && c.HIGHSCORE3_WILDCARD) launchWildcard(spinMs);
   }
   function updateHighscoreHighlight(turn) {
     const c = cfg();
     if (!c.HIGHSCORE_ANIM || !turn) return;
 
-    const threshold = Math.max(1, Math.round(Number(c.HIGHSCORE_THRESHOLD) || 100));
+    const t1 = Math.max(1, Math.round(Number(c.HIGHSCORE_THRESHOLD) || 100));
+    const t2 = Math.max(1, Math.round(Number(c.HIGHSCORE2_THRESHOLD) || 140));
+    const t3 = Math.max(1, Math.round(Number(c.HIGHSCORE3_THRESHOLD) || 180));
     const cards = Array.from(turn.querySelectorAll(".ad-ext-turn-throw"));
 
     let total = 0, count = 0;
@@ -4530,20 +4776,25 @@ function markCheckoutInTurnBar(turn) {
       count++;
     }
 
-    // Fire ONCE per visit, the moment the 3-dart total first crosses the threshold
-    // (whether that crossing dart is a single, double or triple). Reset on a new visit.
-    const fired = (turn.dataset && turn.dataset.adHsFired === "1");
+    // Track the highest tier already fired this visit, so a turn that jumps straight past 100
+    // to 180 in one dart gets the tier-3 celebration (not tier-1), and a turn that escalates
+    // across darts (100 -> 140 -> 180) re-fires with the bigger effect each time it crosses a
+    // new tier. Reset on a new visit.
     if (count === 0) {
-      if (turn.dataset) turn.dataset.adHsFired = "";
+      if (turn.dataset) turn.dataset.adHsTier = "0";
       return;
     }
-    if (total >= threshold) {
-      if (!fired) {
-        if (turn.dataset) turn.dataset.adHsFired = "1";
-        triggerHighscore();
-      }
-    } else if (turn.dataset) {
-      turn.dataset.adHsFired = "";
+
+    const tier = (c.HIGHSCORE3_ENABLED && total >= t3) ? 3
+      : (c.HIGHSCORE2_ENABLED && total >= t2) ? 2
+      : (total >= t1) ? 1 : 0;
+    const firedTier = (turn.dataset && Number(turn.dataset.adHsTier)) || 0;
+
+    if (tier > firedTier) {
+      if (turn.dataset) turn.dataset.adHsTier = String(tier);
+      triggerHighscore(tier);
+    } else if (tier === 0 && turn.dataset) {
+      turn.dataset.adHsTier = "0";
     }
   }
 
@@ -5302,9 +5553,10 @@ function ensureMainButtonPosition() {
                "ACTIVE_P2_COLOR_HEX","ACTIVE_P2_OUTLINE_PX","ACTIVE_P2_GLOW","ACTIVE_P2_TRAIL","ACTIVE_P2_TRAIL_SPEED_MS","ACTIVE_P2_TRAIL_COLOR_HEX",
                "ACTIVE_P3_COLOR_HEX","ACTIVE_P3_OUTLINE_PX","ACTIVE_P3_GLOW","ACTIVE_P3_TRAIL","ACTIVE_P3_TRAIL_SPEED_MS","ACTIVE_P3_TRAIL_COLOR_HEX",
                "ACTIVE_P4_COLOR_HEX","ACTIVE_P4_OUTLINE_PX","ACTIVE_P4_GLOW","ACTIVE_P4_TRAIL","ACTIVE_P4_TRAIL_SPEED_MS","ACTIVE_P4_TRAIL_COLOR_HEX"],
-      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN"],
-      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN"],
-      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS"],
+      triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN","TRIPLE_VARIETY"],
+      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY"],
+      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS",
+                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_WILDCARD"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
     };
@@ -6915,6 +7167,7 @@ function ensureMainButtonPosition() {
       }
 
       case "triple":
+        addCheckbox(L.fields.varietyEnabled, ()=>!!c.TRIPLE_VARIETY, v=>{ c.TRIPLE_VARIETY=v; });
         addColor(()=>c.TRIPLE_GLOW_HEX, v=>c.TRIPLE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.TRIPLE_GLOW, v=>c.TRIPLE_GLOW=v, L.fields.glow, 0.05);
         addCheckbox(L.fields.flashEnabled, ()=>!!c.TRIPLE_FLASH, v=>{ c.TRIPLE_FLASH=v; });
@@ -6928,6 +7181,7 @@ function ensureMainButtonPosition() {
         break;
 
       case "double":
+        addCheckbox(L.fields.varietyEnabled, ()=>!!c.DOUBLE_VARIETY, v=>{ c.DOUBLE_VARIETY=v; });
         addColor(()=>c.DOUBLE_GLOW_HEX, v=>c.DOUBLE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.DOUBLE_GLOW, v=>c.DOUBLE_GLOW=v, L.fields.glow, 0.05);
         addCheckbox(L.fields.flashEnabled, ()=>!!c.DOUBLE_FLASH, v=>{ c.DOUBLE_FLASH=v; });
@@ -6941,27 +7195,43 @@ function ensureMainButtonPosition() {
         break;
 
       case "highscore": {
-        // Threshold input (integer)
-        const thWrap = document.createElement("div");
-        Object.assign(thWrap.style, { display:"flex", alignItems:"center", justifyContent:"space-between", gap:"10px" });
-        const thLabel = document.createElement("div");
-        thLabel.textContent = L.fields.threshold;
-        thLabel.style.fontSize = compact ? "12px" : "13px";
-        thLabel.style.fontWeight = "800";
-        thLabel.style.opacity = "0.9";
-        const thInput = document.createElement("input");
-        thInput.type = "number";
-        thInput.min = "1"; thInput.max = "180"; thInput.step = "1";
-        thInput.value = String(clamp(Math.round(Number(c.HIGHSCORE_THRESHOLD) || 100), 1, 180));
-        Object.assign(thInput.style, { width:"60px", background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.25)", borderRadius:"6px", color:"#fff", padding:"2px 6px", fontSize:"13px", textAlign:"center" });
-        thInput.addEventListener("input", () => {
-          const v = clamp(Math.round(Number(thInput.value) || 100), 1, 180);
-          c.HIGHSCORE_THRESHOLD = v;
-          saveStateDebounced();
-        });
-        thInput.addEventListener("change", () => showToast(L.saved));
-        thWrap.appendChild(thLabel); thWrap.appendChild(thInput);
-        box.appendChild(thWrap);
+        // Threshold input (integer), optionally paired with an enable checkbox (tiers 2/3).
+        const addThresholdRow = (label, thresholdKey, def, enabledKey) => {
+          const wrap = document.createElement("div");
+          Object.assign(wrap.style, { display:"flex", alignItems:"center", justifyContent:"space-between", gap:"10px" });
+          const left = document.createElement("div");
+          Object.assign(left.style, { display:"flex", alignItems:"center", gap:"8px" });
+          if (enabledKey) {
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = !!c[enabledKey];
+            cb.addEventListener("change", () => { c[enabledKey] = cb.checked; saveStateDebounced(); showToast(L.saved); });
+            left.appendChild(cb);
+          }
+          const lbl = document.createElement("div");
+          lbl.textContent = label;
+          lbl.style.fontSize = compact ? "12px" : "13px";
+          lbl.style.fontWeight = "800";
+          lbl.style.opacity = "0.9";
+          left.appendChild(lbl);
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = "1"; input.max = "180"; input.step = "1";
+          input.value = String(clamp(Math.round(Number(c[thresholdKey]) || def), 1, 180));
+          Object.assign(input.style, { width:"60px", background:"rgba(255,255,255,.1)", border:"1px solid rgba(255,255,255,.25)", borderRadius:"6px", color:"#fff", padding:"2px 6px", fontSize:"13px", textAlign:"center" });
+          input.addEventListener("input", () => {
+            c[thresholdKey] = clamp(Math.round(Number(input.value) || def), 1, 180);
+            saveStateDebounced();
+          });
+          input.addEventListener("change", () => showToast(L.saved));
+          wrap.appendChild(left); wrap.appendChild(input);
+          box.appendChild(wrap);
+        };
+
+        addThresholdRow(L.fields.threshold, "HIGHSCORE_THRESHOLD", 100, null);
+        addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
+        addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
+        addCheckbox(L.fields.wildcard, ()=>!!c.HIGHSCORE3_WILDCARD, v=>{ c.HIGHSCORE3_WILDCARD=v; });
 
         addColor(()=>c.HIGHSCORE_GLOW_HEX, v=>c.HIGHSCORE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
