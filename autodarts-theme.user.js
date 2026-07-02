@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.33.0
+// @version      2.34.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.33.0";
+  const SCRIPT_VERSION = "2.34.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -192,6 +192,7 @@
     DOUBLE_SPIN_MS: 1000,
     DOUBLE_SPIN_MIN: 15,         // only doubles D>=this value spin the board (1..20)
     DOUBLE_VARIETY: true,        // pick a random animation style each hit instead of always the same one
+    DOUBLE_STREAK_ANIM: true,    // "DOUBLE, DOUBLE!!" banner + flash when 2+ of this turn's 3 darts are doubles
 
     HIGHSCORE_ANIM: true,
     HIGHSCORE_THRESHOLD: 100,
@@ -212,6 +213,10 @@
     HIGHSCORE3_ENABLED: true,
     HIGHSCORE3_THRESHOLD: 180,
     HIGHSCORE3_WILDCARD: true,
+    HIGHSCORE3_BANNER: true,     // flashing "ONE HUNDRED AND EIGHTY!" text on a 180
+    // One random "flair" effect (gold/red glow, lightning, smoke, cheering crowd) on top of the
+    // tier effects above, for EVERY tier (not just 180) - keeps the celebration feeling varied.
+    HIGHSCORE_FLAIR: true,
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
@@ -398,7 +403,10 @@
         varietyEnabled: "Változatos animáció",
         tier2: "2. szint (Ton-forty)",
         tier3: "3. szint (Max/180)",
-        wildcard: "Wildcard (konfetti / dínó)",
+        wildcard: "Wildcard (konfetti / dínó / ágyú)",
+        bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" felirat",
+        flairEnabled: "Extra effekt minden szinten",
+        doubleStreak: "\"DOUBLE, DOUBLE!!\" felirat (2+ dupla)",
         perPlayer: "Játékosonként eltérő",
         p1: "1.J",
         p2: "2.J",
@@ -628,7 +636,10 @@
         varietyEnabled: "Varied animation",
         tier2: "Tier 2 (Ton-forty)",
         tier3: "Tier 3 (Max/180)",
-        wildcard: "Wildcard (confetti / dino)",
+        wildcard: "Wildcard (confetti / dino / cannons)",
+        bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" banner",
+        flairEnabled: "Extra effect on every tier",
+        doubleStreak: "\"DOUBLE, DOUBLE!!\" banner (2+ doubles)",
         perPlayer: "Per-player",
         p1: "P1",
         p2: "P2",
@@ -858,7 +869,10 @@
         varietyEnabled: "Abwechslungsreiche Animation",
         tier2: "Stufe 2 (Ton-Forty)",
         tier3: "Stufe 3 (Max/180)",
-        wildcard: "Wildcard (Konfetti / Dino)",
+        wildcard: "Wildcard (Konfetti / Dino / Kanonen)",
+        bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" Banner",
+        flairEnabled: "Extra-Effekt auf jeder Stufe",
+        doubleStreak: "\"DOUBLE, DOUBLE!!\" Banner (2+ Doppel)",
         perPlayer: "Pro Spieler",
         p1: "S1",
         p2: "S2",
@@ -1053,6 +1067,7 @@
   const HIGHSCORE_SPIN_CLASS = "ad-highscore-spin";
   const HIGHSCORE_BOARD_FLASH_CLASS = "ad-highscore-board-flash";
   const HIGHSCORE_THROW_CLASS = "ad-highscore-throw-flash";
+  const HIGHSCORE_GLOW2_CLASS = "ad-goldglow-flash";
   const BOARD_VISUAL_CLASS = "ad-board-visual";
   const BOARD_IMG_CLASS = "ad-board-img";
   const BOARD_HOST_CLASS = "ad-board-host";
@@ -2067,8 +2082,9 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // Fireworks overlay (CSS particle burst) for a ton
-      if (c.HIGHSCORE_ANIM && c.HIGHSCORE_FIREWORKS) {
+      // Fireworks overlay (CSS particle burst) for a ton - also shared by the wildcard board
+      // explosion/dino-chomp/cannons below, so it must exist whenever either could fire.
+      if (c.HIGHSCORE_ANIM && (c.HIGHSCORE_FIREWORKS || (c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_WILDCARD))) {
         css.push(`
 #ad-fireworks{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
 .ad-fw-burst{ position:absolute; width:0; height:0; }
@@ -2085,7 +2101,8 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // Wildcard celebration (180 only): board-implode + confetti burst, and/or the dinosaur run
+      // Wildcard celebration (180 only): board-implode+enlarge-burst, dinosaur chomp, or triple
+      // confetti cannons - launchWildcard() picks one of the three at random.
       if (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_WILDCARD) {
         css.push(`
 .${BOARD_HOST_CLASS}.ad-board-implode, .${BOARD_VISUAL_CLASS}.ad-board-implode, svg.ad-board-svg.ad-board-implode{
@@ -2093,11 +2110,12 @@ svg.ad-board-svg, img.ad-board-img{
   transform-origin: center center !important;
 }
 @keyframes adBoardImplode{
-  0%   { transform: scale(1) rotate(0deg);   opacity:1; }
-  42%  { transform: scale(0.04) rotate(-18deg); opacity:1; }
-  55%  { transform: scale(0.04) rotate(-18deg); opacity:0; }
-  70%  { transform: scale(0) rotate(0deg);   opacity:0; }
-  100% { transform: scale(1) rotate(0deg);   opacity:1; }
+  0%   { transform: scale(1) rotate(0deg);      opacity:1; }
+  40%  { transform: scale(0.04) rotate(-18deg); opacity:1; }
+  52%  { transform: scale(0.04) rotate(-18deg); opacity:0; }
+  58%  { transform: scale(1.4) rotate(6deg);    opacity:1; }
+  75%  { transform: scale(1.4) rotate(6deg);    opacity:1; }
+  100% { transform: scale(1) rotate(0deg);      opacity:1; }
 }
 #ad-confetti{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
 .ad-confetti-piece{
@@ -2109,11 +2127,11 @@ svg.ad-board-svg, img.ad-board-img{
   100% { transform: translate(var(--tx), calc(var(--ty) + 260px)) rotate(var(--rot)); opacity:0; }
 }
 #ad-dino{
-  position:fixed; left:-15vw; bottom:4vh; z-index:2147483601; pointer-events:none;
+  position:fixed; left:-20vw; bottom:4vh; z-index:2147483601; pointer-events:none;
   animation: adDinoWalk var(--ad-dino-dur, 3200ms) ease-in-out forwards;
 }
 .ad-dino-body{
-  display:inline-block; font-size:14vh; line-height:1;
+  display:inline-block; font-size:22vh; line-height:1;
   animation: adDinoBob 0.32s ease-in-out infinite;
 }
 #ad-dino.ad-dino-bite .ad-dino-body{
@@ -2121,7 +2139,7 @@ svg.ad-board-svg, img.ad-board-img{
 }
 @keyframes adDinoWalk{
   0%   { transform: translateX(0); }
-  100% { transform: translateX(85vw); }
+  100% { transform: translateX(var(--ad-dino-end-x, 85vw)); }
 }
 @keyframes adDinoBob{
   0%,100%{ transform: translateY(0) scaleY(1); }
@@ -2130,6 +2148,81 @@ svg.ad-board-svg, img.ad-board-img{
 @keyframes adDinoBite{
   0%,100%{ transform: scaleX(1) scaleY(1); }
   50%    { transform: scaleX(1.35) scaleY(0.8); }
+}
+`);
+      }
+
+      // Big flashing banner text - "DOUBLE, DOUBLE!!" (double streak) and/or "ONE HUNDRED AND
+      // EIGHTY!" (180) share this CSS, so it needs to exist whenever either could fire.
+      if ((c.DOUBLE_ANIM && c.DOUBLE_STREAK_ANIM) || (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_BANNER)) {
+        css.push(`
+#ad-banner{
+  position:fixed; left:50%; top:38%; transform:translate(-50%,-50%);
+  z-index:2147483610; pointer-events:none; text-align:center;
+  font-family: Arial, system-ui, sans-serif; font-weight:900;
+  font-size: clamp(28px, 6vw, 96px);
+  color:#fff; letter-spacing:1px;
+  -webkit-text-stroke: 2px rgba(0,0,0,.6);
+  text-shadow: 0 0 18px var(--ad-banner-color,#ffd700), 0 0 46px var(--ad-banner-color,#ffd700), 0 6px 10px rgba(0,0,0,.6);
+  animation: adBannerPop var(--ad-banner-hold, 1400ms) cubic-bezier(.2,.9,.25,1) forwards;
+}
+@keyframes adBannerPop{
+  0%   { transform: translate(-50%,-50%) scale(0.2); opacity:0; }
+  15%  { transform: translate(-50%,-50%) scale(1.15); opacity:1; }
+  25%  { transform: translate(-50%,-50%) scale(1);    opacity:1; }
+  85%  { transform: translate(-50%,-50%) scale(1);    opacity:1; }
+  100% { transform: translate(-50%,-50%) scale(0.9);  opacity:0; }
+}
+#ad-banner-flash{
+  position:fixed; inset:0; z-index:2147483605; pointer-events:none;
+  background: rgba(255,255,255,.85);
+  animation: adBannerFlash 0.5s ease-out forwards;
+}
+@keyframes adBannerFlash{
+  0%   { opacity:1; }
+  100% { opacity:0; }
+}
+`);
+      }
+
+      // Dynamic "flair" pool: one random extra effect on EVERY tier (100/140/180), not just the
+      // 180 wildcard - gold/red score glow, lightning, smoke cannons, cheering crowd.
+      if (c.HIGHSCORE_ANIM && c.HIGHSCORE_FLAIR) {
+        css.push(`
+.${HIGHSCORE_GLOW2_CLASS}{
+  animation: adGoldGlowFlash 1.1s ease-in-out 2 !important;
+}
+@keyframes adGoldGlowFlash{
+  0%,100%{ outline-color: rgba(255,90,40,0); box-shadow:none; }
+  50%    { outline: 3px solid rgba(255,215,0,.95); box-shadow: 0 0 40px rgba(255,120,20,.85), 0 0 90px rgba(255,215,0,.6); }
+}
+#ad-lightning{ position:fixed; inset:0; pointer-events:none; z-index:2147483602; overflow:hidden; }
+#ad-lightning.ad-flash{ animation: adLightningScreenFlash 0.35s ease-out; }
+@keyframes adLightningScreenFlash{ 0%{ background:rgba(220,235,255,.75);} 100%{ background:rgba(220,235,255,0);} }
+.ad-bolt{ position:absolute; opacity:0; filter: drop-shadow(0 0 10px #cfe8ff); animation: adLightningFlicker 0.5s ease-out forwards; }
+@keyframes adLightningFlicker{
+  0%   { opacity:0; }
+  8%   { opacity:1; }
+  16%  { opacity:0.2; }
+  24%  { opacity:1; }
+  40%  { opacity:0; }
+  100% { opacity:0; }
+}
+#ad-smoke{ position:fixed; inset:0; pointer-events:none; z-index:2147483599; overflow:hidden; }
+.ad-smoke-puff{
+  position:absolute; border-radius:50%; background: radial-gradient(circle, rgba(210,210,215,.85), rgba(210,210,215,0) 70%);
+  filter: blur(2px);
+  animation: adSmokeRise 2.4s ease-out forwards;
+}
+@keyframes adSmokeRise{
+  0%   { transform: translate(0,0) scale(0.4); opacity:.85; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(1.8); opacity:0; }
+}
+#ad-crowd{ position:fixed; left:0; right:0; bottom:0; height:9vh; z-index:2147483598; pointer-events:none; display:flex; align-items:flex-end; justify-content:space-evenly; }
+.ad-crowd-fig{ font-size:6vh; line-height:1; animation: adCrowdBounce 0.5s ease-in-out infinite; }
+@keyframes adCrowdBounce{
+  0%,100%{ transform: translateY(0); }
+  50%    { transform: translateY(-2.4vh); }
 }
 `);
       }
@@ -2905,6 +2998,32 @@ svg.ad-board-svg text{
   }
 
   /* ================== FIREWORKS (CSS particle burst) ================== */
+  const FIREWORK_COLORS = ["#ffd700", "#ff4d4d", "#43e0ff", "#5dff8a", "#ff6bff", "#ffffff", "#ff9f1c"];
+  // Spawns one radiating particle burst at an explicit screen point (px). Shared by the random-
+  // position fireworks loop below and by anything that wants a burst at a specific spot (board
+  // explosion, dinosaur chomp) instead of a random one.
+  function spawnFireworkBurstAt(overlay, cx, cy, timers) {
+    const burst = document.createElement("div");
+    burst.className = "ad-fw-burst";
+    burst.style.left = cx + "px";
+    burst.style.top = cy + "px";
+    const color = FIREWORK_COLORS[(Math.random() * FIREWORK_COLORS.length) | 0];
+    const n = 24 + ((Math.random() * 10) | 0);
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement("i");
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.25;
+      const dist = 70 + Math.random() * 110;
+      p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
+      p.style.setProperty("--ty", (Math.sin(ang) * dist).toFixed(1) + "px");
+      p.style.color = (Math.random() < 0.25) ? FIREWORK_COLORS[(Math.random() * FIREWORK_COLORS.length) | 0] : color;
+      const s = (5 + Math.random() * 6).toFixed(1);
+      p.style.width = s + "px"; p.style.height = s + "px";
+      burst.appendChild(p);
+    }
+    overlay.appendChild(burst);
+    timers.push(setTimeout(() => burst.remove(), 1400));
+  }
+
   let fireworksTimers = [];
   function stopFireworks() {
     fireworksTimers.forEach(t => clearTimeout(t) || clearInterval(t));
@@ -2919,27 +3038,10 @@ svg.ad-board-svg text{
     overlay.id = "ad-fireworks";
     (document.body || document.documentElement).appendChild(overlay);
 
-    const colors = ["#ffd700", "#ff4d4d", "#43e0ff", "#5dff8a", "#ff6bff", "#ffffff", "#ff9f1c"];
     const spawn = () => {
-      const burst = document.createElement("div");
-      burst.className = "ad-fw-burst";
-      burst.style.left = (8 + Math.random() * 84) + "vw";
-      burst.style.top  = (10 + Math.random() * 55) + "vh";
-      const color = colors[(Math.random() * colors.length) | 0];
-      const n = 24 + ((Math.random() * 10) | 0);
-      for (let i = 0; i < n; i++) {
-        const p = document.createElement("i");
-        const ang = (i / n) * Math.PI * 2 + Math.random() * 0.25;
-        const dist = 70 + Math.random() * 110;
-        p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
-        p.style.setProperty("--ty", (Math.sin(ang) * dist).toFixed(1) + "px");
-        p.style.color = (Math.random() < 0.25) ? colors[(Math.random() * colors.length) | 0] : color;
-        const s = (5 + Math.random() * 6).toFixed(1);
-        p.style.width = s + "px"; p.style.height = s + "px";
-        burst.appendChild(p);
-      }
-      overlay.appendChild(burst);
-      fireworksTimers.push(setTimeout(() => burst.remove(), 1400));
+      const cx = (8 + Math.random() * 84) / 100 * innerWidth;
+      const cy = (10 + Math.random() * 55) / 100 * innerHeight;
+      spawnFireworkBurstAt(overlay, cx, cy, fireworksTimers);
     };
 
     spawn();
@@ -2948,6 +3050,35 @@ svg.ad-board-svg text{
     fireworksTimers.push(iv);
     fireworksTimers.push(setTimeout(() => clearInterval(iv), Math.max(300, dur - 250)));
     fireworksTimers.push(setTimeout(stopFireworks, dur + 1500));
+  }
+
+  /* ================== BIG BANNER (shared: DOUBLE-DOUBLE / 180!) ================== */
+  let bannerTimers = [];
+  function stopBanner() {
+    bannerTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    bannerTimers = [];
+    const el = document.getElementById("ad-banner");
+    if (el) el.remove();
+    const fl = document.getElementById("ad-banner-flash");
+    if (fl) fl.remove();
+  }
+  function showBigBanner(text, colorHex, holdMs, withFlash) {
+    stopBanner();
+    const hold = clamp(Number(holdMs) || 1400, 400, 5000);
+    const banner = document.createElement("div");
+    banner.id = "ad-banner";
+    banner.textContent = text;
+    banner.style.setProperty("--ad-banner-color", sanitizeHex(colorHex, "#ffd700"));
+    banner.style.setProperty("--ad-banner-hold", hold + "ms");
+    (document.body || document.documentElement).appendChild(banner);
+    bannerTimers.push(setTimeout(stopBanner, hold + 200));
+
+    if (withFlash) {
+      const flash = document.createElement("div");
+      flash.id = "ad-banner-flash";
+      (document.body || document.documentElement).appendChild(flash);
+      bannerTimers.push(setTimeout(() => flash.remove(), 500));
+    }
   }
 
   /* ================== WILDCARD (180 only): confetti board explosion / dinosaur run ========== */
@@ -2985,11 +3116,11 @@ svg.ad-board-svg text{
     }
     confettiTimers.push(setTimeout(() => { const ov = document.getElementById("ad-confetti"); if (ov && !ov.children.length) ov.remove(); }, 2100));
   }
-  // Board shrinks away then pops back (adBoardImplode), spawning a confetti burst from its
-  // center partway through the shrink - a bigger, one-off "wow" moment reserved for 180s.
-  function launchConfettiExplosion(durationMs) {
-    stopConfetti();
-    const dur = clamp(Number(durationMs) || 2000, 900, 6000);
+  // Shrinks the board away, hides it briefly, then pops back OVERSHOOT-large (adBoardImplode)
+  // right as a combined confetti + colorful firework burst fires from its center - "shrink then
+  // enlarge and explode into fireworks." Shared by the confetti-explosion wildcard AND the
+  // dinosaur chomp below (both actually explode the board, not just a burst at their own spot).
+  function implodeBoards(dur) {
     const boards = getBoardVisualTargets();
     for (const board of boards) {
       board.style.setProperty("--ad-implode-dur", dur + "ms");
@@ -2998,11 +3129,34 @@ svg.ad-board-svg text{
       board.classList.add("ad-board-implode");
       confettiTimers.push(setTimeout(() => board.classList.remove("ad-board-implode"), dur + 150));
     }
+    return boards;
+  }
+  function explodeBoardAt(dur, boards) {
     confettiTimers.push(setTimeout(() => {
       const target = boards[0];
       const r = target ? target.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
-      spawnConfettiBurst(r.left + r.width / 2, r.top + r.height / 2);
-    }, dur * 0.42));
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      spawnConfettiBurst(cx, cy, 80);
+      let overlay = document.getElementById("ad-confetti");
+      if (overlay) spawnFireworkBurstAt(overlay, cx, cy, confettiTimers);
+    }, dur * 0.55));
+  }
+  function launchConfettiExplosion(durationMs) {
+    stopConfetti();
+    const dur = clamp(Number(durationMs) || 2000, 900, 6000);
+    explodeBoardAt(dur, implodeBoards(dur));
+  }
+
+  // Fires 3 confetti bursts from bottom-left/center/right in quick succession - "triple confetti
+  // cannons," reusing the same particle system as the board explosion above.
+  function launchConfettiCannons(durationMs) {
+    stopConfetti();
+    const positions = [0.10, 0.5, 0.90];
+    positions.forEach((frac, i) => {
+      confettiTimers.push(setTimeout(() => {
+        spawnConfettiBurst(frac * innerWidth, 0.95 * innerHeight, 60);
+      }, i * 90));
+    });
   }
 
   let dinoTimers = [];
@@ -3012,11 +3166,13 @@ svg.ad-board-svg text{
     const el = document.getElementById("ad-dino");
     if (el) el.remove();
   }
-  // Emoji sprite walks across the screen, "bites" (quick squash/stretch), then explodes into
-  // confetti and disappears - the other half of the 180 wildcard pool alongside the confetti
-  // board explosion above (launchWildcard picks one at random).
+  // Large emoji sprite walks to the board, "bites" it (quick squash/stretch), then the board
+  // itself implodes and explodes (implodeBoards/explodeBoardAt above) - "chomp board and explode
+  // the SVG board." The other half of the 180 wildcard pool alongside the confetti explosion and
+  // cannons (launchWildcard picks one of the three at random).
   function launchDinosaurRun(durationMs) {
     stopDinosaur();
+    stopConfetti();
     const dur = clamp(Number(durationMs) || 3200, 1500, 8000);
     const dino = document.createElement("div");
     dino.id = "ad-dino";
@@ -3027,17 +3183,139 @@ svg.ad-board-svg text{
     dino.appendChild(body);
     (document.body || document.documentElement).appendChild(dino);
 
+    const boards = getBoardVisualTargets();
+    const target = boards[0];
+    if (target) {
+      const r = target.getBoundingClientRect();
+      const dinoStartX = -0.2 * innerWidth; // matches #ad-dino's left:-20vw
+      dino.style.setProperty("--ad-dino-end-x", ((r.left + r.width / 2) - dinoStartX) + "px");
+    }
+
     dinoTimers.push(setTimeout(() => dino.classList.add("ad-dino-bite"), dur * 0.72));
     dinoTimers.push(setTimeout(() => {
-      const r = dino.getBoundingClientRect();
-      spawnConfettiBurst(r.left + r.width / 2, r.top + r.height / 2, 90);
       dino.remove();
-    }, dur * 0.92));
+      const implodeDur = clamp(dur * 0.5, 900, 6000);
+      explodeBoardAt(implodeDur, implodeBoards(implodeDur));
+    }, dur * 0.82));
   }
 
   function launchWildcard(durationMs) {
-    if (Math.random() < 0.5) launchConfettiExplosion(durationMs);
-    else launchDinosaurRun(durationMs);
+    const pick = Math.random();
+    if (pick < 0.34) launchConfettiExplosion(durationMs);
+    else if (pick < 0.67) launchDinosaurRun(durationMs);
+    else launchConfettiCannons(durationMs);
+  }
+
+  /* ================== FLAIR POOL (all tiers): glow / lightning / smoke / crowd ============== */
+  // Resolves the same "active or first player panel" triggerHighscore's flash effect targets,
+  // reused here so the gold/red glow lands on the same element.
+  function getActiveOrFirstPanel() {
+    const host = document.querySelector("#ad-ext-player-display");
+    if (!host) return null;
+    return Array.from(host.children).find(p => p.classList && p.classList.contains(ACTIVE_CLASS))
+      || host.children[0] || null;
+  }
+
+  let flairTimers = [];
+  function stopFlair() {
+    flairTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    flairTimers = [];
+    document.querySelectorAll("." + HIGHSCORE_GLOW2_CLASS).forEach(el => el.classList.remove(HIGHSCORE_GLOW2_CLASS));
+    const l = document.getElementById("ad-lightning"); if (l) l.remove();
+    const s = document.getElementById("ad-smoke"); if (s) s.remove();
+    const cw = document.getElementById("ad-crowd"); if (cw) cw.remove();
+  }
+
+  function launchGoldGlow() {
+    const panel = getActiveOrFirstPanel();
+    if (!panel) return;
+    panel.classList.remove(HIGHSCORE_GLOW2_CLASS);
+    void panel.offsetWidth;
+    panel.classList.add(HIGHSCORE_GLOW2_CLASS);
+    flairTimers.push(setTimeout(() => panel.classList.remove(HIGHSCORE_GLOW2_CLASS), 2400));
+  }
+
+  function launchLightning() {
+    const overlay = document.createElement("div");
+    overlay.id = "ad-lightning";
+    (document.body || document.documentElement).appendChild(overlay);
+    const svgNS = "http://www.w3.org/2000/svg";
+    const boltCount = 2 + ((Math.random() * 2) | 0);
+    for (let b = 0; b < boltCount; b++) {
+      const svg = document.createElementNS(svgNS, "svg");
+      svg.setAttribute("class", "ad-bolt");
+      const x0 = 10 + Math.random() * 80;
+      let d = `M${x0},0 `;
+      let x = x0, y = 0;
+      while (y < 100) {
+        y += 12 + Math.random() * 14;
+        x += (Math.random() - 0.5) * 22;
+        d += `L${x},${y} `;
+      }
+      svg.setAttribute("viewBox", "0 0 100 100");
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.style.left = (x0 - 15) + "vw"; svg.style.top = "0"; svg.style.width = "30vw"; svg.style.height = "100vh";
+      svg.style.animationDelay = (b * 90) + "ms";
+      const path = document.createElementNS(svgNS, "polyline");
+      path.setAttribute("points", d.replace(/[ML]/g, "").trim());
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "#eaf6ff");
+      path.setAttribute("stroke-width", "1.4");
+      svg.appendChild(path);
+      overlay.appendChild(svg);
+    }
+    overlay.classList.add("ad-flash");
+    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-lightning"); if (el) el.remove(); }, 900));
+  }
+
+  function launchSmoke() {
+    const overlay = document.createElement("div");
+    overlay.id = "ad-smoke";
+    (document.body || document.documentElement).appendChild(overlay);
+    const origins = [[0.06, 1], [0.94, 1]];
+    for (const [fx, fy] of origins) {
+      for (let i = 0; i < 10; i++) {
+        const puff = document.createElement("i");
+        puff.className = "ad-smoke-puff";
+        const cx = fx * innerWidth, cy = fy * innerHeight;
+        puff.style.left = (cx + (Math.random() - 0.5) * 40) + "px";
+        puff.style.top = (cy - Math.random() * 30) + "px";
+        const size = 30 + Math.random() * 50;
+        puff.style.width = size + "px"; puff.style.height = size + "px";
+        puff.style.setProperty("--tx", ((Math.random() - 0.5) * 160).toFixed(0) + "px");
+        puff.style.setProperty("--ty", (-(220 + Math.random() * 180)).toFixed(0) + "px");
+        puff.style.animationDelay = (Math.random() * 500) + "ms";
+        overlay.appendChild(puff);
+      }
+    }
+    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-smoke"); if (el) el.remove(); }, 3200));
+  }
+
+  const CROWD_EMOJI = ["🙌", "🎉", "👏", "🥳"];
+  function launchCrowd(durationMs) {
+    const dur = clamp(Number(durationMs) || 2200, 800, 6000);
+    const bar = document.createElement("div");
+    bar.id = "ad-crowd";
+    for (let i = 0; i < 14; i++) {
+      const fig = document.createElement("span");
+      fig.className = "ad-crowd-fig";
+      fig.textContent = CROWD_EMOJI[(Math.random() * CROWD_EMOJI.length) | 0];
+      fig.style.animationDelay = (Math.random() * 0.4) + "s";
+      bar.appendChild(fig);
+    }
+    (document.body || document.documentElement).appendChild(bar);
+    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-crowd"); if (el) el.remove(); }, dur));
+  }
+
+  const FLAIR_POOL = [
+    () => launchGoldGlow(),
+    () => launchLightning(),
+    () => launchSmoke(),
+    (durationMs) => launchCrowd(durationMs),
+  ];
+  function launchRandomFlair(durationMs) {
+    const fn = FLAIR_POOL[(Math.random() * FLAIR_POOL.length) | 0];
+    fn(durationMs);
   }
 
   function applyBoardMarkerNow() {
@@ -4647,6 +4925,7 @@ function markCheckoutInTurnBar(turn) {
       stripAnimMarker(card, DOUBLE_CLASS);
       if (card.dataset) delete card.dataset.adDoubleToken;
     });
+    stopBanner();
   }
   function restartDouble(card, varietyOn) {
     card.classList.remove(DOUBLE_CLASS, ...ANIM_VARIANT_CLASSES);
@@ -4661,6 +4940,7 @@ function markCheckoutInTurnBar(turn) {
     const spinMin = clamp(Math.round(Number(c.DOUBLE_SPIN_MIN) || 15), 1, 20);
     const cards = turn.querySelectorAll(".ad-ext-turn-throw");
 
+    let doubleCount = 0, thrownCount = 0;
     for (const card of cards) {
       const p = card.querySelector("p");
       const raw = (p?.textContent || "").trim().toUpperCase();
@@ -4686,6 +4966,7 @@ function markCheckoutInTurnBar(turn) {
         if (card.dataset) delete card.dataset.adDoubleToken;
         continue;
       }
+      thrownCount++;
 
       const isDouble = allow.has(raw);
       const prev = (card.dataset && card.dataset.adDoubleToken) ? card.dataset.adDoubleToken : "";
@@ -4695,12 +4976,24 @@ function markCheckoutInTurnBar(turn) {
         if (card.dataset) delete card.dataset.adDoubleToken;
         continue;
       }
+      doubleCount++;
 
       if (prev !== raw) {
         if (card.dataset) card.dataset.adDoubleToken = raw;
         restartDouble(card, c.DOUBLE_VARIETY);
       } else if (!card.classList.contains(DOUBLE_CLASS) || !ANIM_VARIANT_CLASSES.some(v => card.classList.contains(v))) {
         restartDouble(card, c.DOUBLE_VARIETY);
+      }
+    }
+
+    // "DOUBLE, DOUBLE!!" - 2+ of this turn's darts are doubles. Fire once per visit (reset when
+    // the visit clears, same pattern as the high-score tier tracking below).
+    if (c.DOUBLE_STREAK_ANIM && turn.dataset) {
+      if (thrownCount === 0) {
+        turn.dataset.adDblStreak = "";
+      } else if (doubleCount >= 2 && turn.dataset.adDblStreak !== "1") {
+        turn.dataset.adDblStreak = "1";
+        showBigBanner("DOUBLE, DOUBLE!!", c.DOUBLE_GLOW_HEX, 1300, true);
       }
     }
   }
@@ -4713,6 +5006,8 @@ function markCheckoutInTurnBar(turn) {
     stopFireworks();
     stopConfetti();
     stopDinosaur();
+    stopBanner();
+    stopFlair();
   }
   // tier: 1 = ton (>=100), 2 = ton-forty (>=140, escalates tier 1's effects), 3 = max/180
   // (escalates further and, if HIGHSCORE3_WILDCARD is on, adds the confetti/dinosaur wildcard).
@@ -4756,7 +5051,9 @@ function markCheckoutInTurnBar(turn) {
 
     if (c.HIGHSCORE_FIREWORKS) launchFireworks(spinMs);
 
+    if (tier >= 3 && c.HIGHSCORE3_BANNER) showBigBanner("ONE HUNDRED AND EIGHTY!", c.HIGHSCORE_GLOW_HEX, 1800, true);
     if (tier >= 3 && c.HIGHSCORE3_WILDCARD) launchWildcard(spinMs);
+    if (c.HIGHSCORE_FLAIR) launchRandomFlair(spinMs);
   }
   function updateHighscoreHighlight(turn) {
     const c = cfg();
@@ -5554,9 +5851,9 @@ function ensureMainButtonPosition() {
                "ACTIVE_P3_COLOR_HEX","ACTIVE_P3_OUTLINE_PX","ACTIVE_P3_GLOW","ACTIVE_P3_TRAIL","ACTIVE_P3_TRAIL_SPEED_MS","ACTIVE_P3_TRAIL_COLOR_HEX",
                "ACTIVE_P4_COLOR_HEX","ACTIVE_P4_OUTLINE_PX","ACTIVE_P4_GLOW","ACTIVE_P4_TRAIL","ACTIVE_P4_TRAIL_SPEED_MS","ACTIVE_P4_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN","TRIPLE_VARIETY"],
-      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY"],
+      double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY","DOUBLE_STREAK_ANIM"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS",
-                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_WILDCARD"],
+                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_WILDCARD","HIGHSCORE3_BANNER","HIGHSCORE_FLAIR"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
     };
@@ -7182,6 +7479,7 @@ function ensureMainButtonPosition() {
 
       case "double":
         addCheckbox(L.fields.varietyEnabled, ()=>!!c.DOUBLE_VARIETY, v=>{ c.DOUBLE_VARIETY=v; });
+        addCheckbox(L.fields.doubleStreak, ()=>!!c.DOUBLE_STREAK_ANIM, v=>{ c.DOUBLE_STREAK_ANIM=v; });
         addColor(()=>c.DOUBLE_GLOW_HEX, v=>c.DOUBLE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.DOUBLE_GLOW, v=>c.DOUBLE_GLOW=v, L.fields.glow, 0.05);
         addCheckbox(L.fields.flashEnabled, ()=>!!c.DOUBLE_FLASH, v=>{ c.DOUBLE_FLASH=v; });
@@ -7232,6 +7530,8 @@ function ensureMainButtonPosition() {
         addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
         addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
         addCheckbox(L.fields.wildcard, ()=>!!c.HIGHSCORE3_WILDCARD, v=>{ c.HIGHSCORE3_WILDCARD=v; });
+        addCheckbox(L.fields.bannerEnabled, ()=>!!c.HIGHSCORE3_BANNER, v=>{ c.HIGHSCORE3_BANNER=v; });
+        addCheckbox(L.fields.flairEnabled, ()=>!!c.HIGHSCORE_FLAIR, v=>{ c.HIGHSCORE_FLAIR=v; });
 
         addColor(()=>c.HIGHSCORE_GLOW_HEX, v=>c.HIGHSCORE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
