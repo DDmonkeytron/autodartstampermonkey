@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.31.1
+// @version      2.32.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -11,13 +11,13 @@
 // @supportURL   https://github.com/DDmonkeytron/autodartstampermonkey/issues
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
-// @description  CORE panel with presets + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module + theme gallery (GitHub-hosted) + click/drag Layout Editor (Beta) for Player Info. Includes performance optimizations (dirty flags + scoped observers).
+// @description  CORE panel with 6 presets (A-F) + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module + theme gallery (GitHub-hosted, with color-swatch previews) + click/drag Layout Editor (Beta) for Player Info with snap-to-grid/alignment guides and one-click 2P<->3-4P layout copy. Includes performance optimizations (dirty flags + scoped observers).
 // ==/UserScript==
 
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.31.1";
+  const SCRIPT_VERSION = "2.32.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -242,6 +242,7 @@
     helpOpen: false,
     lang: "hu",              // hu | en | de
     clock: clone(DEFAULT_CLOCK),
+    editSnapEnabled: true,   // Layout Editor: snap-to-grid + alignment guides while dragging
   };
 
   // ===== Preset A baked default (the user's tuned config) =====
@@ -288,10 +289,17 @@
   };
   const presetBC = () => ({ ...clone(DEFAULT_CFG), ...sharedBg() });
 
+  // Fixed-cap preset slots (A-F). Slot 0 is the tuned default (presetA); the rest start
+  // from a plain DEFAULT_CFG clone (presetBC) - same as the old B/C slots always did.
+  const PRESET_COUNT = 6;
+  const PRESET_LABELS = ["A", "B", "C", "D", "E", "F"];
+  const makeDefaultPresets = () =>
+    Array.from({ length: PRESET_COUNT }, (_, i) => (i === 0 ? presetA() : presetBC()));
+
   const DEFAULT_STATE = {
     schemaVersion: STATE_SCHEMA_VERSION,
     activePreset: 0,
-    presets: [presetA(), presetBC(), presetBC()],
+    presets: makeDefaultPresets(),
     ui: clone(DEFAULT_UI),
   };
 
@@ -437,6 +445,13 @@
         editModeOff: "✖ Szerkesztés befejezése",
         editHint: "BETA: Kattints egy elemre a kijelöléshez, húzd az áthelyezéshez, a sárga négyzetet az átméretezéshez. Esc vagy Befejezés a kilépéshez.",
         editNeedMatch: "Nyiss meg egy meccset a szerkesztéshez.",
+        editSnapOn: "🧲 Illesztés BE",
+        editSnapOff: "🧲 Illesztés KI",
+        editCopyToGrid: "2P→3-4P másolás",
+        editCopyToFlat: "3-4P→2P másolás",
+        editCopyToGridConfirm: "Ez felülírja a 3-4 fős elrendezést a jelenlegi 2 fős elrendezéssel. Folytatod?",
+        editCopyToFlatConfirm: "Ez felülírja a 2 fős elrendezést a jelenlegi 3-4 fős elrendezéssel. Folytatod?",
+        editCopyDone: "Elrendezés átmásolva ✓",
         editWidth: "Szélesség",
         editHeight: "Magasság",
         editScale: "Méret (scale)",
@@ -656,6 +671,13 @@
         editModeOff: "✖ Exit Layout Editor",
         editHint: "BETA: Click an element to select it, drag to move, drag the yellow square to resize. Esc or Exit to finish.",
         editNeedMatch: "Open a match to use the layout editor.",
+        editSnapOn: "🧲 Snap ON",
+        editSnapOff: "🧲 Snap OFF",
+        editCopyToGrid: "Copy 2P→3-4P",
+        editCopyToFlat: "Copy 3-4P→2P",
+        editCopyToGridConfirm: "This overwrites the 3-4 player layout with the current 2 player layout. Continue?",
+        editCopyToFlatConfirm: "This overwrites the 2 player layout with the current 3-4 player layout. Continue?",
+        editCopyDone: "Layout copied ✓",
         editWidth: "Width",
         editHeight: "Height",
         editScale: "Scale",
@@ -875,6 +897,13 @@
         editModeOff: "✖ Editor beenden",
         editHint: "BETA: Klick auf ein Element zum Auswählen, ziehen zum Verschieben, das gelbe Quadrat zum Ändern der Größe. Esc oder Beenden zum Schließen.",
         editNeedMatch: "Öffne ein Match, um den Layout-Editor zu nutzen.",
+        editSnapOn: "🧲 Einrasten AN",
+        editSnapOff: "🧲 Einrasten AUS",
+        editCopyToGrid: "2P→3-4P kopieren",
+        editCopyToFlat: "3-4P→2P kopieren",
+        editCopyToGridConfirm: "Dies überschreibt das 3-4-Spieler-Layout mit dem aktuellen 2-Spieler-Layout. Fortfahren?",
+        editCopyToFlatConfirm: "Dies überschreibt das 2-Spieler-Layout mit dem aktuellen 3-4-Spieler-Layout. Fortfahren?",
+        editCopyDone: "Layout kopiert ✓",
         editWidth: "Breite",
         editHeight: "Höhe",
         editScale: "Größe (scale)",
@@ -1120,15 +1149,20 @@
   /* ================== STATE LOAD/MIGRATE ================== */
   function normalizeState(st) {
     const out = clone(DEFAULT_STATE);
-    out.activePreset = clamp(Number(st?.activePreset ?? out.activePreset), 0, 2);
+    out.activePreset = clamp(Number(st?.activePreset ?? out.activePreset), 0, PRESET_COUNT - 1);
 
     out.ui = { ...out.ui, ...(st?.ui || {}) };
     out.ui.clock = { ...clone(DEFAULT_CLOCK), ...(st?.ui?.clock || {}) };
     out.ui.lang = (out.ui.lang === "en" || out.ui.lang === "de") ? out.ui.lang : "hu";
 
-    out.presets = (Array.isArray(st?.presets) && st.presets.length === 3)
-      ? st.presets.map(p => sanitizeTextEffects({ ...clone(DEFAULT_CFG), ...(p || {}) }))
-      : [presetA(), presetBC(), presetBC()];
+    // Old saved states may have exactly 3 preset slots (A/B/C) - keep them and pad the new
+    // D/E/F slots with fresh presetBC() clones rather than discarding the user's tuning.
+    out.presets = (Array.isArray(st?.presets) && st.presets.length >= 1)
+      ? Array.from({ length: PRESET_COUNT }, (_, i) =>
+          st.presets[i]
+            ? sanitizeTextEffects({ ...clone(DEFAULT_CFG), ...(st.presets[i] || {}) })
+            : (i === 0 ? presetA() : presetBC()))
+      : makeDefaultPresets();
 
     out.schemaVersion = STATE_SCHEMA_VERSION;
     return out;
@@ -1157,11 +1191,11 @@
 
   function migrateToState(obj) {
     if (obj && obj.state) return migrateToState(obj.state);
-    if (obj && typeof obj === "object" && Array.isArray(obj.presets) && obj.presets.length === 3 && obj.ui) return normalizeState(obj);
+    if (obj && typeof obj === "object" && Array.isArray(obj.presets) && obj.presets.length >= 1 && obj.ui) return normalizeState(obj);
     if (obj && typeof obj === "object" && !obj.presets) {
       const base = { ...clone(DEFAULT_CFG), ...obj };
       const st = clone(DEFAULT_STATE);
-      st.presets = [clone(base), clone(base), clone(base)];
+      st.presets = Array.from({ length: PRESET_COUNT }, () => clone(base));
       return normalizeState(st);
     }
     return clone(DEFAULT_STATE);
@@ -3462,6 +3496,7 @@ function markCheckoutInTurnBar(turn) {
   let editDragState = null;
   let editRafHandle = null;
   let editHoverBox = null, editSelectBox = null, editHandleEl = null, editPopoverEl = null, editHintEl = null, editHintTextEl = null, editExitBtn = null;
+  let editGuideV = null, editGuideH = null, editSnapBtn = null, editCopyToGridBtn = null, editCopyToFlatBtn = null;
   let __adEditInit = false;
 
   function getEditTargets() {
@@ -3553,6 +3588,22 @@ function markCheckoutInTurnBar(turn) {
     });
     document.body.appendChild(editSelectBox);
 
+    // Alignment guide lines (card-drag only) - thin full-viewport lines shown when the dragged
+    // card's center/edge lines up with another card's, snapping the drag into place.
+    editGuideV = document.createElement("div");
+    Object.assign(editGuideV.style, {
+      position: "fixed", pointerEvents: "none", zIndex: 2147483005,
+      top: "0", height: "100vh", width: "1px", background: "rgba(255,80,220,.9)", display: "none",
+    });
+    document.body.appendChild(editGuideV);
+
+    editGuideH = document.createElement("div");
+    Object.assign(editGuideH.style, {
+      position: "fixed", pointerEvents: "none", zIndex: 2147483005,
+      left: "0", width: "100vw", height: "1px", background: "rgba(255,80,220,.9)", display: "none",
+    });
+    document.body.appendChild(editGuideH);
+
     editHandleEl = document.createElement("div");
     editHandleEl.id = "ad-edit-handle";
     Object.assign(editHandleEl.style, {
@@ -3572,14 +3623,51 @@ function markCheckoutInTurnBar(turn) {
     editHintEl.id = "ad-edit-hint";
     Object.assign(editHintEl.style, {
       position: "fixed", left: "50%", top: "12px", transform: "translateX(-50%)",
-      display: "none", alignItems: "center", gap: "10px",
+      display: "none", alignItems: "center", gap: "10px", flexWrap: "wrap",
       padding: "8px 10px 8px 14px", background: "rgba(0,0,0,.85)", color: "#fff",
       fontFamily: "Arial, system-ui, sans-serif", fontWeight: "800", fontSize: "12.5px",
       borderRadius: "10px", zIndex: 2147483003, border: "1px solid rgba(255,255,255,.18)",
-      maxWidth: "640px", textAlign: "left",
+      maxWidth: "820px", textAlign: "left",
     });
     editHintTextEl = document.createElement("span");
     editHintEl.appendChild(editHintTextEl);
+
+    const smallBtn = (id) => {
+      const b = document.createElement("button");
+      b.id = id;
+      Object.assign(b.style, {
+        flex: "0 0 auto", padding: "4px 10px", borderRadius: "8px", border: "1px solid rgba(255,255,255,.3)",
+        background: "rgba(255,255,255,.12)", color: "#fff", fontWeight: "900", cursor: "pointer",
+        fontSize: "12px",
+      });
+      return b;
+    };
+
+    const snapBtn = smallBtn("ad-edit-snap");
+    snapBtn.addEventListener("click", () => {
+      state.ui.editSnapEnabled = !state.ui.editSnapEnabled;
+      saveStateDebounced();
+      updateEditSnapBtn();
+    });
+    editHintEl.appendChild(snapBtn);
+    editSnapBtn = snapBtn;
+
+    const copyToGridBtn = smallBtn("ad-edit-copy-to-grid");
+    copyToGridBtn.addEventListener("click", () => {
+      if (!confirm(T().piText.editCopyToGridConfirm)) return;
+      copyLayoutBetweenModes("toGrid");
+    });
+    editHintEl.appendChild(copyToGridBtn);
+    editCopyToGridBtn = copyToGridBtn;
+
+    const copyToFlatBtn = smallBtn("ad-edit-copy-to-flat");
+    copyToFlatBtn.addEventListener("click", () => {
+      if (!confirm(T().piText.editCopyToFlatConfirm)) return;
+      copyLayoutBetweenModes("toFlat");
+    });
+    editHintEl.appendChild(copyToFlatBtn);
+    editCopyToFlatBtn = copyToFlatBtn;
+
     const exitBtn = document.createElement("button");
     exitBtn.id = "ad-edit-exit";
     exitBtn.textContent = "✖";
@@ -3591,6 +3679,14 @@ function markCheckoutInTurnBar(turn) {
     editHintEl.appendChild(exitBtn);
     document.body.appendChild(editHintEl);
     editExitBtn = exitBtn;
+  }
+
+  function updateEditSnapBtn() {
+    if (!editSnapBtn) return;
+    const on = !!state.ui.editSnapEnabled;
+    editSnapBtn.textContent = on ? T().piText.editSnapOn : T().piText.editSnapOff;
+    editSnapBtn.style.background = on ? "rgba(120,200,255,.30)" : "rgba(255,255,255,.12)";
+    editSnapBtn.style.borderColor = on ? "rgba(120,200,255,.65)" : "rgba(255,255,255,.3)";
   }
 
   function ensureEditPopover() {
@@ -3630,6 +3726,38 @@ function markCheckoutInTurnBar(turn) {
     renderCss();
     dirtyPlayers(); dirtyTurn();
     scheduleUpdate();
+  }
+
+  // Copies the *effective* current value of every 2-player <-> 3-4-player ("grid") layout key
+  // pair literally into the other mode's keys, so a hand-tuned 2P layout can become the starting
+  // point for the grid layout (or vice versa) in one click instead of re-tuning from scratch.
+  // Reuses GROUP_SCALE_PAIRS/GROUP_SCALE_BOX_PAIRS (the same [flat, grid] key pairs "scale card
+  // proportionally" already resizes together) since together with the card width/height pair
+  // below they cover every PI_G_* key that exists.
+  function copyLayoutBetweenModes(direction) {
+    const c = cfg();
+    const toGrid = direction === "toGrid";
+    const scale = gridScaleFactor();
+    const readFlat = (key) => Number(c[key]) || 0;
+    const readGrid = (gridKey, flatKey) => {
+      const raw = c[gridKey];
+      return (raw !== null && raw !== undefined && raw !== "") ? (Number(raw) || 0) : readFlat(flatKey) * scale;
+    };
+    const copyPair = (flatKey, gridKey) => {
+      if (!flatKey || !gridKey) return;
+      if (toGrid) c[gridKey] = readFlat(flatKey);
+      else c[flatKey] = readGrid(gridKey, flatKey);
+    };
+
+    for (const [flatKey, gridKey] of GROUP_SCALE_PAIRS) copyPair(flatKey, gridKey);
+    for (const [flatKey, gridKey] of GROUP_SCALE_BOX_PAIRS) copyPair(flatKey, gridKey);
+    copyPair("PI_CARD_WIDTH_PX", "PI_G_CARD_WIDTH_PX");
+    copyPair("PI_CARD_HEIGHT_PX", "PI_G_CARD_HEIGHT_PX");
+
+    applySafeClampsToCfg();
+    applyEditChange();
+    renderPanelIfOpen();
+    showToast(T().piText.editCopyDone);
   }
 
   function renderEditPopoverContent() {
@@ -3966,8 +4094,57 @@ function markCheckoutInTurnBar(turn) {
             return { startX: Number(c[keys.x]) || 0, startY: Number(c[keys.y]) || 0 };
           })()
         : null,
+      // Alignment-guide snapping (card move only): snapshot this card's start rect and the
+      // other players' rects (they don't move during this drag) so onEditDragMove can compare
+      // the dragged card's projected position against them each frame.
+      startRect: (mode === "move" && target.kind === "card") ? rect : null,
+      otherRects: (mode === "move" && target.kind === "card")
+        ? Array.from(document.querySelectorAll("#ad-ext-player-display")[0]?.children || [])
+            .filter((el) => el !== target.el)
+            .map((el) => {
+              const r2 = el.getBoundingClientRect();
+              return { left: r2.left, right: r2.right, top: r2.top, bottom: r2.bottom,
+                       centerX: r2.left + r2.width / 2, centerY: r2.top + r2.height / 2 };
+            })
+        : null,
     };
     document.body.style.userSelect = "none";
+  }
+
+  // Rounds a position value to the nearest 10px grid line (Layout Editor snap toggle).
+  function snapVal(v) { return Math.round(v / 10) * 10; }
+
+  const EDIT_ALIGN_THRESHOLD_PX = 6;
+  // Compares the dragged card's projected rect (start rect + raw dx/dy) against the other
+  // cards' rects; if a center/edge lines up within EDIT_ALIGN_THRESHOLD_PX on an axis, nudges
+  // that axis's delta to align exactly and reports the matched screen coordinate for the guide
+  // line. Independent per axis.
+  function computeCardAlignment(st, dx, dy) {
+    const r = st.startRect;
+    const proposed = {
+      left: r.left + dx, right: r.right + dx, centerX: r.left + r.width / 2 + dx,
+      top: r.top + dy, bottom: r.bottom + dy, centerY: r.top + r.height / 2 + dy,
+    };
+    let bestDx = null, guideX = null, bestDy = null, guideY = null;
+    for (const o of st.otherRects) {
+      for (const key of ["centerX", "left", "right"]) {
+        const delta = o[key] - proposed[key];
+        if (Math.abs(delta) <= EDIT_ALIGN_THRESHOLD_PX && (bestDx === null || Math.abs(delta) < Math.abs(bestDx))) {
+          bestDx = delta; guideX = o[key];
+        }
+      }
+      for (const key of ["centerY", "top", "bottom"]) {
+        const delta = o[key] - proposed[key];
+        if (Math.abs(delta) <= EDIT_ALIGN_THRESHOLD_PX && (bestDy === null || Math.abs(delta) < Math.abs(bestDy))) {
+          bestDy = delta; guideY = o[key];
+        }
+      }
+    }
+    return {
+      dx: bestDx !== null ? dx + bestDx : dx,
+      dy: bestDy !== null ? dy + bestDy : dy,
+      guideX, guideY,
+    };
   }
 
   function onEditDragMove(e) {
@@ -3979,15 +4156,31 @@ function markCheckoutInTurnBar(turn) {
     const dy = e.clientY - st.startClientY;
 
     if (st.mode === "move") {
-      if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
-      if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.startY + dy), -400, 400);
-      else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
+      const snapOn = !!state.ui.editSnapEnabled;
+      let adjDx = dx, adjDy = dy, guideX = null, guideY = null;
+      if (snapOn && st.target.kind === "card" && st.otherRects && st.otherRects.length) {
+        const aligned = computeCardAlignment(st, dx, dy);
+        adjDx = aligned.dx; adjDy = aligned.dy; guideX = aligned.guideX; guideY = aligned.guideY;
+      }
+      // Guide-aligned axes are already pixel-exact; grid-snap only kicks in on axes that
+      // didn't align to another card (or when there's no card to align to at all).
+      const finalX = (v) => snapOn ? (guideX !== null ? Math.round(v) : snapVal(v)) : Math.round(v);
+      const finalY = (v) => snapOn ? (guideY !== null ? Math.round(v) : snapVal(v)) : Math.round(v);
+
+      if (map.xKey) c[map.xKey] = clamp(finalX(st.startX + adjDx), -1500, 1500);
+      if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(finalY(st.startY + adjDy), -400, 400);
+      else if (map.yKey) c[map.yKey] = clamp(finalY(st.startY + adjDy), -1500, 1500);
       if (st.cardMoveStart) {
         const keys = cardPosKeys(st.target.player);
-        c[keys.x] = clamp(Math.round(st.cardMoveStart.startX + dx), -1500, 1500);
-        c[keys.y] = clamp(Math.round(st.cardMoveStart.startY + dy), -1500, 1500);
+        c[keys.x] = clamp(finalX(st.cardMoveStart.startX + adjDx), -1500, 1500);
+        c[keys.y] = clamp(finalY(st.cardMoveStart.startY + adjDy), -1500, 1500);
       }
+
+      if (editGuideV) { editGuideV.style.display = guideX !== null ? "block" : "none"; if (guideX !== null) editGuideV.style.left = guideX + "px"; }
+      if (editGuideH) { editGuideH.style.display = guideY !== null ? "block" : "none"; if (guideY !== null) editGuideH.style.top = guideY + "px"; }
     } else if (st.mode === "resize") {
+      if (editGuideV) editGuideV.style.display = "none";
+      if (editGuideH) editGuideH.style.display = "none";
       if (map.resizeMode === "box") {
         if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
         if (map.heightKey) c[map.heightKey] = clamp(Math.round(st.startH + dy), 20, 2000);
@@ -4019,6 +4212,8 @@ function markCheckoutInTurnBar(turn) {
     if (!editDragState) return;
     editDragState = null;
     document.body.style.userSelect = "";
+    if (editGuideV) editGuideV.style.display = "none";
+    if (editGuideH) editGuideH.style.display = "none";
     showToast(T().saved);
   }
 
@@ -4124,6 +4319,9 @@ function markCheckoutInTurnBar(turn) {
       setUIOpen(false);
       editHintTextEl.textContent = T().piText.editHint;
       if (editExitBtn) editExitBtn.title = T().piText.editModeOff;
+      if (editCopyToGridBtn) editCopyToGridBtn.textContent = T().piText.editCopyToGrid;
+      if (editCopyToFlatBtn) editCopyToFlatBtn.textContent = T().piText.editCopyToFlat;
+      updateEditSnapBtn();
       editHintEl.style.display = "flex";
       startEditRafLoop();
     } else {
@@ -4138,6 +4336,8 @@ function markCheckoutInTurnBar(turn) {
       if (editSelectBox) editSelectBox.style.display = "none";
       if (editHandleEl) editHandleEl.style.display = "none";
       if (editPopoverEl) editPopoverEl.style.display = "none";
+      if (editGuideV) editGuideV.style.display = "none";
+      if (editGuideH) editGuideH.style.display = "none";
     }
   }
 
@@ -4967,10 +5167,10 @@ function ensureMainButtonPosition() {
   }
 }
 
-  function presetLabel(i) { return i === 0 ? "A" : i === 1 ? "B" : "C"; }
+  function presetLabel(i) { return PRESET_LABELS[i] || String(i); }
 
   function setActivePreset(i) {
-    state.activePreset = clamp(i, 0, 2);
+    state.activePreset = clamp(i, 0, PRESET_COUNT - 1);
     applySafeClampsToCfg();
     saveStateDebounced();
     renderCss();
@@ -5413,7 +5613,8 @@ function ensureMainButtonPosition() {
     const presetWrap = document.createElement("div");
     presetWrap.style.display = "flex";
     presetWrap.style.gap = "6px";
-    for (let i=0;i<3;i++){
+    presetWrap.style.flexWrap = "wrap";
+    for (let i=0;i<PRESET_COUNT;i++){
       const b = mkButton(`${L.preset} ${presetLabel(i)}`, () => setActivePreset(i), i === state.activePreset ? "primary" : "ghost", compact);
       b.style.padding = compact ? "7px 9px" : "8px 10px";
       b.style.borderRadius = "999px";
@@ -5996,6 +6197,7 @@ function ensureMainButtonPosition() {
         const targetRow = document.createElement("div");
         targetRow.style.display = "flex";
         targetRow.style.alignItems = "center";
+        targetRow.style.flexWrap = "wrap";
         targetRow.style.gap = "8px";
         targetRow.style.marginBottom = "8px";
 
@@ -6005,7 +6207,7 @@ function ensureMainButtonPosition() {
         targetLabel.style.fontSize = compact ? "12px" : "13px";
         targetRow.appendChild(targetLabel);
 
-        const targetBtns = [0, 1, 2].map((i) => {
+        const targetBtns = Array.from({ length: PRESET_COUNT }, (_, i) => i).map((i) => {
           const b = mkButton(presetLabel(i), () => {
             themeTargetPreset = i;
             refreshTargetSel();
@@ -6059,26 +6261,75 @@ function ensureMainButtonPosition() {
         themeListEl.style.fontSize = compact ? "12px" : "13px";
         box.appendChild(themeListEl);
 
+        // Synthetic color swatch for a gallery item - no real screenshots exist, so this
+        // approximates the theme's look from the colors already present in its diff JSON
+        // (falling back to DEFAULT_CFG for anything the diff doesn't override).
+        function buildThemeSwatchSvg(diff) {
+          const g = (key, fallback) => sanitizeHex((diff && diff[key]) ?? DEFAULT_CFG[key], fallback);
+          const cardBg = g("SKIN_PLAYER_BG_HEX", "#c0c0c0");
+          const accent = g("ACTIVE_COLOR_HEX", "#ff0000");
+          const chips = [
+            g("PI_NAME_COLOR_HEX", "#ffffff"),
+            g("PI_P2_NAME_COLOR_HEX", "#ffffff"),
+            g("PI_P3_NAME_COLOR_HEX", "#ffffff"),
+            g("PI_P4_NAME_COLOR_HEX", "#ffffff"),
+          ];
+          const svgNS = "http://www.w3.org/2000/svg";
+          const mk = (tag, attrs) => {
+            const el = document.createElementNS(svgNS, tag);
+            for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+            return el;
+          };
+          const svg = mk("svg", { viewBox: "0 0 56 34", width: "56", height: "34" });
+          svg.style.flex = "0 0 auto";
+          svg.style.borderRadius = "6px";
+          svg.appendChild(mk("rect", { x: 0, y: 0, width: 56, height: 34, rx: 6, fill: "#0a0a0e" }));
+          svg.appendChild(mk("rect", { x: 2, y: 2, width: 52, height: 30, rx: 4, fill: cardBg, "fill-opacity": 0.35 }));
+          svg.appendChild(mk("rect", { x: 2, y: 2, width: 52, height: 30, rx: 4, fill: "none", stroke: accent, "stroke-width": 1.5, "stroke-opacity": 0.85 }));
+          chips.forEach((color, i) => {
+            svg.appendChild(mk("circle", { cx: 10 + i * 12, cy: 25, r: 4, fill: color, stroke: "#000", "stroke-width": 0.5 }));
+          });
+          return svg;
+        }
+
         const renderThemeList = (list) => {
           themeListEl.textContent = "";
           if (!list.length) { themeListEl.textContent = L.themeEmpty; return; }
           list.forEach((item) => {
             if (!item || !item.file) return;
+
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.alignItems = "center";
+            row.style.gap = "6px";
+
+            const applyDiff = (diff) => {
+              const idx = themeTargetPreset ?? state.activePreset;
+              applyThemeDiffToPreset(diff, idx);
+              showToast(`${L.toasts.themeApplied} ${presetLabel(idx)}`);
+            };
+            const fetchDiff = async () => {
+              if (item._diff) return item._diff;
+              const r2 = await fetch(THEME_FILE_URL(item.file), { cache: "no-store" });
+              if (!r2.ok) throw new Error("HTTP " + r2.status);
+              const diff = await r2.json();
+              if (!diff || typeof diff !== "object" || Array.isArray(diff)) throw new Error("bad theme file");
+              item._diff = diff;
+              return diff;
+            };
+
             const b = mkButton(item.name || item.id || item.file, async () => {
-              try {
-                const r2 = await fetch(THEME_FILE_URL(item.file), { cache: "no-store" });
-                if (!r2.ok) throw new Error("HTTP " + r2.status);
-                const diff = await r2.json();
-                if (!diff || typeof diff !== "object" || Array.isArray(diff)) throw new Error("bad theme file");
-                const idx = themeTargetPreset ?? state.activePreset;
-                applyThemeDiffToPreset(diff, idx);
-                showToast(`${L.toasts.themeApplied} ${presetLabel(idx)}`);
-              } catch (err) {
-                alert(`${L.themeLoadError}: ${err?.message || err}`);
-              }
+              try { applyDiff(await fetchDiff()); }
+              catch (err) { alert(`${L.themeLoadError}: ${err?.message || err}`); }
             }, "ghost", true);
             if (item.desc) b.title = item.desc;
-            themeListEl.appendChild(b);
+
+            row.appendChild(b);
+            themeListEl.appendChild(row);
+
+            // Fetch the diff eagerly (small JSON files, same repo already being hit) so a
+            // swatch can render next to the button before it's clicked.
+            fetchDiff().then((diff) => row.insertBefore(buildThemeSwatchSvg(diff), b)).catch(() => {});
           });
         };
 
