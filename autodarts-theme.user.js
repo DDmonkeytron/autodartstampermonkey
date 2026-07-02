@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.34.0
+// @version      2.35.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.34.0";
+  const SCRIPT_VERSION = "2.35.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -40,8 +40,35 @@
     ? structuredClone(obj)
     : JSON.parse(JSON.stringify(obj));
 
+  /* ================== EFFECTS MATRIX (tick-box grid: effect x trigger) ================== */
+  // Rows = effects, columns = trigger types. Config keys are flat FX_<EFFECT>_<TRIGGER> booleans
+  // (generated here, not hand-typed - 10 x 6 = 60 keys) so the settings-panel table and the
+  // dispatcher (runMatrixEffects, defined further down near the other launch* effect functions)
+  // can iterate them generically instead of hard-coding every combination.
+  const FX_EFFECTS = ["SPARK", "GLOW", "CONFETTI", "FIREWORKS", "LIGHTNING", "SMOKE", "CROWD", "EXPLODE", "DINO", "CANNONS"];
+  const FX_TRIGGERS = ["TRIPLE", "DOUBLE", "DBLSTREAK", "T1", "T2", "T3"];
+  const FX_DEFAULTS = {
+    TRIPLE: ["SPARK"],
+    DOUBLE: ["SPARK"],
+    DBLSTREAK: ["LIGHTNING"],
+    T1: ["GLOW", "FIREWORKS"],
+    T2: ["GLOW", "LIGHTNING", "CONFETTI", "FIREWORKS"],
+    T3: ["GLOW", "LIGHTNING", "SMOKE", "CROWD", "CONFETTI", "FIREWORKS", "EXPLODE"],
+  };
+  function fxKey(effect, trigger) { return `FX_${effect}_${trigger}`; }
+  const FX_MATRIX_KEYS = [];
+  const FX_MATRIX_DEFAULT_CFG = { FX_MATRIX_ENABLED: true, FX_SOUND_ENABLED: true };
+  for (const trig of FX_TRIGGERS) {
+    for (const eff of FX_EFFECTS) {
+      const key = fxKey(eff, trig);
+      FX_MATRIX_KEYS.push(key);
+      FX_MATRIX_DEFAULT_CFG[key] = (FX_DEFAULTS[trig] || []).includes(eff);
+    }
+  }
+
   /* ================== DEFAULTS ================== */
   const DEFAULT_CFG = {
+    ...FX_MATRIX_DEFAULT_CFG,
     // utilities
     BOARD_MARKER: true,
     BM_BACK_BUTTON: true,
@@ -204,19 +231,15 @@
     HIGHSCORE_SPIN_MS: 7000,     // board spin duration for a ton (user-set, default 7s)
     HIGHSCORE_BOARD_FLASH: true,
     HIGHSCORE_THROW_FLASH: true,
-    HIGHSCORE_FIREWORKS: true,   // CSS firework burst overlay on a ton
     // Tier 2 (ton-forty) and tier 3 (180/max) escalate the tier-1 effects above (bigger spin/
-    // fireworks) instead of re-configuring them from scratch; tier 3 additionally unlocks the
-    // wildcard celebration (confetti board explosion / dinosaur run, picked at random).
+    // fireworks) instead of re-configuring them from scratch. Which extra effects fire for each
+    // tier (fireworks, confetti, lightning, board explosion, dino, etc.) is governed by the
+    // effects matrix (FX_* keys above), not fixed toggles here.
     HIGHSCORE2_ENABLED: true,
     HIGHSCORE2_THRESHOLD: 140,
     HIGHSCORE3_ENABLED: true,
     HIGHSCORE3_THRESHOLD: 180,
-    HIGHSCORE3_WILDCARD: true,
     HIGHSCORE3_BANNER: true,     // flashing "ONE HUNDRED AND EIGHTY!" text on a 180
-    // One random "flair" effect (gold/red glow, lightning, smoke, cheering crowd) on top of the
-    // tier effects above, for EVERY tier (not just 180) - keeps the celebration feeling varied.
-    HIGHSCORE_FLAIR: true,
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
@@ -375,9 +398,16 @@
         triple:   "Animáció – Tripla találat",
         double:   "Animáció – Dupla találat",
         highscore: "Animáció – Magas pont",
+        fx: "Effektek (mátrix)",
         win:      "Hang – Győzelem",
         clock:    "Widget – Óra",
         diag: "Diagnosztika",
+      },
+      fxTriggers: { TRIPLE: "3x", DOUBLE: "2x", DBLSTREAK: "2xD", T1: "100+", T2: "140+", T3: "180" },
+      fxEffects: {
+        SPARK: "Szikra", GLOW: "Izzás", CONFETTI: "Konfetti", FIREWORKS: "Tűzijáték",
+        LIGHTNING: "Villám", SMOKE: "Füst", CROWD: "Tömeg", EXPLODE: "Tábla robbanás",
+        DINO: "Dínó", CANNONS: "Konfetti ágyú",
       },
       fields: {
         bg: "Háttér",
@@ -398,15 +428,15 @@
         spinDuration: "Pörgés idő",
         boardFlash: "Tábla felvillanás",
         throwFlash: "Dobáskártya felvillanás",
-        fireworks: "Tűzijáték (magas pont)",
         spinMin: "Pörgés minimum érték",
         varietyEnabled: "Változatos animáció",
         tier2: "2. szint (Ton-forty)",
         tier3: "3. szint (Max/180)",
-        wildcard: "Wildcard (konfetti / dínó / ágyú)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" felirat",
-        flairEnabled: "Extra effekt minden szinten",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" felirat (2+ dupla)",
+        fxMatrixInfo: "A tűzijáték, konfetti, villámlás, füst, tömeg stb. részletes beállítása az \"Effektek\" modulban (tábla: melyik effekt melyik találatnál induljon el).",
+        fxMasterEnabled: "Effekt mátrix BE",
+        fxSoundEnabled: "Effekt hang (szintetizált)",
         perPlayer: "Játékosonként eltérő",
         p1: "1.J",
         p2: "2.J",
@@ -608,9 +638,16 @@
         triple:   "Animation – Triple Hit",
         double:   "Animation – Double Hit",
         highscore: "Animation – High Score",
+        fx: "Effects (matrix)",
         win:      "Sound – Win",
         clock:    "Widget – Clock",
         diag: "Diagnostics",
+      },
+      fxTriggers: { TRIPLE: "3x", DOUBLE: "2x", DBLSTREAK: "2xD", T1: "100+", T2: "140+", T3: "180" },
+      fxEffects: {
+        SPARK: "Spark", GLOW: "Glow", CONFETTI: "Confetti", FIREWORKS: "Fireworks",
+        LIGHTNING: "Lightning", SMOKE: "Smoke", CROWD: "Crowd", EXPLODE: "Board explode",
+        DINO: "Dino", CANNONS: "Confetti cannons",
       },
       fields: {
         bg: "Background",
@@ -631,15 +668,15 @@
         spinDuration: "Spin duration",
         boardFlash: "Board flash",
         throwFlash: "Throw card flash",
-        fireworks: "Fireworks (high score)",
         spinMin: "Spin from value",
         varietyEnabled: "Varied animation",
         tier2: "Tier 2 (Ton-forty)",
         tier3: "Tier 3 (Max/180)",
-        wildcard: "Wildcard (confetti / dino / cannons)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" banner",
-        flairEnabled: "Extra effect on every tier",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" banner (2+ doubles)",
+        fxMatrixInfo: "Fine-grained control over fireworks, confetti, lightning, smoke, crowd etc. lives in the \"Effects\" module - a table of which effect fires on which hit.",
+        fxMasterEnabled: "Effects matrix ON",
+        fxSoundEnabled: "Effect sound (synthesized)",
         perPlayer: "Per-player",
         p1: "P1",
         p2: "P2",
@@ -841,9 +878,16 @@
         triple:   "Animation – Triple-Treffer",
         double:   "Animation – Doppel-Treffer",
         highscore: "Animation – Hoher Punktwert",
+        fx: "Effekte (Matrix)",
         win:      "Sound – Sieg",
         clock:    "Widget – Uhr",
         diag: "Diagnose",
+      },
+      fxTriggers: { TRIPLE: "3x", DOUBLE: "2x", DBLSTREAK: "2xD", T1: "100+", T2: "140+", T3: "180" },
+      fxEffects: {
+        SPARK: "Funke", GLOW: "Glühen", CONFETTI: "Konfetti", FIREWORKS: "Feuerwerk",
+        LIGHTNING: "Blitz", SMOKE: "Rauch", CROWD: "Menge", EXPLODE: "Board-Explosion",
+        DINO: "Dino", CANNONS: "Konfetti-Kanonen",
       },
       fields: {
         bg: "Hintergrund",
@@ -864,15 +908,15 @@
         spinDuration: "Drehdauer",
         boardFlash: "Board-Blitz",
         throwFlash: "Wurfkarten-Blitz",
-        fireworks: "Feuerwerk (hoher Punktwert)",
         spinMin: "Drehen ab Wert",
         varietyEnabled: "Abwechslungsreiche Animation",
         tier2: "Stufe 2 (Ton-Forty)",
         tier3: "Stufe 3 (Max/180)",
-        wildcard: "Wildcard (Konfetti / Dino / Kanonen)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" Banner",
-        flairEnabled: "Extra-Effekt auf jeder Stufe",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" Banner (2+ Doppel)",
+        fxMatrixInfo: "Feineinstellung für Feuerwerk, Konfetti, Blitz, Rauch, Menge usw. im Modul \"Effekte\" - eine Tabelle, welcher Effekt bei welchem Treffer ausgelöst wird.",
+        fxMasterEnabled: "Effekt-Matrix AN",
+        fxSoundEnabled: "Effekt-Sound (synthetisiert)",
         perPlayer: "Pro Spieler",
         p1: "S1",
         p2: "S2",
@@ -2082,9 +2126,10 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // Fireworks overlay (CSS particle burst) for a ton - also shared by the wildcard board
-      // explosion/dino-chomp/cannons below, so it must exist whenever either could fire.
-      if (c.HIGHSCORE_ANIM && (c.HIGHSCORE_FIREWORKS || (c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_WILDCARD))) {
+      // Effects matrix CSS (SPARK/GLOW/CONFETTI/FIREWORKS/LIGHTNING/SMOKE/CROWD/EXPLODE/DINO/
+      // CANNONS): one combined block behind the matrix's master switch, since any of these can
+      // now be wired to any trigger (triple/double/double-streak/T1/T2/T3) via runMatrixEffects.
+      if (c.FX_MATRIX_ENABLED) {
         css.push(`
 #ad-fireworks{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
 .ad-fw-burst{ position:absolute; width:0; height:0; }
@@ -2098,13 +2143,16 @@ svg.ad-board-svg, img.ad-board-img{
   70%  { opacity:1; }
   100% { transform: translate(var(--tx), calc(var(--ty) + 40px)) scale(0.25); opacity:0; }
 }
-`);
-      }
-
-      // Wildcard celebration (180 only): board-implode+enlarge-burst, dinosaur chomp, or triple
-      // confetti cannons - launchWildcard() picks one of the three at random.
-      if (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_WILDCARD) {
-        css.push(`
+#ad-spark{ position:fixed; inset:0; pointer-events:none; z-index:2147483597; overflow:hidden; }
+.ad-spark-piece{
+  position:absolute; width:4px; height:4px; border-radius:50%;
+  background: currentColor; box-shadow: 0 0 6px 1px currentColor;
+  animation: adSparkBurst 0.22s ease-out forwards;
+}
+@keyframes adSparkBurst{
+  0%   { transform: translate(0,0) scale(1); opacity:1; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(0.3); opacity:0; }
+}
 .${BOARD_HOST_CLASS}.ad-board-implode, .${BOARD_VISUAL_CLASS}.ad-board-implode, svg.ad-board-svg.ad-board-implode{
   animation: adBoardImplode var(--ad-implode-dur, 2000ms) cubic-bezier(.5,0,.4,1) 1 !important;
   transform-origin: center center !important;
@@ -2185,9 +2233,9 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // Dynamic "flair" pool: one random extra effect on EVERY tier (100/140/180), not just the
-      // 180 wildcard - gold/red score glow, lightning, smoke cannons, cheering crowd.
-      if (c.HIGHSCORE_ANIM && c.HIGHSCORE_FLAIR) {
+      // Effects matrix, part 2: gold/red score glow, lightning (+ big full-flash variant for the
+      // double-double streak), smoke cannons, cheering crowd.
+      if (c.FX_MATRIX_ENABLED) {
         css.push(`
 .${HIGHSCORE_GLOW2_CLASS}{
   animation: adGoldGlowFlash 1.1s ease-in-out 2 !important;
@@ -2199,7 +2247,10 @@ svg.ad-board-svg, img.ad-board-img{
 #ad-lightning{ position:fixed; inset:0; pointer-events:none; z-index:2147483602; overflow:hidden; }
 #ad-lightning.ad-flash{ animation: adLightningScreenFlash 0.35s ease-out; }
 @keyframes adLightningScreenFlash{ 0%{ background:rgba(220,235,255,.75);} 100%{ background:rgba(220,235,255,0);} }
+#ad-lightning.ad-flash-big{ animation: adLightningBigFlash 0.5s ease-out; }
+@keyframes adLightningBigFlash{ 0%{ background:rgba(255,255,255,.95);} 100%{ background:rgba(255,255,255,0);} }
 .ad-bolt{ position:absolute; opacity:0; filter: drop-shadow(0 0 10px #cfe8ff); animation: adLightningFlicker 0.5s ease-out forwards; }
+.ad-bolt.ad-bolt-big{ filter: drop-shadow(0 0 18px #eaf6ff) drop-shadow(0 0 34px #b9dcff); }
 @keyframes adLightningFlicker{
   0%   { opacity:0; }
   8%   { opacity:1; }
@@ -3002,21 +3053,21 @@ svg.ad-board-svg text{
   // Spawns one radiating particle burst at an explicit screen point (px). Shared by the random-
   // position fireworks loop below and by anything that wants a burst at a specific spot (board
   // explosion, dinosaur chomp) instead of a random one.
-  function spawnFireworkBurstAt(overlay, cx, cy, timers) {
+  function spawnFireworkBurstAt(overlay, cx, cy, timers, big) {
     const burst = document.createElement("div");
     burst.className = "ad-fw-burst";
     burst.style.left = cx + "px";
     burst.style.top = cy + "px";
     const color = FIREWORK_COLORS[(Math.random() * FIREWORK_COLORS.length) | 0];
-    const n = 24 + ((Math.random() * 10) | 0);
+    const n = (big ? 36 : 24) + ((Math.random() * (big ? 14 : 10)) | 0);
     for (let i = 0; i < n; i++) {
       const p = document.createElement("i");
       const ang = (i / n) * Math.PI * 2 + Math.random() * 0.25;
-      const dist = 70 + Math.random() * 110;
+      const dist = (big ? 100 : 70) + Math.random() * (big ? 150 : 110);
       p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
       p.style.setProperty("--ty", (Math.sin(ang) * dist).toFixed(1) + "px");
       p.style.color = (Math.random() < 0.25) ? FIREWORK_COLORS[(Math.random() * FIREWORK_COLORS.length) | 0] : color;
-      const s = (5 + Math.random() * 6).toFixed(1);
+      const s = ((big ? 7 : 5) + Math.random() * (big ? 8 : 6)).toFixed(1);
       p.style.width = s + "px"; p.style.height = s + "px";
       burst.appendChild(p);
     }
@@ -3031,7 +3082,7 @@ svg.ad-board-svg text{
     const ov = document.getElementById("ad-fireworks");
     if (ov) ov.remove();
   }
-  function launchFireworks(durationMs) {
+  function launchFireworks(durationMs, big) {
     const dur = clamp(Number(durationMs) || 7000, 800, 30000);
     stopFireworks();
     const overlay = document.createElement("div");
@@ -3041,15 +3092,17 @@ svg.ad-board-svg text{
     const spawn = () => {
       const cx = (8 + Math.random() * 84) / 100 * innerWidth;
       const cy = (10 + Math.random() * 55) / 100 * innerHeight;
-      spawnFireworkBurstAt(overlay, cx, cy, fireworksTimers);
+      spawnFireworkBurstAt(overlay, cx, cy, fireworksTimers, big);
     };
 
     spawn();
     fireworksTimers.push(setTimeout(spawn, 180));
-    const iv = setInterval(spawn, 430);
+    const iv = setInterval(spawn, big ? 330 : 430);
     fireworksTimers.push(iv);
     fireworksTimers.push(setTimeout(() => clearInterval(iv), Math.max(300, dur - 250)));
     fireworksTimers.push(setTimeout(stopFireworks, dur + 1500));
+
+    if (cfg().FX_SOUND_ENABLED) playBoomSound(big);
   }
 
   /* ================== BIG BANNER (shared: DOUBLE-DOUBLE / 180!) ================== */
@@ -3168,8 +3221,8 @@ svg.ad-board-svg text{
   }
   // Large emoji sprite walks to the board, "bites" it (quick squash/stretch), then the board
   // itself implodes and explodes (implodeBoards/explodeBoardAt above) - "chomp board and explode
-  // the SVG board." The other half of the 180 wildcard pool alongside the confetti explosion and
-  // cannons (launchWildcard picks one of the three at random).
+  // the SVG board." One of the three board-exclusive effects in the matrix (DINO/EXPLODE/
+  // CANNONS) - runMatrixEffects picks at most one of these per trigger to avoid overlap.
   function launchDinosaurRun(durationMs) {
     stopDinosaur();
     stopConfetti();
@@ -3199,14 +3252,7 @@ svg.ad-board-svg text{
     }, dur * 0.82));
   }
 
-  function launchWildcard(durationMs) {
-    const pick = Math.random();
-    if (pick < 0.34) launchConfettiExplosion(durationMs);
-    else if (pick < 0.67) launchDinosaurRun(durationMs);
-    else launchConfettiCannons(durationMs);
-  }
-
-  /* ================== FLAIR POOL (all tiers): glow / lightning / smoke / crowd ============== */
+  /* ================== FLAIR EFFECTS: glow / lightning / smoke / crowd / spark =============== */
   // Resolves the same "active or first player panel" triggerHighscore's flash effect targets,
   // reused here so the gold/red glow lands on the same element.
   function getActiveOrFirstPanel() {
@@ -3235,15 +3281,17 @@ svg.ad-board-svg text{
     flairTimers.push(setTimeout(() => panel.classList.remove(HIGHSCORE_GLOW2_CLASS), 2400));
   }
 
-  function launchLightning() {
+  // big = double-double streak's "big lightning" ask: more bolts, brighter glow, and a full
+  // white screen flash instead of the regular pale-blue tint.
+  function launchLightning(big) {
     const overlay = document.createElement("div");
     overlay.id = "ad-lightning";
     (document.body || document.documentElement).appendChild(overlay);
     const svgNS = "http://www.w3.org/2000/svg";
-    const boltCount = 2 + ((Math.random() * 2) | 0);
+    const boltCount = (big ? 5 : 2) + ((Math.random() * (big ? 2 : 2)) | 0);
     for (let b = 0; b < boltCount; b++) {
       const svg = document.createElementNS(svgNS, "svg");
-      svg.setAttribute("class", "ad-bolt");
+      svg.setAttribute("class", "ad-bolt" + (big ? " ad-bolt-big" : ""));
       const x0 = 10 + Math.random() * 80;
       let d = `M${x0},0 `;
       let x = x0, y = 0;
@@ -3260,35 +3308,36 @@ svg.ad-board-svg text{
       path.setAttribute("points", d.replace(/[ML]/g, "").trim());
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", "#eaf6ff");
-      path.setAttribute("stroke-width", "1.4");
+      path.setAttribute("stroke-width", big ? "2.2" : "1.4");
       svg.appendChild(path);
       overlay.appendChild(svg);
     }
-    overlay.classList.add("ad-flash");
-    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-lightning"); if (el) el.remove(); }, 900));
+    overlay.classList.add(big ? "ad-flash-big" : "ad-flash");
+    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-lightning"); if (el) el.remove(); }, big ? 1200 : 900));
   }
 
+  // Bigger, bottom-center puffs ("smoke cannons") instead of two thin corner wisps.
   function launchSmoke() {
     const overlay = document.createElement("div");
     overlay.id = "ad-smoke";
     (document.body || document.documentElement).appendChild(overlay);
-    const origins = [[0.06, 1], [0.94, 1]];
+    const origins = [[0.40, 1], [0.5, 1], [0.60, 1]];
     for (const [fx, fy] of origins) {
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 14; i++) {
         const puff = document.createElement("i");
         puff.className = "ad-smoke-puff";
         const cx = fx * innerWidth, cy = fy * innerHeight;
-        puff.style.left = (cx + (Math.random() - 0.5) * 40) + "px";
-        puff.style.top = (cy - Math.random() * 30) + "px";
-        const size = 30 + Math.random() * 50;
+        puff.style.left = (cx + (Math.random() - 0.5) * 90) + "px";
+        puff.style.top = (cy - Math.random() * 40) + "px";
+        const size = 70 + Math.random() * 90;
         puff.style.width = size + "px"; puff.style.height = size + "px";
-        puff.style.setProperty("--tx", ((Math.random() - 0.5) * 160).toFixed(0) + "px");
-        puff.style.setProperty("--ty", (-(220 + Math.random() * 180)).toFixed(0) + "px");
+        puff.style.setProperty("--tx", ((Math.random() - 0.5) * 260).toFixed(0) + "px");
+        puff.style.setProperty("--ty", (-(320 + Math.random() * 240)).toFixed(0) + "px");
         puff.style.animationDelay = (Math.random() * 500) + "ms";
         overlay.appendChild(puff);
       }
     }
-    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-smoke"); if (el) el.remove(); }, 3200));
+    flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-smoke"); if (el) el.remove(); }, 3400));
   }
 
   const CROWD_EMOJI = ["🙌", "🎉", "👏", "🥳"];
@@ -3307,15 +3356,76 @@ svg.ad-board-svg text{
     flairTimers.push(setTimeout(() => { const el = document.getElementById("ad-crowd"); if (el) el.remove(); }, dur));
   }
 
-  const FLAIR_POOL = [
-    () => launchGoldGlow(),
-    () => launchLightning(),
-    () => launchSmoke(),
-    (durationMs) => launchCrowd(durationMs),
-  ];
-  function launchRandomFlair(durationMs) {
-    const fn = FLAIR_POOL[(Math.random() * FLAIR_POOL.length) | 0];
-    fn(durationMs);
+  // Small, cheap, frequent-safe burst for single triple/double hits - a quick radial spark at
+  // the hit card's own position, distinct from the bigger high-score effects above.
+  let sparkTimers = [];
+  function stopSpark() {
+    sparkTimers.forEach(t => clearTimeout(t) || clearInterval(t));
+    sparkTimers = [];
+    const el = document.getElementById("ad-spark");
+    if (el) el.remove();
+  }
+  function launchSpark(cx, cy) {
+    let overlay = document.getElementById("ad-spark");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "ad-spark";
+      (document.body || document.documentElement).appendChild(overlay);
+    }
+    const colors = ["#fff5c2", "#ffd700", "#ffffff"];
+    const n = 10;
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement("i");
+      p.className = "ad-spark-piece";
+      const ang = (i / n) * Math.PI * 2 + Math.random() * 0.3;
+      const dist = 24 + Math.random() * 30;
+      p.style.setProperty("--tx", (Math.cos(ang) * dist).toFixed(1) + "px");
+      p.style.setProperty("--ty", (Math.sin(ang) * dist).toFixed(1) + "px");
+      p.style.left = cx + "px"; p.style.top = cy + "px";
+      p.style.color = colors[(Math.random() * colors.length) | 0];
+      overlay.appendChild(p);
+      sparkTimers.push(setTimeout(() => p.remove(), 260));
+    }
+    sparkTimers.push(setTimeout(() => { const ov = document.getElementById("ad-spark"); if (ov && !ov.children.length) ov.remove(); }, 300));
+  }
+
+  /* ================== EFFECTS MATRIX DISPATCHER ================== */
+  // Maps each FX_EFFECTS row to its actual effect function. ctx carries whatever a given call
+  // site has handy: durationMs (scales fireworks/dino/etc.), point {x,y} (where to center
+  // spark/confetti - e.g. the hit card for a triple/double, the board for T3), and trigger (the
+  // FX_TRIGGERS key that fired, used to decide "big" variants like DBLSTREAK's lightning).
+  const FX_RUNNERS = {
+    SPARK: (ctx) => { if (ctx.point) launchSpark(ctx.point.x, ctx.point.y); },
+    GLOW: () => launchGoldGlow(),
+    CONFETTI: (ctx) => {
+      const p = ctx.point || { x: innerWidth / 2, y: innerHeight / 2 };
+      spawnConfettiBurst(p.x, p.y, ctx.trigger === "TRIPLE" || ctx.trigger === "DOUBLE" ? 30 : 70);
+    },
+    // Always "big" - the ask was bigger fireworks starting at the 100+ threshold, not just 180.
+    FIREWORKS: (ctx) => launchFireworks(ctx.durationMs, true),
+    LIGHTNING: (ctx) => launchLightning(ctx.trigger === "DBLSTREAK"),
+    SMOKE: () => launchSmoke(),
+    CROWD: (ctx) => launchCrowd(ctx.durationMs),
+    EXPLODE: (ctx) => launchConfettiExplosion(ctx.durationMs),
+    DINO: (ctx) => launchDinosaurRun(ctx.durationMs),
+    CANNONS: (ctx) => launchConfettiCannons(ctx.durationMs),
+  };
+  // EXPLODE/DINO/CANNONS all animate the board itself - firing more than one at once for the
+  // same trigger would just have them stomp on each other, so if multiple are enabled for the
+  // same trigger, pick one of the enabled ones at random instead of running them all.
+  const FX_BOARD_EXCLUSIVE = ["EXPLODE", "DINO", "CANNONS"];
+  function runMatrixEffects(triggerKey, ctx) {
+    const c = cfg();
+    if (!c.FX_MATRIX_ENABLED) return;
+    const enabledBoardFx = FX_BOARD_EXCLUSIVE.filter(eff => c[fxKey(eff, triggerKey)]);
+    const chosenBoardFx = enabledBoardFx.length ? enabledBoardFx[(Math.random() * enabledBoardFx.length) | 0] : null;
+    for (const eff of FX_EFFECTS) {
+      if (FX_BOARD_EXCLUSIVE.includes(eff)) {
+        if (eff === chosenBoardFx) FX_RUNNERS[eff]({ ...ctx, trigger: triggerKey });
+        continue;
+      }
+      if (c[fxKey(eff, triggerKey)]) FX_RUNNERS[eff]({ ...ctx, trigger: triggerKey });
+    }
   }
 
   function applyBoardMarkerNow() {
@@ -4860,11 +4970,14 @@ function markCheckoutInTurnBar(turn) {
       stripAnimMarker(card, TRIPLE_CLASS);
       if (card.dataset) delete card.dataset.adTripleToken;
     });
+    stopSpark();
   }
   function restartTriple(card, varietyOn) {
     card.classList.remove(TRIPLE_CLASS, ...ANIM_VARIANT_CLASSES);
     void card.offsetWidth;
     card.classList.add(TRIPLE_CLASS, pickAnimVariant(varietyOn));
+    const r = card.getBoundingClientRect();
+    runMatrixEffects("TRIPLE", { point: { x: r.left + r.width / 2, y: r.top + r.height / 2 } });
   }
   function updateTripleHighlight(turn) {
     const c = cfg();
@@ -4926,11 +5039,15 @@ function markCheckoutInTurnBar(turn) {
       if (card.dataset) delete card.dataset.adDoubleToken;
     });
     stopBanner();
+    stopSpark();
+    stopFlair();
   }
   function restartDouble(card, varietyOn) {
     card.classList.remove(DOUBLE_CLASS, ...ANIM_VARIANT_CLASSES);
     void card.offsetWidth;
     card.classList.add(DOUBLE_CLASS, pickAnimVariant(varietyOn));
+    const r = card.getBoundingClientRect();
+    runMatrixEffects("DOUBLE", { point: { x: r.left + r.width / 2, y: r.top + r.height / 2 } });
   }
   function updateDoubleHighlight(turn) {
     const c = cfg();
@@ -4994,6 +5111,7 @@ function markCheckoutInTurnBar(turn) {
       } else if (doubleCount >= 2 && turn.dataset.adDblStreak !== "1") {
         turn.dataset.adDblStreak = "1";
         showBigBanner("DOUBLE, DOUBLE!!", c.DOUBLE_GLOW_HEX, 1300, true);
+        runMatrixEffects("DBLSTREAK", { durationMs: 1600 });
       }
     }
   }
@@ -5008,9 +5126,11 @@ function markCheckoutInTurnBar(turn) {
     stopDinosaur();
     stopBanner();
     stopFlair();
+    stopSpark();
   }
-  // tier: 1 = ton (>=100), 2 = ton-forty (>=140, escalates tier 1's effects), 3 = max/180
-  // (escalates further and, if HIGHSCORE3_WILDCARD is on, adds the confetti/dinosaur wildcard).
+  // tier: 1 = ton (>=100), 2 = ton-forty (>=140+, escalates tier 1's effects), 3 = max/180
+  // (escalates further). Effects for all three tiers are driven by runMatrixEffects (the
+  // FX_* matrix) rather than fixed per-tier logic.
   // Escalation reuses the same effects at longer durations rather than needing separate settings
   // per tier - a longer spin/fireworks window naturally reads as "bigger" without new CSS.
   function triggerHighscore(tier) {
@@ -5049,11 +5169,11 @@ function markCheckoutInTurnBar(turn) {
       spinBoard(spinMs, "flash");
     }
 
-    if (c.HIGHSCORE_FIREWORKS) launchFireworks(spinMs);
-
     if (tier >= 3 && c.HIGHSCORE3_BANNER) showBigBanner("ONE HUNDRED AND EIGHTY!", c.HIGHSCORE_GLOW_HEX, 1800, true);
-    if (tier >= 3 && c.HIGHSCORE3_WILDCARD) launchWildcard(spinMs);
-    if (c.HIGHSCORE_FLAIR) launchRandomFlair(spinMs);
+
+    const board = getBoardVisualTargets()[0];
+    const point = board ? (() => { const r = board.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })() : null;
+    runMatrixEffects(tier >= 3 ? "T3" : tier >= 2 ? "T2" : "T1", { durationMs: spinMs, point });
   }
   function updateHighscoreHighlight(turn) {
     const c = cfg();
@@ -5093,6 +5213,57 @@ function markCheckoutInTurnBar(turn) {
     } else if (tier === 0 && turn.dataset) {
       turn.dataset.adHsTier = "0";
     }
+  }
+
+  /* ================== SYNTH SOUND (fireworks boom - no audio asset needed) ============= */
+  // Lazily creates a shared AudioContext, unlocked on the page's first pointerdown (same trick
+  // the win-audio player below uses) so playback complies with browser autoplay policy.
+  let sfxCtx = null;
+  function ensureSfxCtx() {
+    if (sfxCtx) return sfxCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    sfxCtx = new Ctx();
+    const unlock = () => { if (sfxCtx && sfxCtx.state === "suspended") sfxCtx.resume().catch(() => {}); };
+    document.addEventListener("pointerdown", unlock, { passive: true });
+    return sfxCtx;
+  }
+  function playBoomSound(big) {
+    const ctx = ensureSfxCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const master = ctx.createGain();
+      master.gain.value = big ? 0.5 : 0.35;
+      master.connect(ctx.destination);
+
+      // Low sine "thump"
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(big ? 140 : 110, now);
+      osc.frequency.exponentialRampToValueAtTime(35, now + (big ? 0.5 : 0.35));
+      const oscGain = ctx.createGain();
+      oscGain.gain.setValueAtTime(1, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + (big ? 0.55 : 0.4));
+      osc.connect(oscGain).connect(master);
+      osc.start(now);
+      osc.stop(now + (big ? 0.6 : 0.45));
+
+      // Short filtered noise burst (the "crackle")
+      const dur = big ? 0.5 : 0.35;
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = "highpass";
+      noiseFilter.frequency.value = big ? 1800 : 2400;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.value = big ? 0.4 : 0.25;
+      noise.connect(noiseFilter).connect(noiseGain).connect(master);
+      noise.start(now);
+    } catch {}
   }
 
   /* ================== WIN MUSIC ================== */
@@ -5852,8 +6023,9 @@ function ensureMainButtonPosition() {
                "ACTIVE_P4_COLOR_HEX","ACTIVE_P4_OUTLINE_PX","ACTIVE_P4_GLOW","ACTIVE_P4_TRAIL","ACTIVE_P4_TRAIL_SPEED_MS","ACTIVE_P4_TRAIL_COLOR_HEX"],
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN","TRIPLE_VARIETY"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY","DOUBLE_STREAK_ANIM"],
-      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH","HIGHSCORE_FIREWORKS",
-                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_WILDCARD","HIGHSCORE3_BANNER","HIGHSCORE_FLAIR"],
+      highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH",
+                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER"],
+      fx: [...FX_MATRIX_KEYS, "FX_MATRIX_ENABLED", "FX_SOUND_ENABLED"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
     };
@@ -6357,6 +6529,7 @@ function ensureMainButtonPosition() {
     addModuleRow("triple",   () => c.TRIPLE_ANIM, v => { c.TRIPLE_ANIM = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("double",   () => c.DOUBLE_ANIM, v => { c.DOUBLE_ANIM = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("highscore",() => c.HIGHSCORE_ANIM, v => { c.HIGHSCORE_ANIM = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
+    addModuleRow("fx",       () => c.FX_MATRIX_ENABLED, v => { c.FX_MATRIX_ENABLED = v; renderPanelIfOpen(); }, false, true, false);
     addModuleRow("win",      () => c.WIN_MUSIC, v => { c.WIN_MUSIC = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
 
     addModuleRow("clock",    () => state.ui.clock.enabled, (v) => {
@@ -7529,9 +7702,7 @@ function ensureMainButtonPosition() {
         addThresholdRow(L.fields.threshold, "HIGHSCORE_THRESHOLD", 100, null);
         addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
         addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
-        addCheckbox(L.fields.wildcard, ()=>!!c.HIGHSCORE3_WILDCARD, v=>{ c.HIGHSCORE3_WILDCARD=v; });
         addCheckbox(L.fields.bannerEnabled, ()=>!!c.HIGHSCORE3_BANNER, v=>{ c.HIGHSCORE3_BANNER=v; });
-        addCheckbox(L.fields.flairEnabled, ()=>!!c.HIGHSCORE_FLAIR, v=>{ c.HIGHSCORE_FLAIR=v; });
 
         addColor(()=>c.HIGHSCORE_GLOW_HEX, v=>c.HIGHSCORE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
@@ -7539,9 +7710,63 @@ function ensureMainButtonPosition() {
         addCheckbox(L.fields.spinEnabled, ()=>!!c.HIGHSCORE_SPIN, v=>{ c.HIGHSCORE_SPIN=v; });
         addSliderMs("HIGHSCORE_SPIN_MS", L.fields.spinDuration, 400, 15000, 100);
         addCheckbox(L.fields.boardFlash, ()=>!!c.HIGHSCORE_BOARD_FLASH, v=>{ c.HIGHSCORE_BOARD_FLASH=v; });
-        addCheckbox(L.fields.fireworks, ()=>!!c.HIGHSCORE_FIREWORKS, v=>{ c.HIGHSCORE_FIREWORKS=v; });
         addCheckbox(L.fields.throwFlash, ()=>!!c.HIGHSCORE_THROW_FLASH, v=>{ c.HIGHSCORE_THROW_FLASH=v; });
         addSliderMs("HIGHSCORE_SHIMMER_MS", L.fields.highlightSpeed, 400, 6000, 50);
+
+        const fxInfo = document.createElement("div");
+        fxInfo.style.opacity = "0.75";
+        fxInfo.style.fontSize = "12px";
+        fxInfo.style.lineHeight = "1.4";
+        fxInfo.textContent = L.fields.fxMatrixInfo;
+        box.appendChild(fxInfo);
+        break;
+      }
+
+      case "fx": {
+        addCheckbox(L.fields.fxMasterEnabled, ()=>!!c.FX_MATRIX_ENABLED, v=>{ c.FX_MATRIX_ENABLED=v; renderPanelIfOpen(); });
+        addCheckbox(L.fields.fxSoundEnabled, ()=>!!c.FX_SOUND_ENABLED, v=>{ c.FX_SOUND_ENABLED=v; });
+
+        if (c.FX_MATRIX_ENABLED) {
+          const table = document.createElement("table");
+          Object.assign(table.style, { borderCollapse: "collapse", width: "100%", fontSize: compact ? "11px" : "12px", marginTop: "8px" });
+
+          const thead = document.createElement("thead");
+          const headRow = document.createElement("tr");
+          const cornerTh = document.createElement("th");
+          headRow.appendChild(cornerTh);
+          for (const trig of FX_TRIGGERS) {
+            const th = document.createElement("th");
+            th.textContent = L.fxTriggers[trig] || trig;
+            Object.assign(th.style, { padding: "3px 4px", opacity: "0.8", fontWeight: "800", textAlign: "center" });
+            headRow.appendChild(th);
+          }
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+
+          const tbody = document.createElement("tbody");
+          for (const eff of FX_EFFECTS) {
+            const row = document.createElement("tr");
+            const rowLabel = document.createElement("td");
+            rowLabel.textContent = L.fxEffects[eff] || eff;
+            Object.assign(rowLabel.style, { padding: "3px 6px 3px 0", fontWeight: "800", opacity: "0.9", whiteSpace: "nowrap" });
+            row.appendChild(rowLabel);
+            for (const trig of FX_TRIGGERS) {
+              const td = document.createElement("td");
+              td.style.textAlign = "center";
+              td.style.padding = "2px";
+              const cb = document.createElement("input");
+              cb.type = "checkbox";
+              const key = fxKey(eff, trig);
+              cb.checked = !!c[key];
+              cb.addEventListener("change", () => { c[key] = cb.checked; saveStateDebounced(); showToast(L.saved); });
+              td.appendChild(cb);
+              row.appendChild(td);
+            }
+            tbody.appendChild(row);
+          }
+          table.appendChild(tbody);
+          box.appendChild(table);
+        }
         break;
       }
 
