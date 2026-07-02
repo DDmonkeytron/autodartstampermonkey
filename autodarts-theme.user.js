@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.29.0
+// @version      2.30.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.29.0";
+  const SCRIPT_VERSION = "2.30.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -101,10 +101,12 @@
     PI_HISTORY_X_PX: 0, PI_HISTORY_OFFSET_PX: 0,  // history X / Y
     // Per-player alignment nudge (shifts avatar+name+averages of a player to line up with the others)
     PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0, PI_P3_SHIFT_Y: 0, PI_P4_SHIFT_Y: 0,
-    // Per-player horizontal nudge (Layout Editor "move whole card" - same 3 elements as above;
-    // score/history have no per-player anchor, so dragging a card doesn't move them - they're
-    // shared across all players via PI_SCORE_X_PX/PI_HISTORY_X_PX)
+    // Per-player horizontal nudge (companion to SHIFT_Y above, same 3 elements)
     PI_P1_SHIFT_X: 0, PI_P2_SHIFT_X: 0, PI_P3_SHIFT_X: 0, PI_P4_SHIFT_X: 0,
+    // Whole-card position (Layout Editor card drag): translates the card <div> itself, so the
+    // background box, active glow, and EVERYTHING inside (incl. score/history) move together.
+    PI_P1_CARD_X_PX: 0, PI_P1_CARD_Y_PX: 0, PI_P2_CARD_X_PX: 0, PI_P2_CARD_Y_PX: 0,
+    PI_P3_CARD_X_PX: 0, PI_P3_CARD_Y_PX: 0, PI_P4_CARD_X_PX: 0, PI_P4_CARD_Y_PX: 0,
     // 3-4 player layout fit: when 3+ players, scale player-info to fit the 2x2 grid (avoids overlap).
     // Any PI_G_* key left null is derived from its 2-player counterpart × PI_GRID_SCALE (legacy
     // behavior, fully backward compatible); setting one explicitly tunes the 3-4p layout
@@ -2066,10 +2068,13 @@ ${(+c.PI_CARD_WIDTH_PX > 0 || +c.PI_CARD_HEIGHT_PX > 0) ? `
 }` : ""}
 /* per-player alignment nudge (shifts avatar+name+averages of each player; X is for the Layout
    Editor's "move whole card" group-drag, isolated to one player at a time) */
-#ad-ext-player-display > div:nth-child(1){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_Y) ? +c.PI_P1_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P1_SHIFT_X) ? +c.PI_P1_SHIFT_X : 0, -400, 400)}px; }
-#ad-ext-player-display > div:nth-child(2){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_Y) ? +c.PI_P2_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P2_SHIFT_X) ? +c.PI_P2_SHIFT_X : 0, -400, 400)}px; }
-#ad-ext-player-display > div:nth-child(3){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_Y) ? +c.PI_P3_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P3_SHIFT_X) ? +c.PI_P3_SHIFT_X : 0, -400, 400)}px; }
-#ad-ext-player-display > div:nth-child(4){ --pp-shift-y: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_Y) ? +c.PI_P4_SHIFT_Y : 0, -200, 200)}px; --pp-shift-x: ${clamp(Number.isFinite(+c.PI_P4_SHIFT_X) ? +c.PI_P4_SHIFT_X : 0, -400, 400)}px; }
+${[1, 2, 3, 4].map((n) => `
+#ad-ext-player-display > div:nth-child(${n}){
+  --pp-shift-y: ${clamp(Number.isFinite(+c[`PI_P${n}_SHIFT_Y`]) ? +c[`PI_P${n}_SHIFT_Y`] : 0, -200, 200)}px;
+  --pp-shift-x: ${clamp(Number.isFinite(+c[`PI_P${n}_SHIFT_X`]) ? +c[`PI_P${n}_SHIFT_X`] : 0, -400, 400)}px;
+  /* whole-card position (Layout Editor drag): moves the card box + all contents together */
+  translate: ${clamp(Number.isFinite(+c[`PI_P${n}_CARD_X_PX`]) ? +c[`PI_P${n}_CARD_X_PX`] : 0, -1500, 1500)}px ${clamp(Number.isFinite(+c[`PI_P${n}_CARD_Y_PX`]) ? +c[`PI_P${n}_CARD_Y_PX`] : 0, -1500, 1500)}px !important;
+}`).join("\n")}
 ${(piColor && c.PI_PER_PLAYER_COLORS) ? [2,3,4].map(n => `
 /* per-player colours: player ${n} overrides (player 1 uses the base colours above) */
 #ad-ext-player-display > div:nth-child(${n}) .ad-ext-player-name{ color: var(--ad-pi-p${n}-name-color) !important; }
@@ -3401,6 +3406,11 @@ function markCheckoutInTurnBar(turn) {
     const v = raw !== null && raw !== undefined && raw !== "" ? Number(raw) || 0 : 0;
     return isGridMode() ? v * gridScaleFactor() : v;
   }
+  // Whole-card position: translates the card <div> itself (background box + active glow +
+  // everything inside, incl. score/history). Same keys in both 2p and 3-4p modes.
+  function cardPosKeys(player) {
+    return { x: `PI_P${player}_CARD_X_PX`, y: `PI_P${player}_CARD_Y_PX` };
+  }
 
   // "Scale all elements proportionally with the card" (card popover checkbox, ON by default -
   // uncheck to resize just the box). Each pair is [2-player key, grid key]; groupScaleActiveKey()
@@ -3721,6 +3731,27 @@ function markCheckoutInTurnBar(turn) {
     }
 
     if (editSelected.kind === "card") {
+      const keys = cardPosKeys(player);
+      {
+        const v = Number(c[keys.x]) || 0;
+        const { row, input } = numRow(`${elLabel} ↔`, v, 1, (nv) => {
+          c[keys.x] = clamp(Math.round(nv), -1500, 1500);
+          input.value = String(c[keys.x]);
+          applyEditChange();
+        });
+        editPopoverEl.appendChild(row);
+        fields.cardX = input;
+      }
+      {
+        const v = Number(c[keys.y]) || 0;
+        const { row, input } = numRow(`${elLabel} ↕`, v, 1, (nv) => {
+          c[keys.y] = clamp(Math.round(nv), -1500, 1500);
+          input.value = String(c[keys.y]);
+          applyEditChange();
+        });
+        editPopoverEl.appendChild(row);
+        fields.cardY = input;
+      }
       const chkRow = document.createElement("label");
       Object.assign(chkRow.style, { display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", opacity: "0.85", cursor: "pointer", margin: "2px 0 6px" });
       const chk = document.createElement("input");
@@ -3837,6 +3868,11 @@ function markCheckoutInTurnBar(turn) {
     }
     if (f.w && map.widthKey) f.w.value = String(c[map.widthKey]);
     if (f.h && map.heightKey) f.h.value = String(c[map.heightKey]);
+    if (f.cardX || f.cardY) {
+      const keys = cardPosKeys(editSelected.player);
+      if (f.cardX) f.cardX.value = String(Number(c[keys.x]) || 0);
+      if (f.cardY) f.cardY.value = String(Number(c[keys.y]) || 0);
+    }
   }
 
   // Resets whichever layer (2-player or, during a 3-4 player match, the independent 3-4p
@@ -3854,6 +3890,10 @@ function markCheckoutInTurnBar(turn) {
       c[shiftKey] = DEFAULT_CFG[shiftKey];
     }
     if (map.groupMove) {
+      const keys = cardPosKeys(player);
+      c[keys.x] = DEFAULT_CFG[keys.x];
+      c[keys.y] = DEFAULT_CFG[keys.y];
+      // also clear this player's element nudges (older editor versions wrote these on card drag)
       c[shiftKeyForPlayer(player)] = DEFAULT_CFG[shiftKeyForPlayer(player)];
       c[shiftXKeyForPlayer(player)] = DEFAULT_CFG[shiftXKeyForPlayer(player)];
     }
@@ -3908,11 +3948,13 @@ function markCheckoutInTurnBar(turn) {
       groupBoxSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
         ? GROUP_SCALE_BOX_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
         : null,
-      // Moving the card itself only touches THIS player's per-player X/Y shift (name/avg/avatar
-      // are the only elements with a per-player anchor) - never the shared 2-player base X/Y,
-      // which would move every player's card at once.
-      groupMoveShift: (mode === "move" && map.groupMove)
-        ? { startX: effShiftXValue(target.player), startY: effShiftValue(target.player) }
+      // Moving the card drags the card <div> itself via this player's own CARD_X/Y translate -
+      // box, glow, and all contents (incl. score/history) move as one; other players untouched.
+      cardMoveStart: (mode === "move" && map.groupMove)
+        ? (() => {
+            const keys = cardPosKeys(target.player);
+            return { startX: Number(c[keys.x]) || 0, startY: Number(c[keys.y]) || 0 };
+          })()
         : null,
     };
     document.body.style.userSelect = "none";
@@ -3930,9 +3972,10 @@ function markCheckoutInTurnBar(turn) {
       if (map.xKey) c[map.xKey] = clamp(Math.round(st.startX + dx), -1500, 1500);
       if (map.perPlayerShift) c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.startY + dy), -400, 400);
       else if (map.yKey) c[map.yKey] = clamp(Math.round(st.startY + dy), -1500, 1500);
-      if (st.groupMoveShift) {
-        c[shiftXKeyForPlayer(st.target.player)] = clamp(Math.round(st.groupMoveShift.startX + dx), -400, 400);
-        c[shiftKeyForPlayer(st.target.player)] = clamp(Math.round(st.groupMoveShift.startY + dy), -400, 400);
+      if (st.cardMoveStart) {
+        const keys = cardPosKeys(st.target.player);
+        c[keys.x] = clamp(Math.round(st.cardMoveStart.startX + dx), -1500, 1500);
+        c[keys.y] = clamp(Math.round(st.cardMoveStart.startY + dy), -1500, 1500);
       }
     } else if (st.mode === "resize") {
       if (map.resizeMode === "box") {
