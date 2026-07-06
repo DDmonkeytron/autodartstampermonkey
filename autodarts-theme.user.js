@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.35.0
+// @version      2.36.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.35.0";
+  const SCRIPT_VERSION = "2.36.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -241,6 +241,17 @@
     HIGHSCORE3_THRESHOLD: 180,
     HIGHSCORE3_BANNER: true,     // flashing "ONE HUNDRED AND EIGHTY!" text on a 180
 
+    // "26" fire: a 3-dart turn totalling exactly 26 (the classic 5-20-1 bad-luck score) sets the
+    // board ablaze - a real ring-of-fire video (Fireflicker.mp4, hollow ring on black) is played
+    // over the board with screen-blend (black drops out) so flames ring the rim and the scoring
+    // shows through the empty centre, plus a gentle board grow, over a ~5s burn. Default ON; toggle
+    // lives in the High Score module. The video is loaded from the repo via jsDelivr (the script is
+    // @grant none, so no GM_getResourceURL), pinned to the commit that added Fireflicker.mp4 so the
+    // URL is immutable and CDN-cacheable; bump the pin if you ever replace the clip.
+    FIRE26_ENABLED: true,
+    FIRE26_VIDEO_URL: "https://cdn.jsdelivr.net/gh/DDmonkeytron/autodartstampermonkey@12e86abd45462ac2ba976fa86c0afec1f8d930c6/Fireflicker.mp4",
+    FIRE26_VIDEO_SCALE: 2.05,  // video size vs the board box; tune so the ring's hole hugs the rim
+
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
 
@@ -433,6 +444,7 @@
         tier2: "2. szint (Ton-forty)",
         tier3: "3. szint (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" felirat",
+        fire26Enabled: "🔥 Tábla lángra kap 26-nál",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" felirat (2+ dupla)",
         fxMatrixInfo: "A tűzijáték, konfetti, villámlás, füst, tömeg stb. részletes beállítása az \"Effektek\" modulban (tábla: melyik effekt melyik találatnál induljon el).",
         fxMasterEnabled: "Effekt mátrix BE",
@@ -673,6 +685,7 @@
         tier2: "Tier 2 (Ton-forty)",
         tier3: "Tier 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" banner",
+        fire26Enabled: "🔥 Board catches fire on 26",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" banner (2+ doubles)",
         fxMatrixInfo: "Fine-grained control over fireworks, confetti, lightning, smoke, crowd etc. lives in the \"Effects\" module - a table of which effect fires on which hit.",
         fxMasterEnabled: "Effects matrix ON",
@@ -913,6 +926,7 @@
         tier2: "Stufe 2 (Ton-Forty)",
         tier3: "Stufe 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" Banner",
+        fire26Enabled: "🔥 Board fängt bei 26 Feuer",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" Banner (2+ Doppel)",
         fxMatrixInfo: "Feineinstellung für Feuerwerk, Konfetti, Blitz, Rauch, Menge usw. im Modul \"Effekte\" - eine Tabelle, welcher Effekt bei welchem Treffer ausgelöst wird.",
         fxMasterEnabled: "Effekt-Matrix AN",
@@ -2233,6 +2247,54 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
+      // "26" board fire (FIRE26_ENABLED). Unlike the fixed-overlay effects, launchFire26 appends
+      // #ad-fire26 as a CHILD of the board host (the div that actually holds the game's board
+      // img+svg), so the fire is anchored to the real board and rides its translate/scale/grow
+      // instead of being a floating re-render. The ring of fire is a real video (Fireflicker.mp4:
+      // a hollow flame ring on solid black) played with mix-blend-mode:screen, so the black drops
+      // out, flames ring the rim and the scoring reads through the empty centre. The host gets
+      // .ad-board-fire-mount for the gentle grow (transform-based, so it composes with the
+      // individual translate/scale positioning like the spin does).
+      if (c.FIRE26_ENABLED) {
+        css.push(`
+#ad-fire26{
+  position:absolute; inset:0; pointer-events:none; z-index:9999; overflow:visible;
+}
+/* Real ring-of-fire footage (Fireflicker.mp4: hollow flame ring on solid black). screen-blend
+   turns the black to transparent, so only the flames show and the scoring reads through the empty
+   centre. Scaled > board (var --ad-fire26-scale) so the ring's hole lands on the rim and flames
+   lick outward past the edge. Fades in/out over the burn. */
+.ad-fire26-video{
+  position:absolute; left:50%; top:50%;
+  width:var(--ad-fire26-scale,230%); height:var(--ad-fire26-scale,230%);
+  transform:translate(-50%,-50%);
+  object-fit:fill; pointer-events:none;
+  mix-blend-mode:screen;
+  animation: adFire26Fade 5000ms ease-out forwards;
+}
+@keyframes adFire26Fade{
+  0%   { opacity:0; }
+  5%   { opacity:1; }
+  88%  { opacity:1; }
+  100% { opacity:0; }
+}
+/* Gentle board grow + warm bloom on the host. transform-based so it composes with the board's
+   translate/scale positioning instead of clobbering it (same technique as the spin/implode). */
+.ad-board-fire-mount{
+  animation: adBoardFireGrow 5000ms ease-in-out 1 !important;
+  transform-origin:center center !important;
+  will-change: transform, filter;
+}
+@keyframes adBoardFireGrow{
+  0%   { transform: scale(1);    filter:none; }
+  14%  { transform: scale(1.05); filter: brightness(1.12) saturate(1.15) drop-shadow(0 0 22px rgba(255,120,20,0.9)); }
+  50%  { transform: scale(1.06); filter: brightness(1.18) saturate(1.3) drop-shadow(0 0 40px rgba(255,80,10,0.95)); }
+  86%  { transform: scale(1.035);filter: brightness(1.1) saturate(1.15) drop-shadow(0 0 24px rgba(255,120,20,0.8)); }
+  100% { transform: scale(1);    filter:none; }
+}
+`);
+      }
+
       // Effects matrix, part 2: gold/red score glow, lightning (+ big full-flash variant for the
       // double-double streak), smoke cannons, cheering crowd.
       if (c.FX_MATRIX_ENABLED) {
@@ -3387,6 +3449,93 @@ svg.ad-board-svg text{
       sparkTimers.push(setTimeout(() => p.remove(), 260));
     }
     sparkTimers.push(setTimeout(() => { const ov = document.getElementById("ad-spark"); if (ov && !ov.children.length) ov.remove(); }, 300));
+  }
+
+  /* ================== "26" BOARD FIRE ================== */
+  // Sets the real in-game board ablaze for ~5s when a turn totals exactly 26. A ring-of-fire video
+  // (Fireflicker.mp4: hollow flame ring on black) is appended INSIDE the board host (the div holding
+  // the board img + scoring svg) and screen-blended, so black drops out, flames ring the rim, the
+  // scoring shows through the empty centre, and the whole thing rides the board's translate/scale/
+  // grow rather than being a floating re-render.
+  const FIRE26_DUR_MS = 5000;
+  let fire26Timers = [];
+  let fire26Mount = null;               // host we appended flames into (for cleanup)
+  let fire26MountPrev = null;           // inline styles we temporarily overrode on that host
+
+  // The board host is the element that carries the board's translate/scale positioning and whose
+  // box matches the board. Prefer a marked host; else climb from the board svg/img to the div that
+  // directly contains it (that same wrapper). Falls back to the raw visual target if nothing else.
+  function getBoardFireMount() {
+    const host = document.querySelector("." + BOARD_HOST_CLASS);
+    if (host) return host;
+    const svg = document.querySelector("svg.ad-board-svg, ." + BOARD_VISUAL_CLASS);
+    if (svg) return svg.parentElement || svg;
+    const img = Array.from(document.querySelectorAll("img")).find(isBoardImage);
+    if (img) return img.parentElement || img;
+    return getBoardVisualTargets()[0] || null;
+  }
+
+  function stopFire26() {
+    fire26Timers.forEach(t => clearTimeout(t));
+    fire26Timers = [];
+    const ov = document.getElementById("ad-fire26");
+    if (ov) ov.remove();
+    if (fire26Mount) {
+      fire26Mount.classList.remove("ad-board-fire-mount");
+      if (fire26MountPrev) {
+        fire26Mount.style.position = fire26MountPrev.position;
+        fire26Mount.style.overflow = fire26MountPrev.overflow;
+      }
+    }
+    fire26Mount = null;
+    fire26MountPrev = null;
+  }
+
+  function launchFire26() {
+    stopFire26();
+    const c = cfg();
+
+    const mount = getBoardFireMount();
+    if (!mount) return;
+
+    // The video layer is position:absolute and scaled past the board box, so the host must be a
+    // positioning context and must not clip the flames. Override only if needed; restore on cleanup.
+    const cs = getComputedStyle(mount);
+    fire26MountPrev = { position: mount.style.position, overflow: mount.style.overflow };
+    if (cs.position === "static") mount.style.position = "relative";
+    if (cs.overflow !== "visible") mount.style.overflow = "visible";
+
+    const overlay = document.createElement("div");
+    overlay.id = "ad-fire26";
+
+    const scale = clamp(Number(c.FIRE26_VIDEO_SCALE) || 2.3, 1, 5);
+    const video = document.createElement("video");
+    video.className = "ad-fire26-video";
+    video.style.setProperty("--ad-fire26-scale", (scale * 100).toFixed(0) + "%");
+    video.src = String(c.FIRE26_VIDEO_URL || DEFAULT_CFG.FIRE26_VIDEO_URL);
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.loop = false;
+    video.preload = "auto";
+    // Play with the clip's own fire crackle when FX sound is on; fall back to muted if the browser
+    // blocks autoplay-with-audio. If the video can't load at all (CSP/network), just clean up.
+    video.muted = !c.FX_SOUND_ENABLED;
+    video.defaultMuted = video.muted;
+    video.onerror = () => stopFire26();
+    overlay.appendChild(video);
+
+    mount.appendChild(overlay);
+    fire26Mount = mount;
+
+    mount.classList.remove("ad-board-fire-mount");
+    void mount.offsetWidth; // restart the grow animation
+    mount.classList.add("ad-board-fire-mount");
+
+    try { video.currentTime = 0; } catch {}
+    const p = video.play();
+    if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); });
+
+    fire26Timers.push(setTimeout(stopFire26, FIRE26_DUR_MS + 200));
   }
 
   /* ================== EFFECTS MATRIX DISPATCHER ================== */
@@ -5215,6 +5364,39 @@ function markCheckoutInTurnBar(turn) {
     }
   }
 
+  /* ================== "26" FIRE DETECTION ================== */
+  // Fires the board-fire effect when a completed 3-dart turn totals exactly 26 (the classic
+  // 5-20-1 "bag of nuts"). Requires all three darts so a partial 20+6 doesn't trip early, and
+  // dedupes per turn element (adFire26 flag) so the 5s burn only launches once per visit.
+  function updateFire26(turn) {
+    if (!turn) return;
+    const cards = Array.from(turn.querySelectorAll(".ad-ext-turn-throw"));
+
+    let total = 0, count = 0;
+    for (const card of cards) {
+      const p = card.querySelector("p");
+      const raw = (p?.textContent || "").trim().toUpperCase();
+      if (!raw || raw === "..." || raw === "…" || raw.includes("•")) continue;
+      total += parseThrowValue(raw);
+      count++;
+    }
+
+    if (count === 0) {
+      if (turn.dataset) delete turn.dataset.adFire26;
+      return;
+    }
+
+    const isTwentySix = count === 3 && total === 26;
+    const alreadyFired = turn.dataset && turn.dataset.adFire26 === "1";
+    if (isTwentySix && !alreadyFired) {
+      if (turn.dataset) turn.dataset.adFire26 = "1";
+      launchFire26();
+    } else if (!isTwentySix && count < 3 && turn.dataset) {
+      // Mid-turn (darts still being retracted/re-thrown): clear so a fresh 26 can re-arm.
+      delete turn.dataset.adFire26;
+    }
+  }
+
   /* ================== SYNTH SOUND (fireworks boom - no audio asset needed) ============= */
   // Lazily creates a shared AudioContext, unlocked on the page's first pointerdown (same trick
   // the win-audio player below uses) so playback complies with browser autoplay policy.
@@ -5695,6 +5877,7 @@ function scanWinMusic() {
         if (c.TRIPLE_ANIM) updateTripleHighlight(turn);
         if (c.DOUBLE_ANIM) updateDoubleHighlight(turn);
         if (c.HIGHSCORE_ANIM) updateHighscoreHighlight(turn);
+        if (c.FIRE26_ENABLED) updateFire26(turn);
 
         if (c.WIN_MUSIC) scanWinMusic();
       } else {
@@ -6024,7 +6207,7 @@ function ensureMainButtonPosition() {
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN","TRIPLE_VARIETY"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY","DOUBLE_STREAK_ANIM"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH",
-                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER"],
+                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER","FIRE26_ENABLED","FIRE26_VIDEO_URL","FIRE26_VIDEO_SCALE"],
       fx: [...FX_MATRIX_KEYS, "FX_MATRIX_ENABLED", "FX_SOUND_ENABLED"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
@@ -7703,6 +7886,7 @@ function ensureMainButtonPosition() {
         addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
         addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
         addCheckbox(L.fields.bannerEnabled, ()=>!!c.HIGHSCORE3_BANNER, v=>{ c.HIGHSCORE3_BANNER=v; });
+        addCheckbox(L.fields.fire26Enabled, ()=>!!c.FIRE26_ENABLED, v=>{ c.FIRE26_ENABLED=v; });
 
         addColor(()=>c.HIGHSCORE_GLOW_HEX, v=>c.HIGHSCORE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
