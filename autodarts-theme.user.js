@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.40.1
+// @version      2.40.2
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.40.1";
+  const SCRIPT_VERSION = "2.40.2";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -3970,27 +3970,31 @@ svg.ad-board-svg text{
       overlay.appendChild(b);
     }
 
-    // Fish swimming across, half each way - negative delays put them mid-swim on the board instantly.
-    for (let i = 0; i < 6; i++) {
+    // Fish swimming across. Travel is in PIXELS (board-relative) - translateX(%) would be relative
+    // to the fish's own width, so it'd barely move. Each fish gets an even phase (via negative
+    // delay) and alternating direction, so several are already spread across the middle on frame 1.
+    const fishCount = 7;
+    for (let i = 0; i < fishCount; i++) {
       const f = document.createElement("span");
       f.className = "ad-wash-fish";
       f.textContent = WASH_FISH[(Math.random() * WASH_FISH.length) | 0];
-      const rightward = Math.random() < 0.5;
+      const rightward = i % 2 === 0;
       const fs = size0 * (0.11 + Math.random() * 0.09);
-      const sd = 5000 + Math.random() * 4000;
+      const sd = 6000 + Math.random() * 3000;
+      const travelPx = (rightward ? 1 : -1) * size0 * 1.9;
       f.style.setProperty("--fs", fs.toFixed(0) + "px");
-      f.style.top = (10 + Math.random() * 72).toFixed(0) + "%";
+      f.style.top = (8 + Math.random() * 74).toFixed(0) + "%";
       // Emoji fish face left by default; flip when swimming rightward.
       f.style.setProperty("--dir", rightward ? "-1" : "1");
-      const travel = rightward ? 150 : -150;
-      f.style.left = rightward ? "-40%" : "140%";
-      f.style.setProperty("--q1", (travel * 0.25).toFixed(0) + "%");
-      f.style.setProperty("--q2", (travel * 0.5).toFixed(0) + "%");
-      f.style.setProperty("--q3", (travel * 0.75).toFixed(0) + "%");
-      f.style.setProperty("--travel", travel.toFixed(0) + "%");
+      f.style.left = rightward ? "-25%" : "110%";
+      f.style.setProperty("--q1", (travelPx * 0.25).toFixed(0) + "px");
+      f.style.setProperty("--q2", (travelPx * 0.5).toFixed(0) + "px");
+      f.style.setProperty("--q3", (travelPx * 0.75).toFixed(0) + "px");
+      f.style.setProperty("--travel", travelPx.toFixed(0) + "px");
       f.style.setProperty("--sd", sd.toFixed(0) + "ms");
-      // Offset each fish into the first ~40-90% of its swim so they're already crossing the board.
-      f.style.setProperty("--sdl", (-(sd * (0.4 + Math.random() * 0.5))).toFixed(0) + "ms");
+      // Even phase across the swim so at t=0 the fish are spaced across the board (middle included).
+      const phase = (i + 0.5) / fishCount;
+      f.style.setProperty("--sdl", (-(sd * phase)).toFixed(0) + "ms");
       overlay.appendChild(f);
     }
 
