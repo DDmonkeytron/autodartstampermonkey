@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.39.0
+// @version      2.40.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.39.0";
+  const SCRIPT_VERSION = "2.40.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -202,7 +202,7 @@
     TRIPLE_GLOW_HEX: "#ff6600",
     TRIPLE_GLOW: 0.70,
     TRIPLE_FLASH: true,
-    TRIPLE_SPIN: false,          // spin the board on each triple
+    TRIPLE_SPIN: true,           // spin the board on each triple T>=TRIPLE_SPIN_MIN
     TRIPLE_SPIN_MS: 1200,
     TRIPLE_SPIN_MIN: 15,         // only triples T>=this value spin the board (1..20)
     TRIPLE_VARIETY: true,        // pick a random animation style each hit instead of always the same one
@@ -215,7 +215,7 @@
     DOUBLE_GLOW_HEX: "#00aaff",
     DOUBLE_GLOW: 0.55,
     DOUBLE_FLASH: false,
-    DOUBLE_SPIN: false,          // spin the board on each double
+    DOUBLE_SPIN: true,           // spin the board on each double D>=DOUBLE_SPIN_MIN
     DOUBLE_SPIN_MS: 1000,
     DOUBLE_SPIN_MIN: 15,         // only doubles D>=this value spin the board (1..20)
     DOUBLE_VARIETY: true,        // pick a random animation style each hit instead of always the same one
@@ -227,9 +227,9 @@
     HIGHSCORE_GLOW_HEX: "#ffd700",
     HIGHSCORE_GLOW: 0.80,
     HIGHSCORE_FLASH: true,
-    HIGHSCORE_SPIN: true,
+    HIGHSCORE_SPIN: false,       // board spin/flash is driven by the score reactions now (avoid double)
     HIGHSCORE_SPIN_MS: 7000,     // board spin duration for a ton (user-set, default 7s)
-    HIGHSCORE_BOARD_FLASH: true,
+    HIGHSCORE_BOARD_FLASH: false,
     HIGHSCORE_THROW_FLASH: true,
     // Tier 2 (ton-forty) and tier 3 (180/max) escalate the tier-1 effects above (bigger spin/
     // fireworks) instead of re-configuring them from scratch. Which extra effects fire for each
@@ -239,19 +239,25 @@
     HIGHSCORE2_THRESHOLD: 140,
     HIGHSCORE3_ENABLED: true,
     HIGHSCORE3_THRESHOLD: 180,
-    HIGHSCORE3_BANNER: true,     // flashing "ONE HUNDRED AND EIGHTY!" text on a 180
+    HIGHSCORE3_BANNER: false,    // 180 banner is handled by the score reaction instead (avoid double)
 
-    // "26" fire: a 3-dart turn totalling exactly 26 (the classic 5-20-1 bad-luck score) sets the
-    // Board fire: a BIG score (turn total >= FIRE_THRESHOLD, default 140) sets the board ablaze - a
-    // real ring-of-fire video (Fireflicker.mp4, hollow ring on black) plays over the board with
-    // screen-blend (black drops out) so flames ring the rim and the scoring shows through the empty
-    // centre. The board grows, chars black, then crumbles/disintegrates to nothing (ash + embers
-    // falling) and reassembles, over a ~5s burn - "you're on fire!". Default ON; toggle lives in the
-    // High Score module. The video is loaded from the repo via jsDelivr (the script is @grant none,
-    // so no GM_getResourceURL), pinned to the commit that added Fireflicker.mp4 so the URL is
-    // immutable and CDN-cacheable; bump the pin if you ever replace the clip.
+    // Score reactions: themed celebrations keyed on the exact 3-dart turn total, all wired as
+    // defaults - 57/60 -> board flames (survives); 95/100 -> board shrink & expand + double
+    // lightning + thunder; 140 -> board explodes showing "140", then spins on fire (full burn to
+    // ash); 180 -> the works (fireworks, cannons, lightning, crowd, banner, spin on fire). Master
+    // toggle SCORE_FX_ENABLED; the fire portions additionally honour FIRE_ENABLED. (26 is the
+    // separate WASHOUT gag; triple/double spins + double-double banner run through their own systems.)
+    SCORE_FX_ENABLED: true,
+    // Score reactions own the big-score celebrations now, so the old effects matrix is off by
+    // default to avoid double fireworks/lightning/explosions at 100/140/180. Re-enable in Effects.
+    FX_MATRIX_ENABLED: false,
+
+    // Board fire: the ring-of-fire video (Fireflicker.mp4, hollow ring on black) plays over the
+    // board with screen-blend (black drops out) so flames ring the rim and the scoring shows through
+    // the empty centre. FIRE_ENABLED gates every fire moment (57/60/140/180). The video is loaded
+    // from the repo via jsDelivr (the script is @grant none, so no GM_getResourceURL), pinned to the
+    // commit that added Fireflicker.mp4 so the URL is immutable; bump the pin if you replace the clip.
     FIRE_ENABLED: true,
-    FIRE_THRESHOLD: 140,       // turn total at/above which the board catches fire
     FIRE_VIDEO_URL: "https://cdn.jsdelivr.net/gh/DDmonkeytron/autodartstampermonkey@12e86abd45462ac2ba976fa86c0afec1f8d930c6/Fireflicker.mp4",
     FIRE_VIDEO_SCALE: 2.05,    // video size vs the board box; tune so the ring's hole hugs the rim
 
@@ -452,7 +458,8 @@
         tier2: "2. szint (Ton-forty)",
         tier3: "3. szint (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" felirat",
-        fireEnabled: "🔥 Tábla lángra kap 140+ pontnál",
+        scoreFxEnabled: "🎯 Pont-reakciók (57/60/95/100/140/180)",
+        fireEnabled: "🔥 Tűz effekt engedélyezése",
         washoutEnabled: "🌊 „WASH OUT” víz alatti poén 26-nál",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" felirat (2+ dupla)",
         fxMatrixInfo: "A tűzijáték, konfetti, villámlás, füst, tömeg stb. részletes beállítása az \"Effektek\" modulban (tábla: melyik effekt melyik találatnál induljon el).",
@@ -694,7 +701,8 @@
         tier2: "Tier 2 (Ton-forty)",
         tier3: "Tier 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" banner",
-        fireEnabled: "🔥 Board catches fire on 140+",
+        scoreFxEnabled: "🎯 Score reactions (57/60/95/100/140/180)",
+        fireEnabled: "🔥 Enable fire effect",
         washoutEnabled: "🌊 \"WASH OUT\" underwater gag on 26",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" banner (2+ doubles)",
         fxMatrixInfo: "Fine-grained control over fireworks, confetti, lightning, smoke, crowd etc. lives in the \"Effects\" module - a table of which effect fires on which hit.",
@@ -936,7 +944,8 @@
         tier2: "Stufe 2 (Ton-Forty)",
         tier3: "Stufe 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" Banner",
-        fireEnabled: "🔥 Board fängt bei 140+ Feuer",
+        scoreFxEnabled: "🎯 Punkt-Reaktionen (57/60/95/100/140/180)",
+        fireEnabled: "🔥 Feuer-Effekt aktivieren",
         washoutEnabled: "🌊 \"WASH OUT\" Unterwasser-Gag bei 26",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" Banner (2+ Doppel)",
         fxMatrixInfo: "Feineinstellung für Feuerwerk, Konfetti, Blitz, Rauch, Menge usw. im Modul \"Effekte\" - eine Tabelle, welcher Effekt bei welchem Treffer ausgelöst wird.",
@@ -2122,7 +2131,7 @@ svg.ad-board-svg, img.ad-board-img{
       // Unified board celebration: spin / flash (triple, double, high score) + fireworks.
       // Matches the marked board (ad-board-host/-visual) AND the raw fallback (svg.ad-board-svg),
       // so the spin works even when the Board Marker module is OFF. Duration is per-trigger via --ad-spin-dur.
-      if (c.TRIPLE_SPIN || c.DOUBLE_SPIN || (c.HIGHSCORE_ANIM && (c.HIGHSCORE_SPIN || c.HIGHSCORE_BOARD_FLASH))) {
+      if (c.TRIPLE_SPIN || c.DOUBLE_SPIN || c.SCORE_FX_ENABLED || (c.HIGHSCORE_ANIM && (c.HIGHSCORE_SPIN || c.HIGHSCORE_BOARD_FLASH))) {
         css.push(`
 .${BOARD_HOST_CLASS}.ad-spin, .${BOARD_VISUAL_CLASS}.ad-spin, svg.ad-board-svg.ad-spin,
 .${BOARD_HOST_CLASS}.ad-spin-flash, .${BOARD_VISUAL_CLASS}.ad-spin-flash, svg.ad-board-svg.ad-spin-flash{
@@ -2154,7 +2163,8 @@ svg.ad-board-svg, img.ad-board-img{
       // Effects matrix CSS (SPARK/GLOW/CONFETTI/FIREWORKS/LIGHTNING/SMOKE/CROWD/EXPLODE/DINO/
       // CANNONS): one combined block behind the matrix's master switch, since any of these can
       // now be wired to any trigger (triple/double/double-streak/T1/T2/T3) via runMatrixEffects.
-      if (c.FX_MATRIX_ENABLED) {
+      // Also emitted when SCORE_FX_ENABLED, since the score reactions call these effects directly.
+      if (c.FX_MATRIX_ENABLED || c.SCORE_FX_ENABLED) {
         css.push(`
 #ad-fireworks{ position:fixed; inset:0; pointer-events:none; z-index:2147483600; overflow:hidden; }
 .ad-fw-burst{ position:absolute; width:0; height:0; }
@@ -2225,9 +2235,9 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // Big flashing banner text - "DOUBLE, DOUBLE!!" (double streak) and/or "ONE HUNDRED AND
-      // EIGHTY!" (180) share this CSS, so it needs to exist whenever either could fire.
-      if ((c.DOUBLE_ANIM && c.DOUBLE_STREAK_ANIM) || (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_BANNER)) {
+      // Big flashing banner text - "DOUBLE, DOUBLE!!" (double streak), "140"/"ONE HUNDRED AND
+      // EIGHTY!" (score reactions) - share this CSS, so it needs to exist whenever any could fire.
+      if ((c.DOUBLE_ANIM && c.DOUBLE_STREAK_ANIM) || c.SCORE_FX_ENABLED || (c.HIGHSCORE_ANIM && c.HIGHSCORE3_ENABLED && c.HIGHSCORE3_BANNER)) {
         css.push(`
 #ad-banner{
   position:fixed; left:50%; top:38%; transform:translate(-50%,-50%);
@@ -2310,6 +2320,19 @@ svg.ad-board-svg, img.ad-board-img{
   70%  { opacity:1;    transform: scale(1.03); filter: brightness(0.08) saturate(0.15) drop-shadow(0 0 18px rgba(255,60,0,0.5)); }
   84%  { opacity:0.6;  transform: scale(0.99); filter: brightness(0.03) saturate(0.05) drop-shadow(0 0 10px rgba(255,60,0,0.25)); }
   100% { opacity:0;    transform: scale(0.94); filter: brightness(0)    saturate(0)    drop-shadow(0 0 0 rgba(255,60,0,0)); }
+}
+/* Flames-only variant (smaller scores): the board glows and swells in the fire but survives -
+   no char, no crumble, returns to normal. */
+.ad-board-fire-glow{
+  animation: adBoardFireGlow 4200ms ease-in-out 1 !important;
+  transform-origin:center center !important;
+  will-change: transform, filter;
+}
+@keyframes adBoardFireGlow{
+  0%   { transform: scale(1);    filter: brightness(1)    saturate(1)    drop-shadow(0 0 0 rgba(255,120,20,0)); }
+  22%  { transform: scale(1.045);filter: brightness(1.16) saturate(1.25) drop-shadow(0 0 26px rgba(255,120,20,0.9)); }
+  60%  { transform: scale(1.05); filter: brightness(1.2)  saturate(1.32) drop-shadow(0 0 36px rgba(255,90,10,0.85)); }
+  100% { transform: scale(1);    filter: brightness(1)    saturate(1)    drop-shadow(0 0 0 rgba(255,120,20,0)); }
 }
 /* Glowing cracks that spread across the board face as it chars - jagged radial SVG paths drawn
    in with the stroke-dash trick, clipped to the board circle, molten-orange with a heat glow.
@@ -2444,8 +2467,9 @@ svg.ad-board-svg, img.ad-board-img{
       }
 
       // Effects matrix, part 2: gold/red score glow, lightning (+ big full-flash variant for the
-      // double-double streak), smoke cannons, cheering crowd.
-      if (c.FX_MATRIX_ENABLED) {
+      // double-double streak), smoke cannons, cheering crowd. Also emitted for SCORE_FX_ENABLED,
+      // since the score reactions fire lightning/crowd/cannons directly.
+      if (c.FX_MATRIX_ENABLED || c.SCORE_FX_ENABLED) {
         css.push(`
 .${HIGHSCORE_GLOW2_CLASS}{
   animation: adGoldGlowFlash 1.1s ease-in-out 2 !important;
@@ -3747,7 +3771,7 @@ svg.ad-board-svg text{
     }
     if (fire26Mount) {
       const m = fire26Mount;
-      m.classList.remove("ad-board-fire-mount", "ad-board-fire-restore");
+      m.classList.remove("ad-board-fire-mount", "ad-board-fire-glow", "ad-board-fire-restore");
       if (restore) {
         void m.offsetWidth;
         m.classList.add("ad-board-fire-restore");
@@ -3758,10 +3782,11 @@ svg.ad-board-svg text{
     fire26BoardEl = null;
   }
 
-  function launchFire26() {
+  function launchFire26(opts) {
     stopFire26();
     stopWashout();
     const c = cfg();
+    const crumble = !opts || opts.crumble !== false;   // full burn-to-ash vs flames-only glow
 
     const mount = getBoardFireMount();
     if (!mount) return;
@@ -3775,9 +3800,9 @@ svg.ad-board-svg text{
     // Crumble filter on the board element itself (inline; scale 0 = no-op until the ramp). It
     // can't ride the mount, whose keyframed filter would override it - and keyframed url() filter
     // lists don't interpolate, they step.
-    const disp = ensureFire26Defs();
+    const disp = crumble ? ensureFire26Defs() : null;
     fire26BoardEl = boardEl;
-    if (boardEl !== mount && disp) boardEl.style.filter = "url(#adF26Crumble)";
+    if (crumble && boardEl !== mount && disp) boardEl.style.filter = "url(#adF26Crumble)";
 
     const overlay = document.createElement("div");
     overlay.id = "ad-fire26";
@@ -3839,9 +3864,9 @@ svg.ad-board-svg text{
     (document.body || document.documentElement).appendChild(overlay);
     fire26Mount = mount;
 
-    mount.classList.remove("ad-board-fire-mount", "ad-board-fire-restore");
+    mount.classList.remove("ad-board-fire-mount", "ad-board-fire-glow", "ad-board-fire-restore");
     void mount.offsetWidth; // restart the burn animation
-    mount.classList.add("ad-board-fire-mount");
+    mount.classList.add(crumble ? "ad-board-fire-mount" : "ad-board-fire-glow");
 
     try { video.currentTime = 0; } catch {}
     const p = video.play();
@@ -3849,13 +3874,18 @@ svg.ad-board-svg text{
 
     if (c.FX_SOUND_ENABLED) playFireCrackle(FIRE26_DUR_MS);
 
-    // Cracks spread as the board chars; cinders start falling as it breaks apart.
-    fire26Timers.push(setTimeout(() => spawnFire26Cracks(boardEl), FIRE26_DUR_MS * FIRE26_CRACKS_FROM));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 400));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 800));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1200));
-    fire26Timers.push(setTimeout(() => stopFire26(true), FIRE26_DUR_MS + 200));
+    if (crumble) {
+      // Cracks spread as the board chars; cinders start falling as it breaks apart; restore after.
+      fire26Timers.push(setTimeout(() => spawnFire26Cracks(boardEl), FIRE26_DUR_MS * FIRE26_CRACKS_FROM));
+      fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM));
+      fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 400));
+      fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 800));
+      fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1200));
+      fire26Timers.push(setTimeout(() => stopFire26(true), FIRE26_DUR_MS + 200));
+    } else {
+      // Flames only: the board survives, so no ash/cracks and no reassemble fade.
+      fire26Timers.push(setTimeout(() => stopFire26(false), FIRE26_DUR_MS + 200));
+    }
   }
 
   /* ================== "WASH OUT" (26 underwater gag) ================== */
@@ -4037,6 +4067,86 @@ svg.ad-board-svg text{
         osc.start(t); osc.stop(t + 0.2);
       }
     } catch {}
+  }
+
+  // Thunderclap for the lightning reactions: a sharp high crack over a long low rolling rumble.
+  function playThunderSound() {
+    const ctx = ensureSfxCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const master = ctx.createGain(); master.gain.value = 0.55; master.connect(ctx.destination);
+      // Sharp crack.
+      const cb = ctx.createBuffer(1, (ctx.sampleRate * 0.25) | 0, ctx.sampleRate);
+      const cd = cb.getChannelData(0);
+      for (let i = 0; i < cd.length; i++) cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / cd.length, 1.5);
+      const crack = ctx.createBufferSource(); crack.buffer = cb;
+      const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1200;
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.85, now); cg.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      crack.connect(hp).connect(cg).connect(master); crack.start(now);
+      // Rolling rumble.
+      const rb = ctx.createBuffer(1, (ctx.sampleRate * 1.6) | 0, ctx.sampleRate);
+      const rd = rb.getChannelData(0); let last = 0;
+      for (let i = 0; i < rd.length; i++) { const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; rd[i] = last * 3.5; }
+      const rum = ctx.createBufferSource(); rum.buffer = rb;
+      const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 260;
+      const rg = ctx.createGain();
+      rg.gain.setValueAtTime(0.0001, now);
+      rg.gain.exponentialRampToValueAtTime(0.7, now + 0.08);
+      rg.gain.exponentialRampToValueAtTime(0.0001, now + 1.6);
+      rum.connect(lp).connect(rg).connect(master); rum.start(now); rum.stop(now + 1.7);
+    } catch {}
+  }
+
+  /* ================== SCORE REACTIONS (turn-total celebrations) ================== */
+  // A completed 3-dart turn triggers a themed celebration keyed on the exact total, layered on the
+  // existing effect functions. 26 is handled separately by updateWashout; triple/double spins and
+  // the double-double banner run through their own systems. Fire portions honour FIRE_ENABLED.
+  const SCORE_FIRE_VALUES = new Set([57, 60]);   // "you're warming up" - flames only, board survives
+
+  function runScoreReaction(total) {
+    const c = cfg();
+    const fireOk = !!c.FIRE_ENABLED;
+
+    if (SCORE_FIRE_VALUES.has(total)) {
+      if (fireOk) launchFire26({ crumble: false });
+      return;
+    }
+    if (total === 95 || total === 100) {
+      // Board shrink & expand (built-in) + a double lightning strike + thunder.
+      implodeBoards(1500);
+      launchLightning(true);
+      setTimeout(() => launchLightning(true), 260);
+      if (c.FX_SOUND_ENABLED) playThunderSound();
+      return;
+    }
+    if (total === 140) {
+      // Explode showing "140", then the board spins inside a ring of fire. (Spin + crumble fight
+      // over the board transform, so spin pairs with flames-only; the crumble is the 180 climax.)
+      showBigBanner("140", "#ffd700", 1500, true);
+      launchConfettiExplosion(1800);
+      if (c.FX_SOUND_ENABLED) playBoomSound(true);
+      setTimeout(() => {
+        spinBoard(3000, "spin");
+        if (fireOk) launchFire26({ crumble: false });
+      }, 1500);
+      return;
+    }
+    if (total === 180) {
+      // Go nuts: fireworks, cannons, lightning, crowd, banner, a spinning fireball, then the board
+      // finally disintegrates to ash. The spin ends (700+2600=3300) before the crumble (3600) so
+      // they don't fight over the board transform.
+      showBigBanner("ONE HUNDRED AND EIGHTY!", "#ffd700", 2200, true);
+      launchFireworks(6500, true);
+      launchConfettiCannons(2200);
+      launchLightning(true);
+      launchCrowd(4500);
+      if (c.FX_SOUND_ENABLED) { playThunderSound(); playBoomSound(true); }
+      setTimeout(() => { spinBoard(2600, "spin"); if (fireOk) launchFire26({ crumble: false }); }, 700);
+      if (fireOk) setTimeout(() => launchFire26({ crumble: true }), 3600);
+      return;
+    }
   }
 
   /* ================== EFFECTS MATRIX DISPATCHER ================== */
@@ -5879,20 +5989,21 @@ function markCheckoutInTurnBar(turn) {
     return { total, count };
   }
 
-  // Board catches fire on a big score (turn total >= FIRE_THRESHOLD, default 140). Fires as soon
-  // as the total crosses the threshold - even on the 2nd dart - and dedupes per turn (adBoardFire).
-  function updateBoardFire(turn) {
+  // Themed celebration on a completed 3-dart turn, keyed on the exact total (57/60 -> fire,
+  // 95/100 -> shrink+lightning, 140 -> explode+spin+fire, 180 -> the works). Requires all three
+  // darts so exact values aren't matched mid-turn; dedupes per turn (adScoreFx). 26 -> updateWashout.
+  function updateScoreReactions(turn) {
     if (!turn) return;
     const { total, count } = readTurnTotal(turn);
-    if (count === 0) { if (turn.dataset) delete turn.dataset.adBoardFire; return; }
-    const thr = Math.max(2, Math.round(Number(cfg().FIRE_THRESHOLD) || 140));
-    const hot = total >= thr;
-    const alreadyFired = turn.dataset && turn.dataset.adBoardFire === "1";
-    if (hot && !alreadyFired) {
-      if (turn.dataset) turn.dataset.adBoardFire = "1";
-      launchFire26();
-    } else if (!hot && count < 3 && turn.dataset) {
-      delete turn.dataset.adBoardFire;
+    if (count === 0) { if (turn.dataset) delete turn.dataset.adScoreFx; return; }
+    const isTarget = count === 3 && total !== 26 &&
+      (SCORE_FIRE_VALUES.has(total) || total === 95 || total === 100 || total === 140 || total === 180);
+    const alreadyFired = turn.dataset && turn.dataset.adScoreFx === "1";
+    if (isTarget && !alreadyFired) {
+      if (turn.dataset) turn.dataset.adScoreFx = "1";
+      runScoreReaction(total);
+    } else if (!isTarget && count < 3 && turn.dataset) {
+      delete turn.dataset.adScoreFx;
     }
   }
 
@@ -6459,7 +6570,7 @@ function scanWinMusic() {
         if (c.TRIPLE_ANIM) updateTripleHighlight(turn);
         if (c.DOUBLE_ANIM) updateDoubleHighlight(turn);
         if (c.HIGHSCORE_ANIM) updateHighscoreHighlight(turn);
-        if (c.FIRE_ENABLED) updateBoardFire(turn);
+        if (c.SCORE_FX_ENABLED) updateScoreReactions(turn);
         if (c.WASHOUT_ENABLED) updateWashout(turn);
 
         if (c.WIN_MUSIC) scanWinMusic();
@@ -6791,7 +6902,7 @@ function ensureMainButtonPosition() {
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY","DOUBLE_STREAK_ANIM"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH",
                  "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER",
-                 "FIRE_ENABLED","FIRE_THRESHOLD","FIRE_VIDEO_URL","FIRE_VIDEO_SCALE","WASHOUT_ENABLED"],
+                 "SCORE_FX_ENABLED","FIRE_ENABLED","FIRE_VIDEO_URL","FIRE_VIDEO_SCALE","WASHOUT_ENABLED"],
       fx: [...FX_MATRIX_KEYS, "FX_MATRIX_ENABLED", "FX_SOUND_ENABLED"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
@@ -8470,6 +8581,7 @@ function ensureMainButtonPosition() {
         addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
         addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
         addCheckbox(L.fields.bannerEnabled, ()=>!!c.HIGHSCORE3_BANNER, v=>{ c.HIGHSCORE3_BANNER=v; });
+        addCheckbox(L.fields.scoreFxEnabled, ()=>!!c.SCORE_FX_ENABLED, v=>{ c.SCORE_FX_ENABLED=v; });
         addCheckbox(L.fields.fireEnabled, ()=>!!c.FIRE_ENABLED, v=>{ c.FIRE_ENABLED=v; });
         addCheckbox(L.fields.washoutEnabled, ()=>!!c.WASHOUT_ENABLED, v=>{ c.WASHOUT_ENABLED=v; });
 
