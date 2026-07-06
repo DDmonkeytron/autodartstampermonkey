@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.36.1
+// @version      2.37.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.36.1";
+  const SCRIPT_VERSION = "2.37.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -244,7 +244,8 @@
     // "26" fire: a 3-dart turn totalling exactly 26 (the classic 5-20-1 bad-luck score) sets the
     // board ablaze - a real ring-of-fire video (Fireflicker.mp4, hollow ring on black) is played
     // over the board with screen-blend (black drops out) so flames ring the rim and the scoring
-    // shows through the empty centre, plus a gentle board grow, over a ~5s burn. Default ON; toggle
+    // shows through the empty centre. The board grows, chars black, then crumbles/disintegrates to
+    // nothing (ash + embers falling) and reassembles, over a ~5s burn. Default ON; toggle
     // lives in the High Score module. The video is loaded from the repo via jsDelivr (the script is
     // @grant none, so no GM_getResourceURL), pinned to the commit that added Fireflicker.mp4 so the
     // URL is immutable and CDN-cacheable; bump the pin if you ever replace the clip.
@@ -2282,19 +2283,48 @@ svg.ad-board-svg, img.ad-board-img{
   88%  { opacity:1; }
   100% { opacity:0; }
 }
-/* Gentle board grow + warm bloom on the host. transform-based so it composes with the board's
-   translate/scale positioning instead of clobbering it (same technique as the spin/implode). */
+/* The board's own 5s burn arc: gentle grow + warm bloom while the fire rages, then it chars to a
+   black silhouette and disintegrates to nothing (opacity -> 0) as launchFire26's rAF loop ramps
+   an SVG displacement filter (#adF26Crumble, applied inline on the board element) that shreds the
+   silhouette apart. Every keyframe keeps the same brightness/saturate/drop-shadow function list
+   so the filter interpolates smoothly instead of stepping. transform-based so it composes with
+   the board's translate/scale positioning (same technique as the spin/implode). */
 .ad-board-fire-mount{
-  animation: adBoardFireGrow 5000ms ease-in-out 1 !important;
+  animation: adBoardFireBurn 5000ms ease-in-out 1 forwards !important;
   transform-origin:center center !important;
-  will-change: transform, filter;
+  will-change: transform, filter, opacity;
 }
-@keyframes adBoardFireGrow{
-  0%   { transform: scale(1);    filter:none; }
-  14%  { transform: scale(1.05); filter: brightness(1.12) saturate(1.15) drop-shadow(0 0 22px rgba(255,120,20,0.9)); }
-  50%  { transform: scale(1.06); filter: brightness(1.18) saturate(1.3) drop-shadow(0 0 40px rgba(255,80,10,0.95)); }
-  86%  { transform: scale(1.035);filter: brightness(1.1) saturate(1.15) drop-shadow(0 0 24px rgba(255,120,20,0.8)); }
-  100% { transform: scale(1);    filter:none; }
+@keyframes adBoardFireBurn{
+  0%   { opacity:1;    transform: scale(1);    filter: brightness(1)    saturate(1)    drop-shadow(0 0 0 rgba(255,120,20,0)); }
+  12%  { opacity:1;    transform: scale(1.05); filter: brightness(1.12) saturate(1.15) drop-shadow(0 0 22px rgba(255,120,20,0.9)); }
+  44%  { opacity:1;    transform: scale(1.06); filter: brightness(1.18) saturate(1.3)  drop-shadow(0 0 40px rgba(255,80,10,0.95)); }
+  58%  { opacity:1;    transform: scale(1.05); filter: brightness(0.7)  saturate(0.55) drop-shadow(0 0 30px rgba(255,80,10,0.8)); }
+  70%  { opacity:1;    transform: scale(1.04); filter: brightness(0.16) saturate(0.25) drop-shadow(0 0 20px rgba(255,60,0,0.55)); }
+  84%  { opacity:0.75; transform: scale(1.01); filter: brightness(0.05) saturate(0.1)  drop-shadow(0 0 12px rgba(255,60,0,0.3)); }
+  100% { opacity:0;    transform: scale(0.96); filter: brightness(0)    saturate(0)    drop-shadow(0 0 0 rgba(255,60,0,0)); }
+}
+/* Quick reassemble after the burn so the board doesn't just pop back. */
+.ad-board-fire-restore{
+  animation: adBoardFireRestore 650ms ease-out 1 !important;
+  transform-origin:center center !important;
+}
+@keyframes adBoardFireRestore{
+  0%   { opacity:0; transform: scale(0.92); filter: brightness(0.25); }
+  60%  { opacity:1; }
+  100% { opacity:1; transform: scale(1);    filter: brightness(1); }
+}
+/* Charred flecks + glowing embers raining off the disintegrating board. Separate overlay from
+   #ad-fire26: that one is screen-blended, which would erase dark ash entirely. */
+#ad-fire26-ash{ position:fixed; inset:0; pointer-events:none; z-index:2147483598; overflow:hidden; }
+.ad-f26-ash{
+  position:absolute; width:var(--s,5px); height:var(--s,5px); border-radius:2px;
+  opacity:0; animation: adF26AshFall var(--d,1400ms) ease-in var(--dl,0ms) forwards;
+}
+.ad-f26-ash.ad-f26-ember{ border-radius:50%; box-shadow:0 0 8px 2px rgba(255,110,20,0.85); }
+@keyframes adF26AshFall{
+  0%   { opacity:0; transform: translate(0,0) rotate(0deg); }
+  12%  { opacity:1; }
+  100% { opacity:0; transform: translate(var(--tx,0), var(--ty,180px)) rotate(var(--rot,220deg)); }
 }
 `);
       }
@@ -3461,11 +3491,67 @@ svg.ad-board-svg text{
   // out, flames wrap the rim and the scoring reads through the empty centre. The overlay lives on
   // <body> (see the CSS comment for why blending can't happen inside the board host) and re-syncs
   // to the board's live bounding rect every animation frame, so it stays wrapped around the board
-  // through the grow, spins and any translate/scale repositioning.
+  // through the grow, spins and any translate/scale repositioning. Burn arc: grow + bloom, then
+  // the board chars to a black silhouette and disintegrates to nothing - a displacement filter
+  // shreds it apart while ash and embers rain down - before a quick reassemble fade.
   const FIRE26_DUR_MS = 5000;
+  const FIRE26_CRUMBLE_FROM = 0.62;     // burn progress where the board starts shredding apart
   let fire26Timers = [];
-  let fire26Raf = 0;                    // rAF id for the rect-sync loop
-  let fire26Mount = null;               // host carrying the grow class (for cleanup)
+  let fire26Raf = 0;                    // rAF id for the rect-sync + crumble loop
+  let fire26Mount = null;               // host carrying the burn class (for cleanup)
+  let fire26BoardEl = null;             // element carrying the inline crumble filter (for cleanup)
+
+  // Hidden defs for the crumble: feTurbulence + feDisplacementMap referenced from the board via
+  // filter:url(#adF26Crumble). The displacement scale starts at 0 (no-op) and is ramped by the
+  // rAF loop during the last stretch of the burn, shredding the charred board apart; the seed is
+  // stepped while it crumbles so the fragments keep breaking differently. Created once, kept.
+  function ensureFire26Defs() {
+    let defs = document.getElementById("ad-fire26-fx-defs");
+    if (defs) return defs.querySelector("feDisplacementMap");
+    const svgNS = "http://www.w3.org/2000/svg";
+    defs = document.createElementNS(svgNS, "svg");
+    defs.id = "ad-fire26-fx-defs";
+    defs.setAttribute("width", "0"); defs.setAttribute("height", "0");
+    defs.style.position = "absolute";
+    defs.innerHTML = `<defs><filter id="adF26Crumble" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035 0.05" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter></defs>`;
+    (document.body || document.documentElement).appendChild(defs);
+    return defs.querySelector("feDisplacementMap");
+  }
+
+  // Charred flecks + glowing embers raining down from the disintegrating board.
+  function spawnFire26Ash(boardEl) {
+    let ash = document.getElementById("ad-fire26-ash");
+    if (!ash) {
+      ash = document.createElement("div");
+      ash.id = "ad-fire26-ash";
+      (document.body || document.documentElement).appendChild(ash);
+    }
+    const r = boardEl.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2, rad = Math.min(r.width, r.height) / 2;
+    const charcoal = ["#1b1917", "#26221e", "#0f0e0c", "#332c24"];
+    for (let i = 0; i < 26; i++) {
+      const ember = Math.random() < 0.3;
+      const p = document.createElement("i");
+      p.className = "ad-f26-ash" + (ember ? " ad-f26-ember" : "");
+      const a = Math.random() * Math.PI * 2;
+      const rr = rad * Math.sqrt(Math.random()) * 0.95;
+      p.style.left = (cx + Math.cos(a) * rr).toFixed(0) + "px";
+      p.style.top = (cy + Math.sin(a) * rr).toFixed(0) + "px";
+      p.style.background = ember ? "#ff7a1e" : charcoal[(Math.random() * charcoal.length) | 0];
+      p.style.setProperty("--s", (3 + Math.random() * 5).toFixed(1) + "px");
+      p.style.setProperty("--tx", ((Math.random() - 0.5) * 90).toFixed(0) + "px");
+      p.style.setProperty("--ty", (70 + Math.random() * 220).toFixed(0) + "px");
+      p.style.setProperty("--rot", ((Math.random() - 0.5) * 520).toFixed(0) + "deg");
+      p.style.setProperty("--d", (1000 + Math.random() * 900).toFixed(0) + "ms");
+      p.style.setProperty("--dl", (Math.random() * 400).toFixed(0) + "ms");
+      ash.appendChild(p);
+      fire26Timers.push(setTimeout(() => p.remove(), 2600));
+    }
+  }
 
   // The board host is the element that carries the board's translate/scale positioning and whose
   // box matches the board. Prefer a marked host; else climb from the board svg/img to the div that
@@ -3480,14 +3566,32 @@ svg.ad-board-svg text{
     return getBoardVisualTargets()[0] || null;
   }
 
-  function stopFire26() {
+  // restore=true (the natural end of a full burn) plays the quick reassemble fade so the board
+  // doesn't just pop back; interruptions (re-launch, video error) skip it to avoid a blink.
+  function stopFire26(restore) {
     fire26Timers.forEach(t => clearTimeout(t));
     fire26Timers = [];
     if (fire26Raf) { cancelAnimationFrame(fire26Raf); fire26Raf = 0; }
     const ov = document.getElementById("ad-fire26");
     if (ov) ov.remove();
-    if (fire26Mount) fire26Mount.classList.remove("ad-board-fire-mount");
+    const ash = document.getElementById("ad-fire26-ash");
+    if (ash) ash.remove();
+    if (fire26BoardEl) {
+      fire26BoardEl.style.filter = "";
+      const disp = document.querySelector("#ad-fire26-fx-defs feDisplacementMap");
+      if (disp) disp.setAttribute("scale", "0");
+    }
+    if (fire26Mount) {
+      const m = fire26Mount;
+      m.classList.remove("ad-board-fire-mount", "ad-board-fire-restore");
+      if (restore) {
+        void m.offsetWidth;
+        m.classList.add("ad-board-fire-restore");
+        setTimeout(() => m.classList.remove("ad-board-fire-restore"), 750);
+      }
+    }
     fire26Mount = null;
+    fire26BoardEl = null;
   }
 
   function launchFire26() {
@@ -3502,6 +3606,13 @@ svg.ad-board-svg text{
     // renders the ring huge and stretched instead of wrapped around the board.
     const boardEl = document.querySelector("svg.ad-board-svg, img." + BOARD_IMG_CLASS + ", ." + BOARD_VISUAL_CLASS) || mount;
     const scale = clamp(Number(c.FIRE26_VIDEO_SCALE) || 2.05, 1, 5);
+
+    // Crumble filter on the board element itself (inline; scale 0 = no-op until the ramp). It
+    // can't ride the mount, whose keyframed filter would override it - and keyframed url() filter
+    // lists don't interpolate, they step.
+    const disp = ensureFire26Defs();
+    fire26BoardEl = boardEl;
+    if (boardEl !== mount && disp) boardEl.style.filter = "url(#adF26Crumble)";
 
     const overlay = document.createElement("div");
     overlay.id = "ad-fire26";
@@ -3521,8 +3632,12 @@ svg.ad-board-svg text{
     overlay.appendChild(video);
 
     // Keep the fixed overlay centred on the board's live rect every frame - this is what "attaches"
-    // it: the grow/spin/translate all move the rect, and the fire square follows.
-    const sync = () => {
+    // it: the grow/spin/translate all move the rect, and the fire square follows. The same loop
+    // drives the crumble: past FIRE26_CRUMBLE_FROM, the displacement scale ramps up (shredding the
+    // charred board apart) and the noise seed steps so the fragments keep breaking differently.
+    const t0 = performance.now();
+    let lastSeedStep = 0;
+    const sync = (now) => {
       const r = boardEl.getBoundingClientRect();
       const size = Math.min(r.width, r.height);
       if (size > 0) {
@@ -3532,22 +3647,38 @@ svg.ad-board-svg text{
         overlay.style.left = (r.left + r.width / 2 - fireSize / 2).toFixed(0) + "px";
         overlay.style.top = (r.top + r.height / 2 - fireSize / 2).toFixed(0) + "px";
       }
+      if (disp) {
+        const prog = ((now || performance.now()) - t0) / FIRE26_DUR_MS;
+        if (prog > FIRE26_CRUMBLE_FROM) {
+          const cp = Math.min(1, (prog - FIRE26_CRUMBLE_FROM) / (1 - FIRE26_CRUMBLE_FROM));
+          disp.setAttribute("scale", (cp * cp * 150).toFixed(1));
+          if ((now || 0) - lastSeedStep > 120) {
+            lastSeedStep = now || 0;
+            const turb = disp.previousElementSibling;
+            if (turb) turb.setAttribute("seed", String(((Math.random() * 90) | 0) + 1));
+          }
+        }
+      }
       fire26Raf = requestAnimationFrame(sync);
     };
-    sync();
+    sync(t0);
 
     (document.body || document.documentElement).appendChild(overlay);
     fire26Mount = mount;
 
-    mount.classList.remove("ad-board-fire-mount");
-    void mount.offsetWidth; // restart the grow animation
+    mount.classList.remove("ad-board-fire-mount", "ad-board-fire-restore");
+    void mount.offsetWidth; // restart the burn animation
     mount.classList.add("ad-board-fire-mount");
 
     try { video.currentTime = 0; } catch {}
     const p = video.play();
     if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); });
 
-    fire26Timers.push(setTimeout(stopFire26, FIRE26_DUR_MS + 200));
+    // Ash starts falling as the charred board begins to break apart.
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM));
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 500));
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1000));
+    fire26Timers.push(setTimeout(() => stopFire26(true), FIRE26_DUR_MS + 200));
   }
 
   /* ================== EFFECTS MATRIX DISPATCHER ================== */
