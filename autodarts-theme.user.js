@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.38.0
+// @version      2.39.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.38.0";
+  const SCRIPT_VERSION = "2.39.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -242,16 +242,23 @@
     HIGHSCORE3_BANNER: true,     // flashing "ONE HUNDRED AND EIGHTY!" text on a 180
 
     // "26" fire: a 3-dart turn totalling exactly 26 (the classic 5-20-1 bad-luck score) sets the
-    // board ablaze - a real ring-of-fire video (Fireflicker.mp4, hollow ring on black) is played
-    // over the board with screen-blend (black drops out) so flames ring the rim and the scoring
-    // shows through the empty centre. The board grows, chars black, then crumbles/disintegrates to
-    // nothing (ash + embers falling) and reassembles, over a ~5s burn. Default ON; toggle
-    // lives in the High Score module. The video is loaded from the repo via jsDelivr (the script is
-    // @grant none, so no GM_getResourceURL), pinned to the commit that added Fireflicker.mp4 so the
-    // URL is immutable and CDN-cacheable; bump the pin if you ever replace the clip.
-    FIRE26_ENABLED: true,
-    FIRE26_VIDEO_URL: "https://cdn.jsdelivr.net/gh/DDmonkeytron/autodartstampermonkey@12e86abd45462ac2ba976fa86c0afec1f8d930c6/Fireflicker.mp4",
-    FIRE26_VIDEO_SCALE: 2.05,  // video size vs the board box; tune so the ring's hole hugs the rim
+    // Board fire: a BIG score (turn total >= FIRE_THRESHOLD, default 140) sets the board ablaze - a
+    // real ring-of-fire video (Fireflicker.mp4, hollow ring on black) plays over the board with
+    // screen-blend (black drops out) so flames ring the rim and the scoring shows through the empty
+    // centre. The board grows, chars black, then crumbles/disintegrates to nothing (ash + embers
+    // falling) and reassembles, over a ~5s burn - "you're on fire!". Default ON; toggle lives in the
+    // High Score module. The video is loaded from the repo via jsDelivr (the script is @grant none,
+    // so no GM_getResourceURL), pinned to the commit that added Fireflicker.mp4 so the URL is
+    // immutable and CDN-cacheable; bump the pin if you ever replace the clip.
+    FIRE_ENABLED: true,
+    FIRE_THRESHOLD: 140,       // turn total at/above which the board catches fire
+    FIRE_VIDEO_URL: "https://cdn.jsdelivr.net/gh/DDmonkeytron/autodartstampermonkey@12e86abd45462ac2ba976fa86c0afec1f8d930c6/Fireflicker.mp4",
+    FIRE_VIDEO_SCALE: 2.05,    // video size vs the board box; tune so the ring's hole hugs the rim
+
+    // "Wash out": a completed 3-dart 26 (the classic 5-20-1 "bag of nuts") turns the board into an
+    // underwater joke - aqua tint + refraction wobble, rising bubbles, fish swimming about, and a
+    // wavy "WASH OUT" caption, over ~5s. Default ON; toggle in the High Score module.
+    WASHOUT_ENABLED: true,
 
     ACTIVE_POLL_MS: 150,
     WIN_VOLUME: 1.0,
@@ -445,7 +452,8 @@
         tier2: "2. szint (Ton-forty)",
         tier3: "3. szint (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" felirat",
-        fire26Enabled: "🔥 Tábla lángra kap 26-nál",
+        fireEnabled: "🔥 Tábla lángra kap 140+ pontnál",
+        washoutEnabled: "🌊 „WASH OUT” víz alatti poén 26-nál",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" felirat (2+ dupla)",
         fxMatrixInfo: "A tűzijáték, konfetti, villámlás, füst, tömeg stb. részletes beállítása az \"Effektek\" modulban (tábla: melyik effekt melyik találatnál induljon el).",
         fxMasterEnabled: "Effekt mátrix BE",
@@ -686,7 +694,8 @@
         tier2: "Tier 2 (Ton-forty)",
         tier3: "Tier 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" banner",
-        fire26Enabled: "🔥 Board catches fire on 26",
+        fireEnabled: "🔥 Board catches fire on 140+",
+        washoutEnabled: "🌊 \"WASH OUT\" underwater gag on 26",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" banner (2+ doubles)",
         fxMatrixInfo: "Fine-grained control over fireworks, confetti, lightning, smoke, crowd etc. lives in the \"Effects\" module - a table of which effect fires on which hit.",
         fxMasterEnabled: "Effects matrix ON",
@@ -927,7 +936,8 @@
         tier2: "Stufe 2 (Ton-Forty)",
         tier3: "Stufe 3 (Max/180)",
         bannerEnabled: "\"ONE HUNDRED AND EIGHTY!\" Banner",
-        fire26Enabled: "🔥 Board fängt bei 26 Feuer",
+        fireEnabled: "🔥 Board fängt bei 140+ Feuer",
+        washoutEnabled: "🌊 \"WASH OUT\" Unterwasser-Gag bei 26",
         doubleStreak: "\"DOUBLE, DOUBLE!!\" Banner (2+ Doppel)",
         fxMatrixInfo: "Feineinstellung für Feuerwerk, Konfetti, Blitz, Rauch, Menge usw. im Modul \"Effekte\" - eine Tabelle, welcher Effekt bei welchem Treffer ausgelöst wird.",
         fxMasterEnabled: "Effekt-Matrix AN",
@@ -2248,15 +2258,12 @@ svg.ad-board-svg, img.ad-board-img{
 `);
       }
 
-      // "26" board fire (FIRE26_ENABLED). Unlike the fixed-overlay effects, launchFire26 appends
-      // #ad-fire26 as a CHILD of the board host (the div that actually holds the game's board
-      // img+svg), so the fire is anchored to the real board and rides its translate/scale/grow
-      // instead of being a floating re-render. The ring of fire is a real video (Fireflicker.mp4:
-      // a hollow flame ring on solid black) played with mix-blend-mode:screen, so the black drops
-      // out, flames ring the rim and the scoring reads through the empty centre. The host gets
-      // .ad-board-fire-mount for the gentle grow (transform-based, so it composes with the
-      // individual translate/scale positioning like the spin does).
-      if (c.FIRE26_ENABLED) {
+      // Board fire (FIRE_ENABLED, big scores). Unlike the fixed-overlay effects, launchFire26
+      // re-syncs #ad-fire26 to the board's live rect; the ring of fire is a real video
+      // (Fireflicker.mp4: a hollow flame ring on solid black) played with mix-blend-mode:screen,
+      // so the black drops out, flames ring the rim and the scoring reads through the empty centre.
+      // The host gets .ad-board-fire-mount for the gentle grow -> char -> crumble burn arc.
+      if (c.FIRE_ENABLED) {
         css.push(`
 /* Real ring-of-fire footage (Fireflicker.mp4: hollow flame ring on solid black). screen-blend
    turns the black to transparent, so only the flames show and the scoring reads through the empty
@@ -2266,7 +2273,7 @@ svg.ad-board-svg, img.ad-board-img{
    translate/scale and the grow animates filter, both of which force a stacking context, and a
    blend isolated inside it would composite the flame margins outside the board box as solid
    black. launchFire26 re-syncs the overlay to the board's live rect every frame instead, so it
-   still rides the board (position, scale, spin, grow). Sized board x FIRE26_VIDEO_SCALE so the
+   still rides the board (position, scale, spin, grow). Sized board x FIRE_VIDEO_SCALE so the
    ring's hole lands on the rim and flames lick outward past the edge. Fades in/out over the burn. */
 #ad-fire26{
   position:fixed; pointer-events:none; z-index:2147483599;
@@ -2359,6 +2366,79 @@ svg.ad-board-svg, img.ad-board-img{
   0%   { background:#ffc46a; box-shadow:0 0 12px 4px rgba(255,140,30,0.95); }
   45%  { background:#ff6a12; box-shadow:0 0 8px 2px rgba(255,90,15,0.8); }
   100% { background:#1c1815; box-shadow:0 0 0 0 rgba(0,0,0,0); }
+}
+`);
+      }
+
+      // "Wash out" underwater gag (WASHOUT_ENABLED, on a 26). launchWashout rect-syncs #ad-washout
+      // to the board and clips it to the board circle (a round "fish bowl"): an aqua tint blurs the
+      // board beneath (backdrop-filter) while an SVG ripple filter on the board itself wobbles the
+      // scoring like refraction; caustic light bands drift, bubbles rise, emoji fish swim across,
+      // and a wavy "WASH OUT" caption bobs over the top.
+      if (c.WASHOUT_ENABLED) {
+        css.push(`
+#ad-washout{
+  position:fixed; pointer-events:none; z-index:2147483599;
+  border-radius:50%; overflow:hidden;
+  animation: adWashFade 5200ms ease-in-out forwards;
+}
+@keyframes adWashFade{ 0%{opacity:0;} 8%{opacity:1;} 84%{opacity:1;} 100%{opacity:0;} }
+.ad-wash-tint{
+  position:absolute; inset:0; border-radius:50%;
+  background: radial-gradient(circle at 50% 32%,
+     rgba(120,215,255,0.34) 0%, rgba(28,120,205,0.5) 55%, rgba(6,52,120,0.62) 100%);
+  -webkit-backdrop-filter: blur(2.5px) saturate(1.35) hue-rotate(-10deg);
+  backdrop-filter: blur(2.5px) saturate(1.35) hue-rotate(-10deg);
+}
+.ad-wash-caustics{
+  position:absolute; inset:-25%;
+  background:
+    repeating-linear-gradient(58deg, rgba(255,255,255,0) 0 22px, rgba(200,240,255,0.12) 26px, rgba(255,255,255,0) 34px),
+    repeating-linear-gradient(-52deg, rgba(255,255,255,0) 0 26px, rgba(180,230,255,0.09) 30px, rgba(255,255,255,0) 40px);
+  mix-blend-mode:screen; opacity:0.8;
+  animation: adWashCaustics 7s linear infinite;
+}
+@keyframes adWashCaustics{ 0%{ transform: translate(0,0); } 100%{ transform: translate(-46px,34px); } }
+.ad-wash-bubble{
+  position:absolute; border-radius:50%;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.92), rgba(200,240,255,0.28) 55%, rgba(255,255,255,0.05) 100%);
+  border:1px solid rgba(255,255,255,0.4);
+  animation: adWashBubble var(--bd,3200ms) ease-in var(--bdl,0ms) infinite;
+}
+@keyframes adWashBubble{
+  0%   { transform: translate(0,0) scale(0.6); opacity:0; }
+  12%  { opacity:0.95; }
+  100% { transform: translate(var(--bx,10px), calc(var(--rise,-560px))) scale(1.1); opacity:0; }
+}
+.ad-wash-fish{
+  position:absolute; will-change:transform; font-size:var(--fs,40px); line-height:1;
+  filter: drop-shadow(0 2px 3px rgba(2,30,70,0.5));
+  animation: adWashSwim var(--sd,7s) linear var(--sdl,0ms) infinite;
+}
+@keyframes adWashSwim{
+  0%   { transform: translate(0, 0) scaleX(var(--dir,1)); }
+  25%  { transform: translate(var(--q1,25%), -10px) scaleX(var(--dir,1)); }
+  50%  { transform: translate(var(--q2,50%), 8px)  scaleX(var(--dir,1)); }
+  75%  { transform: translate(var(--q3,75%), -6px) scaleX(var(--dir,1)); }
+  100% { transform: translate(var(--travel,120%), 0) scaleX(var(--dir,1)); }
+}
+#ad-washout-text{
+  position:fixed; pointer-events:none; z-index:2147483601;
+  transform:translate(-50%,-50%);
+  font-family: Arial, system-ui, sans-serif; font-weight:900; white-space:nowrap;
+  color:#eafcff; letter-spacing:2px; text-transform:uppercase;
+  text-shadow: 0 0 12px rgba(70,190,255,0.95), 0 3px 0 rgba(8,58,140,0.9),
+               0 0 34px rgba(130,225,255,0.75), 0 6px 12px rgba(0,0,0,0.4);
+  animation: adWashText 5200ms ease-in-out forwards;
+}
+.ad-wash-letter{ display:inline-block; animation: adWashLetterWave 1.7s ease-in-out infinite; }
+@keyframes adWashLetterWave{ 0%,100%{ transform: translateY(0) rotate(-1deg); } 50%{ transform: translateY(-9px) rotate(1.5deg); } }
+@keyframes adWashText{
+  0%   { opacity:0; transform: translate(-50%,-50%) scale(0.5); }
+  12%  { opacity:1; transform: translate(-50%,-50%) scale(1.12); }
+  22%  { transform: translate(-50%,-50%) scale(1); }
+  84%  { opacity:1; }
+  100% { opacity:0; transform: translate(-50%,-50%) scale(0.95); }
 }
 `);
       }
@@ -3680,6 +3760,7 @@ svg.ad-board-svg text{
 
   function launchFire26() {
     stopFire26();
+    stopWashout();
     const c = cfg();
 
     const mount = getBoardFireMount();
@@ -3689,7 +3770,7 @@ svg.ad-board-svg text{
     // containing the board svg) can be a much larger layout wrapper, and sizing against it
     // renders the ring huge and stretched instead of wrapped around the board.
     const boardEl = document.querySelector("svg.ad-board-svg, img." + BOARD_IMG_CLASS + ", ." + BOARD_VISUAL_CLASS) || mount;
-    const scale = clamp(Number(c.FIRE26_VIDEO_SCALE) || 2.05, 1, 5);
+    const scale = clamp(Number(c.FIRE_VIDEO_SCALE) || 2.05, 1, 5);
 
     // Crumble filter on the board element itself (inline; scale 0 = no-op until the ramp). It
     // can't ride the mount, whose keyframed filter would override it - and keyframed url() filter
@@ -3703,7 +3784,7 @@ svg.ad-board-svg text{
 
     const video = document.createElement("video");
     video.className = "ad-fire26-video";
-    video.src = String(c.FIRE26_VIDEO_URL || DEFAULT_CFG.FIRE26_VIDEO_URL);
+    video.src = String(c.FIRE_VIDEO_URL || DEFAULT_CFG.FIRE_VIDEO_URL);
     video.playsInline = true;
     video.setAttribute("playsinline", "");
     video.loop = false;
@@ -3775,6 +3856,187 @@ svg.ad-board-svg text{
     fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 800));
     fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1200));
     fire26Timers.push(setTimeout(() => stopFire26(true), FIRE26_DUR_MS + 200));
+  }
+
+  /* ================== "WASH OUT" (26 underwater gag) ================== */
+  const WASHOUT_DUR_MS = 5200;
+  const WASH_FISH = ["🐠", "🐟", "🐡", "🐙", "🦈", "🐢"];
+  let washTimers = [];
+  let washRaf = 0;
+  let washBoardEl = null;
+  let washPrevFilter = "";
+
+  // Ripple filter (underwater refraction) referenced by the board via filter:url(#adWashRipple).
+  // The turbulence baseFrequency animates via SMIL so the wobble self-runs without a rAF.
+  function ensureWashDefs() {
+    if (document.getElementById("ad-wash-fx-defs")) return true;
+    const svgNS = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(svgNS, "svg");
+    defs.id = "ad-wash-fx-defs";
+    defs.setAttribute("width", "0"); defs.setAttribute("height", "0");
+    defs.style.position = "absolute";
+    defs.innerHTML = `<defs><filter id="adWashRipple" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="2" seed="5" result="n">
+        <animate attributeName="baseFrequency" dur="7s" repeatCount="indefinite"
+                 values="0.012 0.02;0.016 0.027;0.011 0.018;0.012 0.02"/>
+      </feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G"/>
+    </filter></defs>`;
+    (document.body || document.documentElement).appendChild(defs);
+    return true;
+  }
+
+  function stopWashout() {
+    washTimers.forEach(t => clearTimeout(t));
+    washTimers = [];
+    if (washRaf) { cancelAnimationFrame(washRaf); washRaf = 0; }
+    const ov = document.getElementById("ad-washout");
+    if (ov) ov.remove();
+    const txt = document.getElementById("ad-washout-text");
+    if (txt) txt.remove();
+    if (washBoardEl) washBoardEl.style.filter = washPrevFilter;
+    washBoardEl = null;
+    washPrevFilter = "";
+  }
+
+  function launchWashout() {
+    stopWashout();
+    stopFire26();
+    const c = cfg();
+
+    const mount = getBoardFireMount();
+    if (!mount) return;
+    const boardEl = document.querySelector("svg.ad-board-svg, img." + BOARD_IMG_CLASS + ", ." + BOARD_VISUAL_CLASS) || mount;
+
+    ensureWashDefs();
+    washBoardEl = boardEl;
+    washPrevFilter = boardEl.style.filter;
+    if (boardEl !== mount) boardEl.style.filter = "url(#adWashRipple)";
+
+    const overlay = document.createElement("div");
+    overlay.id = "ad-washout";
+    const tint = document.createElement("div"); tint.className = "ad-wash-tint";
+    const caustics = document.createElement("div"); caustics.className = "ad-wash-caustics";
+    overlay.appendChild(tint);
+    overlay.appendChild(caustics);
+
+    // Sizing helpers keyed to the board square (set fresh in the sync loop; seed once here).
+    const r0 = boardEl.getBoundingClientRect();
+    const size0 = Math.min(r0.width, r0.height) || 400;
+
+    // Bubbles rising through the bowl.
+    for (let i = 0; i < 20; i++) {
+      const b = document.createElement("i");
+      b.className = "ad-wash-bubble";
+      const s = 5 + Math.random() * 16;
+      b.style.width = s.toFixed(0) + "px"; b.style.height = s.toFixed(0) + "px";
+      b.style.left = (Math.random() * 100).toFixed(1) + "%";
+      b.style.top = (100 + Math.random() * 12).toFixed(0) + "%";
+      b.style.setProperty("--rise", (-(size0 * (0.9 + Math.random() * 0.5))).toFixed(0) + "px");
+      b.style.setProperty("--bx", ((Math.random() - 0.5) * 40).toFixed(0) + "px");
+      b.style.setProperty("--bd", (2400 + Math.random() * 2600).toFixed(0) + "ms");
+      b.style.setProperty("--bdl", (Math.random() * 3000).toFixed(0) + "ms");
+      overlay.appendChild(b);
+    }
+
+    // Fish swimming across, half each way.
+    for (let i = 0; i < 6; i++) {
+      const f = document.createElement("span");
+      f.className = "ad-wash-fish";
+      f.textContent = WASH_FISH[(Math.random() * WASH_FISH.length) | 0];
+      const rightward = Math.random() < 0.5;
+      const fs = size0 * (0.11 + Math.random() * 0.09);
+      f.style.setProperty("--fs", fs.toFixed(0) + "px");
+      f.style.top = (10 + Math.random() * 72).toFixed(0) + "%";
+      // Emoji fish face left by default; flip when swimming rightward.
+      f.style.setProperty("--dir", rightward ? "-1" : "1");
+      const travel = rightward ? 150 : -150;
+      f.style.left = rightward ? "-40%" : "140%";
+      f.style.setProperty("--q1", (travel * 0.25).toFixed(0) + "%");
+      f.style.setProperty("--q2", (travel * 0.5).toFixed(0) + "%");
+      f.style.setProperty("--q3", (travel * 0.75).toFixed(0) + "%");
+      f.style.setProperty("--travel", travel.toFixed(0) + "%");
+      f.style.setProperty("--sd", (5000 + Math.random() * 4000).toFixed(0) + "ms");
+      f.style.setProperty("--sdl", (Math.random() * 1500).toFixed(0) + "ms");
+      overlay.appendChild(f);
+    }
+
+    // "WASH OUT" caption, each letter waving on its own stagger.
+    const text = document.createElement("div");
+    text.id = "ad-washout-text";
+    const label = "WASH OUT";
+    [...label].forEach((ch, i) => {
+      const span = document.createElement("span");
+      span.className = "ad-wash-letter";
+      span.textContent = ch === " " ? "  " : ch;
+      span.style.animationDelay = (i * 90) + "ms";
+      text.appendChild(span);
+    });
+
+    (document.body || document.documentElement).appendChild(overlay);
+    (document.body || document.documentElement).appendChild(text);
+
+    // Keep the round overlay + caption locked to the board's live rect.
+    const sync = () => {
+      const r = boardEl.getBoundingClientRect();
+      const size = Math.min(r.width, r.height);
+      if (size > 0) {
+        overlay.style.width = size.toFixed(0) + "px";
+        overlay.style.height = size.toFixed(0) + "px";
+        overlay.style.left = (r.left + r.width / 2 - size / 2).toFixed(0) + "px";
+        overlay.style.top = (r.top + r.height / 2 - size / 2).toFixed(0) + "px";
+        text.style.left = (r.left + r.width / 2).toFixed(0) + "px";
+        text.style.top = (r.top + r.height / 2).toFixed(0) + "px";
+        text.style.fontSize = (size * 0.15).toFixed(0) + "px";
+      }
+      washRaf = requestAnimationFrame(sync);
+    };
+    sync();
+
+    if (c.FX_SOUND_ENABLED) playWashSound();
+    washTimers.push(setTimeout(stopWashout, WASHOUT_DUR_MS + 200));
+  }
+
+  // Synthesized "wash out": a downward-swept filtered-noise splash + a handful of rising bubble
+  // blips (short sine tones sweeping up in pitch).
+  function playWashSound() {
+    const ctx = ensureSfxCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const master = ctx.createGain();
+      master.gain.value = 0.5;
+      master.connect(ctx.destination);
+
+      // Splash: white noise through a lowpass that sweeps down, quick decay.
+      const nb = ctx.createBuffer(1, (ctx.sampleRate * 0.9) | 0, ctx.sampleRate);
+      const nd = nb.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * (1 - i / nd.length);
+      const noise = ctx.createBufferSource(); noise.buffer = nb;
+      const lp = ctx.createBiquadFilter(); lp.type = "lowpass";
+      lp.frequency.setValueAtTime(3200, now);
+      lp.frequency.exponentialRampToValueAtTime(320, now + 0.8);
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.6, now);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+      noise.connect(lp).connect(ng).connect(master);
+      noise.start(now); noise.stop(now + 0.95);
+
+      // Bubble blips: short sines sweeping up.
+      for (let i = 0; i < 7; i++) {
+        const t = now + 0.2 + Math.random() * 3.6;
+        const osc = ctx.createOscillator(); osc.type = "sine";
+        const f0 = 260 + Math.random() * 260;
+        osc.frequency.setValueAtTime(f0, t);
+        osc.frequency.exponentialRampToValueAtTime(f0 * 2.2, t + 0.12);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.28, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        osc.connect(g).connect(master);
+        osc.start(t); osc.stop(t + 0.2);
+      }
+    } catch {}
   }
 
   /* ================== EFFECTS MATRIX DISPATCHER ================== */
@@ -5603,36 +5865,50 @@ function markCheckoutInTurnBar(turn) {
     }
   }
 
-  /* ================== "26" FIRE DETECTION ================== */
-  // Fires the board-fire effect when a completed 3-dart turn totals exactly 26 (the classic
-  // 5-20-1 "bag of nuts"). Requires all three darts so a partial 20+6 doesn't trip early, and
-  // dedupes per turn element (adFire26 flag) so the 5s burn only launches once per visit.
-  function updateFire26(turn) {
-    if (!turn) return;
-    const cards = Array.from(turn.querySelectorAll(".ad-ext-turn-throw"));
-
+  /* ================== FIRE / WASH-OUT DETECTION ================== */
+  // Sums the turn's thrown darts (shared by both gags below).
+  function readTurnTotal(turn) {
     let total = 0, count = 0;
-    for (const card of cards) {
+    for (const card of turn.querySelectorAll(".ad-ext-turn-throw")) {
       const p = card.querySelector("p");
       const raw = (p?.textContent || "").trim().toUpperCase();
       if (!raw || raw === "..." || raw === "…" || raw.includes("•")) continue;
       total += parseThrowValue(raw);
       count++;
     }
+    return { total, count };
+  }
 
-    if (count === 0) {
-      if (turn.dataset) delete turn.dataset.adFire26;
-      return;
-    }
-
-    const isTwentySix = count === 3 && total === 26;
-    const alreadyFired = turn.dataset && turn.dataset.adFire26 === "1";
-    if (isTwentySix && !alreadyFired) {
-      if (turn.dataset) turn.dataset.adFire26 = "1";
+  // Board catches fire on a big score (turn total >= FIRE_THRESHOLD, default 140). Fires as soon
+  // as the total crosses the threshold - even on the 2nd dart - and dedupes per turn (adBoardFire).
+  function updateBoardFire(turn) {
+    if (!turn) return;
+    const { total, count } = readTurnTotal(turn);
+    if (count === 0) { if (turn.dataset) delete turn.dataset.adBoardFire; return; }
+    const thr = Math.max(2, Math.round(Number(cfg().FIRE_THRESHOLD) || 140));
+    const hot = total >= thr;
+    const alreadyFired = turn.dataset && turn.dataset.adBoardFire === "1";
+    if (hot && !alreadyFired) {
+      if (turn.dataset) turn.dataset.adBoardFire = "1";
       launchFire26();
+    } else if (!hot && count < 3 && turn.dataset) {
+      delete turn.dataset.adBoardFire;
+    }
+  }
+
+  // "Wash out": the board goes underwater on a completed 3-dart 26 (the classic 5-20-1 "bag of
+  // nuts"). Requires all three darts so a partial 20+6 doesn't trip early; dedupes per turn.
+  function updateWashout(turn) {
+    if (!turn) return;
+    const { total, count } = readTurnTotal(turn);
+    if (count === 0) { if (turn.dataset) delete turn.dataset.adWashout; return; }
+    const isTwentySix = count === 3 && total === 26;
+    const alreadyFired = turn.dataset && turn.dataset.adWashout === "1";
+    if (isTwentySix && !alreadyFired) {
+      if (turn.dataset) turn.dataset.adWashout = "1";
+      launchWashout();
     } else if (!isTwentySix && count < 3 && turn.dataset) {
-      // Mid-turn (darts still being retracted/re-thrown): clear so a fresh 26 can re-arm.
-      delete turn.dataset.adFire26;
+      delete turn.dataset.adWashout;
     }
   }
 
@@ -6183,7 +6459,8 @@ function scanWinMusic() {
         if (c.TRIPLE_ANIM) updateTripleHighlight(turn);
         if (c.DOUBLE_ANIM) updateDoubleHighlight(turn);
         if (c.HIGHSCORE_ANIM) updateHighscoreHighlight(turn);
-        if (c.FIRE26_ENABLED) updateFire26(turn);
+        if (c.FIRE_ENABLED) updateBoardFire(turn);
+        if (c.WASHOUT_ENABLED) updateWashout(turn);
 
         if (c.WIN_MUSIC) scanWinMusic();
       } else {
@@ -6513,7 +6790,8 @@ function ensureMainButtonPosition() {
       triple: ["TRIPLE_SHIMMER_MS","TRIPLE_SLAM_MS","TRIPLE_RATTLE_MS","TRIPLE_RATTLE_DELAY_MS","TRIPLE_GLOW_HEX","TRIPLE_GLOW","TRIPLE_FLASH","TRIPLE_SPIN","TRIPLE_SPIN_MS","TRIPLE_SPIN_MIN","TRIPLE_VARIETY"],
       double: ["DOUBLE_SHIMMER_MS","DOUBLE_SLAM_MS","DOUBLE_RATTLE_MS","DOUBLE_RATTLE_DELAY_MS","DOUBLE_GLOW_HEX","DOUBLE_GLOW","DOUBLE_FLASH","DOUBLE_SPIN","DOUBLE_SPIN_MS","DOUBLE_SPIN_MIN","DOUBLE_VARIETY","DOUBLE_STREAK_ANIM"],
       highscore: ["HIGHSCORE_THRESHOLD","HIGHSCORE_SHIMMER_MS","HIGHSCORE_GLOW_HEX","HIGHSCORE_GLOW","HIGHSCORE_FLASH","HIGHSCORE_SPIN","HIGHSCORE_SPIN_MS","HIGHSCORE_BOARD_FLASH","HIGHSCORE_THROW_FLASH",
-                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER","FIRE26_ENABLED","FIRE26_VIDEO_URL","FIRE26_VIDEO_SCALE"],
+                 "HIGHSCORE2_ENABLED","HIGHSCORE2_THRESHOLD","HIGHSCORE3_ENABLED","HIGHSCORE3_THRESHOLD","HIGHSCORE3_BANNER",
+                 "FIRE_ENABLED","FIRE_THRESHOLD","FIRE_VIDEO_URL","FIRE_VIDEO_SCALE","WASHOUT_ENABLED"],
       fx: [...FX_MATRIX_KEYS, "FX_MATRIX_ENABLED", "FX_SOUND_ENABLED"],
       win: ["WIN_VOLUME"],
       skin: ["SKIN_UI_SCALE","SKIN_SPACING_PLAYER","SKIN_BG_URL","SKIN_BG_OVERLAY_ALPHA","SKIN_PLAYER_BG_HEX","SKIN_PLAYER_BG_OPACITY"],
@@ -8192,7 +8470,8 @@ function ensureMainButtonPosition() {
         addThresholdRow(L.fields.tier2, "HIGHSCORE2_THRESHOLD", 140, "HIGHSCORE2_ENABLED");
         addThresholdRow(L.fields.tier3, "HIGHSCORE3_THRESHOLD", 180, "HIGHSCORE3_ENABLED");
         addCheckbox(L.fields.bannerEnabled, ()=>!!c.HIGHSCORE3_BANNER, v=>{ c.HIGHSCORE3_BANNER=v; });
-        addCheckbox(L.fields.fire26Enabled, ()=>!!c.FIRE26_ENABLED, v=>{ c.FIRE26_ENABLED=v; });
+        addCheckbox(L.fields.fireEnabled, ()=>!!c.FIRE_ENABLED, v=>{ c.FIRE_ENABLED=v; });
+        addCheckbox(L.fields.washoutEnabled, ()=>!!c.WASHOUT_ENABLED, v=>{ c.WASHOUT_ENABLED=v; });
 
         addColor(()=>c.HIGHSCORE_GLOW_HEX, v=>c.HIGHSCORE_GLOW_HEX=v, L.fields.glowColor);
         addSlider01(()=>c.HIGHSCORE_GLOW, v=>c.HIGHSCORE_GLOW=v, L.fields.glow, 0.05);
