@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.40.3
+// @version      2.40.4
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.40.3";
+  const SCRIPT_VERSION = "2.40.4";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -3823,36 +3823,40 @@ svg.ad-board-svg text{
     video.onerror = () => stopFire26();
     overlay.appendChild(video);
 
-    // Keep the fixed overlay centred on the board's live rect every frame - this is what "attaches"
-    // it: translate/grow move the rect and the fire follows. The same loop drives the crumble
-    // ramp. IMPORTANT re: spin: a rotating square's getBoundingClientRect INFLATES (up to ~1.41x at
-    // 45deg), so we must NOT resize from it each frame or the ring pulses erratically. Instead the
-    // size is captured once (fireSize0 / crackSize0), the centre is read live (rotation about centre
-    // keeps it put), and the overlay is rotated to match the board's spin so the ring turns with it.
+    // Lock the fire to the board every frame. CRITICAL: size comes from offsetWidth/Height (the
+    // board's LAYOUT size), NOT getBoundingClientRect - the implode-pop (140), spin and grow all
+    // apply CSS transforms that inflate the bounding rect (a rotated square's bbox grows ~1.41x at
+    // 45deg, the implode pops it ~1.4x), which was ballooning the ring. offset* ignores transforms,
+    // so the ring stays the true board size. Centre is read live from the rect (rotation/scale are
+    // about the centre, so it stays put); the ring is rotated to match the board's spin.
+    const boardScale = clamp(Number(c.BOARD_SCALE) || 1, 0.3, 3);
     const t0 = performance.now();
     let lastSeedStep = 0;
-    let fireSize0 = 0, crackSize0 = 0;
+    let fallbackSize = 0;
     const sync = (now) => {
       const r = boardEl.getBoundingClientRect();
-      const bsz = Math.min(r.width, r.height);
-      if (bsz > 0) {
-        if (!fireSize0) { fireSize0 = bsz * scale; crackSize0 = bsz; }
-        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        // Board's live rotation (the spin lives on boardEl's transform); rotate the ring to match.
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      // Layout size x the board's own scale setting; fall back to a once-captured rect only if
+      // offset* is unavailable (raw <svg> board).
+      let base = Math.min(boardEl.offsetWidth || 0, boardEl.offsetHeight || 0);
+      if (base > 0) base *= boardScale;
+      else { if (!fallbackSize && r.width > 0) fallbackSize = Math.min(r.width, r.height); base = fallbackSize; }
+      if (base > 0) {
+        const fireSize = base * scale;
         let deg = 0;
         const tr = getComputedStyle(boardEl).transform;
         if (tr && tr !== "none") { try { const m = new DOMMatrixReadOnly(tr); deg = Math.atan2(m.b, m.a) * 180 / Math.PI; } catch {} }
         const rot = deg ? ` rotate(${deg.toFixed(1)}deg)` : "";
-        overlay.style.width = fireSize0.toFixed(0) + "px";
-        overlay.style.height = fireSize0.toFixed(0) + "px";
-        overlay.style.left = (cx - fireSize0 / 2).toFixed(0) + "px";
-        overlay.style.top = (cy - fireSize0 / 2).toFixed(0) + "px";
+        overlay.style.width = fireSize.toFixed(0) + "px";
+        overlay.style.height = fireSize.toFixed(0) + "px";
+        overlay.style.left = (cx - fireSize / 2).toFixed(0) + "px";
+        overlay.style.top = (cy - fireSize / 2).toFixed(0) + "px";
         overlay.style.transform = rot;
         if (fire26CracksEl) {
-          fire26CracksEl.style.width = crackSize0.toFixed(0) + "px";
-          fire26CracksEl.style.height = crackSize0.toFixed(0) + "px";
-          fire26CracksEl.style.left = (cx - crackSize0 / 2).toFixed(0) + "px";
-          fire26CracksEl.style.top = (cy - crackSize0 / 2).toFixed(0) + "px";
+          fire26CracksEl.style.width = base.toFixed(0) + "px";
+          fire26CracksEl.style.height = base.toFixed(0) + "px";
+          fire26CracksEl.style.left = (cx - base / 2).toFixed(0) + "px";
+          fire26CracksEl.style.top = (cy - base / 2).toFixed(0) + "px";
           fire26CracksEl.style.transform = rot;
         }
       }
