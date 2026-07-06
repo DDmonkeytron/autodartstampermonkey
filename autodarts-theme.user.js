@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.36.0
+// @version      2.36.1
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.36.0";
+  const SCRIPT_VERSION = "2.36.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -2257,20 +2257,24 @@ svg.ad-board-svg, img.ad-board-img{
       // individual translate/scale positioning like the spin does).
       if (c.FIRE26_ENABLED) {
         css.push(`
-#ad-fire26{
-  position:absolute; inset:0; pointer-events:none; z-index:9999; overflow:visible;
-}
 /* Real ring-of-fire footage (Fireflicker.mp4: hollow flame ring on solid black). screen-blend
    turns the black to transparent, so only the flames show and the scoring reads through the empty
-   centre. Scaled > board (var --ad-fire26-scale) so the ring's hole lands on the rim and flames
-   lick outward past the edge. Fades in/out over the burn. */
-.ad-fire26-video{
-  position:absolute; left:50%; top:50%;
-  width:var(--ad-fire26-scale,230%); height:var(--ad-fire26-scale,230%);
-  transform:translate(-50%,-50%);
-  object-fit:fill; pointer-events:none;
+   centre. CRITICAL x2: (1) the blend lives on #ad-fire26 itself - a blend on the child <video>
+   would be isolated by #ad-fire26's own stacking context and composite opaque (black stays
+   black). (2) #ad-fire26 is fixed on <body>, NOT inside the board host: the host carries
+   translate/scale and the grow animates filter, both of which force a stacking context, and a
+   blend isolated inside it would composite the flame margins outside the board box as solid
+   black. launchFire26 re-syncs the overlay to the board's live rect every frame instead, so it
+   still rides the board (position, scale, spin, grow). Sized board x FIRE26_VIDEO_SCALE so the
+   ring's hole lands on the rim and flames lick outward past the edge. Fades in/out over the burn. */
+#ad-fire26{
+  position:fixed; pointer-events:none; z-index:2147483599;
   mix-blend-mode:screen;
   animation: adFire26Fade 5000ms ease-out forwards;
+}
+.ad-fire26-video{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; pointer-events:none;
 }
 @keyframes adFire26Fade{
   0%   { opacity:0; }
@@ -3453,14 +3457,15 @@ svg.ad-board-svg text{
 
   /* ================== "26" BOARD FIRE ================== */
   // Sets the real in-game board ablaze for ~5s when a turn totals exactly 26. A ring-of-fire video
-  // (Fireflicker.mp4: hollow flame ring on black) is appended INSIDE the board host (the div holding
-  // the board img + scoring svg) and screen-blended, so black drops out, flames ring the rim, the
-  // scoring shows through the empty centre, and the whole thing rides the board's translate/scale/
-  // grow rather than being a floating re-render.
+  // (Fireflicker.mp4: hollow flame ring on black) is screen-blended over the board, so black drops
+  // out, flames wrap the rim and the scoring reads through the empty centre. The overlay lives on
+  // <body> (see the CSS comment for why blending can't happen inside the board host) and re-syncs
+  // to the board's live bounding rect every animation frame, so it stays wrapped around the board
+  // through the grow, spins and any translate/scale repositioning.
   const FIRE26_DUR_MS = 5000;
   let fire26Timers = [];
-  let fire26Mount = null;               // host we appended flames into (for cleanup)
-  let fire26MountPrev = null;           // inline styles we temporarily overrode on that host
+  let fire26Raf = 0;                    // rAF id for the rect-sync loop
+  let fire26Mount = null;               // host carrying the grow class (for cleanup)
 
   // The board host is the element that carries the board's translate/scale positioning and whose
   // box matches the board. Prefer a marked host; else climb from the board svg/img to the div that
@@ -3478,17 +3483,11 @@ svg.ad-board-svg text{
   function stopFire26() {
     fire26Timers.forEach(t => clearTimeout(t));
     fire26Timers = [];
+    if (fire26Raf) { cancelAnimationFrame(fire26Raf); fire26Raf = 0; }
     const ov = document.getElementById("ad-fire26");
     if (ov) ov.remove();
-    if (fire26Mount) {
-      fire26Mount.classList.remove("ad-board-fire-mount");
-      if (fire26MountPrev) {
-        fire26Mount.style.position = fire26MountPrev.position;
-        fire26Mount.style.overflow = fire26MountPrev.overflow;
-      }
-    }
+    if (fire26Mount) fire26Mount.classList.remove("ad-board-fire-mount");
     fire26Mount = null;
-    fire26MountPrev = null;
   }
 
   function launchFire26() {
@@ -3498,20 +3497,17 @@ svg.ad-board-svg text{
     const mount = getBoardFireMount();
     if (!mount) return;
 
-    // The video layer is position:absolute and scaled past the board box, so the host must be a
-    // positioning context and must not clip the flames. Override only if needed; restore on cleanup.
-    const cs = getComputedStyle(mount);
-    fire26MountPrev = { position: mount.style.position, overflow: mount.style.overflow };
-    if (cs.position === "static") mount.style.position = "relative";
-    if (cs.overflow !== "visible") mount.style.overflow = "visible";
+    // Size/track from the BOARD's own square, not the mount - the fallback mount (the div
+    // containing the board svg) can be a much larger layout wrapper, and sizing against it
+    // renders the ring huge and stretched instead of wrapped around the board.
+    const boardEl = document.querySelector("svg.ad-board-svg, img." + BOARD_IMG_CLASS + ", ." + BOARD_VISUAL_CLASS) || mount;
+    const scale = clamp(Number(c.FIRE26_VIDEO_SCALE) || 2.05, 1, 5);
 
     const overlay = document.createElement("div");
     overlay.id = "ad-fire26";
 
-    const scale = clamp(Number(c.FIRE26_VIDEO_SCALE) || 2.3, 1, 5);
     const video = document.createElement("video");
     video.className = "ad-fire26-video";
-    video.style.setProperty("--ad-fire26-scale", (scale * 100).toFixed(0) + "%");
     video.src = String(c.FIRE26_VIDEO_URL || DEFAULT_CFG.FIRE26_VIDEO_URL);
     video.playsInline = true;
     video.setAttribute("playsinline", "");
@@ -3524,7 +3520,23 @@ svg.ad-board-svg text{
     video.onerror = () => stopFire26();
     overlay.appendChild(video);
 
-    mount.appendChild(overlay);
+    // Keep the fixed overlay centred on the board's live rect every frame - this is what "attaches"
+    // it: the grow/spin/translate all move the rect, and the fire square follows.
+    const sync = () => {
+      const r = boardEl.getBoundingClientRect();
+      const size = Math.min(r.width, r.height);
+      if (size > 0) {
+        const fireSize = size * scale;
+        overlay.style.width = fireSize.toFixed(0) + "px";
+        overlay.style.height = fireSize.toFixed(0) + "px";
+        overlay.style.left = (r.left + r.width / 2 - fireSize / 2).toFixed(0) + "px";
+        overlay.style.top = (r.top + r.height / 2 - fireSize / 2).toFixed(0) + "px";
+      }
+      fire26Raf = requestAnimationFrame(sync);
+    };
+    sync();
+
+    (document.body || document.documentElement).appendChild(overlay);
     fire26Mount = mount;
 
     mount.classList.remove("ad-board-fire-mount");
