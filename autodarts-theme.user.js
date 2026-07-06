@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.40.0
+// @version      2.40.1
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.40.0";
+  const SCRIPT_VERSION = "2.40.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -3954,28 +3954,30 @@ svg.ad-board-svg text{
     const r0 = boardEl.getBoundingClientRect();
     const size0 = Math.min(r0.width, r0.height) || 400;
 
-    // Bubbles rising through the bowl.
-    for (let i = 0; i < 20; i++) {
+    // Bubbles rising through the bowl (bigger, and some already partway up on entry).
+    for (let i = 0; i < 22; i++) {
       const b = document.createElement("i");
       b.className = "ad-wash-bubble";
-      const s = 5 + Math.random() * 16;
+      const s = 10 + Math.random() * 30;
       b.style.width = s.toFixed(0) + "px"; b.style.height = s.toFixed(0) + "px";
       b.style.left = (Math.random() * 100).toFixed(1) + "%";
       b.style.top = (100 + Math.random() * 12).toFixed(0) + "%";
       b.style.setProperty("--rise", (-(size0 * (0.9 + Math.random() * 0.5))).toFixed(0) + "px");
       b.style.setProperty("--bx", ((Math.random() - 0.5) * 40).toFixed(0) + "px");
       b.style.setProperty("--bd", (2400 + Math.random() * 2600).toFixed(0) + "ms");
-      b.style.setProperty("--bdl", (Math.random() * 3000).toFixed(0) + "ms");
+      // Negative delays start some bubbles mid-rise, so the water is already fizzing on frame 1.
+      b.style.setProperty("--bdl", (-(Math.random() * 2600)).toFixed(0) + "ms");
       overlay.appendChild(b);
     }
 
-    // Fish swimming across, half each way.
+    // Fish swimming across, half each way - negative delays put them mid-swim on the board instantly.
     for (let i = 0; i < 6; i++) {
       const f = document.createElement("span");
       f.className = "ad-wash-fish";
       f.textContent = WASH_FISH[(Math.random() * WASH_FISH.length) | 0];
       const rightward = Math.random() < 0.5;
       const fs = size0 * (0.11 + Math.random() * 0.09);
+      const sd = 5000 + Math.random() * 4000;
       f.style.setProperty("--fs", fs.toFixed(0) + "px");
       f.style.top = (10 + Math.random() * 72).toFixed(0) + "%";
       // Emoji fish face left by default; flip when swimming rightward.
@@ -3986,8 +3988,9 @@ svg.ad-board-svg text{
       f.style.setProperty("--q2", (travel * 0.5).toFixed(0) + "%");
       f.style.setProperty("--q3", (travel * 0.75).toFixed(0) + "%");
       f.style.setProperty("--travel", travel.toFixed(0) + "%");
-      f.style.setProperty("--sd", (5000 + Math.random() * 4000).toFixed(0) + "ms");
-      f.style.setProperty("--sdl", (Math.random() * 1500).toFixed(0) + "ms");
+      f.style.setProperty("--sd", sd.toFixed(0) + "ms");
+      // Offset each fish into the first ~40-90% of its swim so they're already crossing the board.
+      f.style.setProperty("--sdl", (-(sd * (0.4 + Math.random() * 0.5))).toFixed(0) + "ms");
       overlay.appendChild(f);
     }
 
