@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.37.0
+// @version      2.38.0
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +17,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.37.0";
+  const SCRIPT_VERSION = "2.38.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -2297,11 +2297,35 @@ svg.ad-board-svg, img.ad-board-img{
 @keyframes adBoardFireBurn{
   0%   { opacity:1;    transform: scale(1);    filter: brightness(1)    saturate(1)    drop-shadow(0 0 0 rgba(255,120,20,0)); }
   12%  { opacity:1;    transform: scale(1.05); filter: brightness(1.12) saturate(1.15) drop-shadow(0 0 22px rgba(255,120,20,0.9)); }
-  44%  { opacity:1;    transform: scale(1.06); filter: brightness(1.18) saturate(1.3)  drop-shadow(0 0 40px rgba(255,80,10,0.95)); }
-  58%  { opacity:1;    transform: scale(1.05); filter: brightness(0.7)  saturate(0.55) drop-shadow(0 0 30px rgba(255,80,10,0.8)); }
-  70%  { opacity:1;    transform: scale(1.04); filter: brightness(0.16) saturate(0.25) drop-shadow(0 0 20px rgba(255,60,0,0.55)); }
-  84%  { opacity:0.75; transform: scale(1.01); filter: brightness(0.05) saturate(0.1)  drop-shadow(0 0 12px rgba(255,60,0,0.3)); }
-  100% { opacity:0;    transform: scale(0.96); filter: brightness(0)    saturate(0)    drop-shadow(0 0 0 rgba(255,60,0,0)); }
+  38%  { opacity:1;    transform: scale(1.06); filter: brightness(1.18) saturate(1.3)  drop-shadow(0 0 40px rgba(255,80,10,0.95)); }
+  48%  { opacity:1;    transform: scale(1.05); filter: brightness(0.8)  saturate(0.6)  drop-shadow(0 0 34px rgba(255,80,10,0.85)); }
+  58%  { opacity:1;    transform: scale(1.04); filter: brightness(0.3)  saturate(0.3)  drop-shadow(0 0 26px rgba(255,60,0,0.7)); }
+  70%  { opacity:1;    transform: scale(1.03); filter: brightness(0.08) saturate(0.15) drop-shadow(0 0 18px rgba(255,60,0,0.5)); }
+  84%  { opacity:0.6;  transform: scale(0.99); filter: brightness(0.03) saturate(0.05) drop-shadow(0 0 10px rgba(255,60,0,0.25)); }
+  100% { opacity:0;    transform: scale(0.94); filter: brightness(0)    saturate(0)    drop-shadow(0 0 0 rgba(255,60,0,0)); }
+}
+/* Glowing cracks that spread across the board face as it chars - jagged radial SVG paths drawn
+   in with the stroke-dash trick, clipped to the board circle, molten-orange with a heat glow.
+   The container's own life animation fades the whole crack web in, holds, and dies with the
+   board. Spawned at ~42% of the burn by launchFire26 and rect-synced in the same rAF loop. */
+#ad-fire26-cracks{
+  position:fixed; pointer-events:none; z-index:2147483597;
+  border-radius:50%; overflow:hidden;
+  animation: adF26CracksLife 2900ms ease-in forwards;
+}
+#ad-fire26-cracks svg{ width:100%; height:100%; display:block;
+  filter: drop-shadow(0 0 3px rgba(255,100,10,0.85)); }
+.ad-f26-crack{
+  fill:none; stroke:#ff7a1e; stroke-linecap:round; stroke-linejoin:round;
+  stroke-dasharray:1; stroke-dashoffset:1;
+  animation: adF26CrackGrow var(--cd,700ms) ease-out var(--cdl,0ms) forwards;
+}
+@keyframes adF26CrackGrow{ to{ stroke-dashoffset:0; } }
+@keyframes adF26CracksLife{
+  0%   { opacity:0; }
+  10%  { opacity:1; }
+  60%  { opacity:1; }
+  100% { opacity:0; }
 }
 /* Quick reassemble after the burn so the board doesn't just pop back. */
 .ad-board-fire-restore{
@@ -2320,11 +2344,21 @@ svg.ad-board-svg, img.ad-board-img{
   position:absolute; width:var(--s,5px); height:var(--s,5px); border-radius:2px;
   opacity:0; animation: adF26AshFall var(--d,1400ms) ease-in var(--dl,0ms) forwards;
 }
-.ad-f26-ash.ad-f26-ember{ border-radius:50%; box-shadow:0 0 8px 2px rgba(255,110,20,0.85); }
+/* Cinders: glowing chunks that cool from molten orange to dead charcoal as they fall. */
+.ad-f26-ash.ad-f26-ember{
+  border-radius:50%;
+  animation: adF26AshFall var(--d,1400ms) ease-in var(--dl,0ms) forwards,
+             adF26CinderCool var(--d,1400ms) linear var(--dl,0ms) forwards;
+}
 @keyframes adF26AshFall{
   0%   { opacity:0; transform: translate(0,0) rotate(0deg); }
   12%  { opacity:1; }
   100% { opacity:0; transform: translate(var(--tx,0), var(--ty,180px)) rotate(var(--rot,220deg)); }
+}
+@keyframes adF26CinderCool{
+  0%   { background:#ffc46a; box-shadow:0 0 12px 4px rgba(255,140,30,0.95); }
+  45%  { background:#ff6a12; box-shadow:0 0 8px 2px rgba(255,90,15,0.8); }
+  100% { background:#1c1815; box-shadow:0 0 0 0 rgba(0,0,0,0); }
 }
 `);
       }
@@ -3495,11 +3529,13 @@ svg.ad-board-svg text{
   // the board chars to a black silhouette and disintegrates to nothing - a displacement filter
   // shreds it apart while ash and embers rain down - before a quick reassemble fade.
   const FIRE26_DUR_MS = 5000;
-  const FIRE26_CRUMBLE_FROM = 0.62;     // burn progress where the board starts shredding apart
+  const FIRE26_CRUMBLE_FROM = 0.55;     // burn progress where the board starts shredding apart
+  const FIRE26_CRACKS_FROM = 0.42;      // burn progress where glowing cracks start spreading
   let fire26Timers = [];
   let fire26Raf = 0;                    // rAF id for the rect-sync + crumble loop
   let fire26Mount = null;               // host carrying the burn class (for cleanup)
   let fire26BoardEl = null;             // element carrying the inline crumble filter (for cleanup)
+  let fire26CracksEl = null;            // cracks overlay (rect-synced alongside the fire)
 
   // Hidden defs for the crumble: feTurbulence + feDisplacementMap referenced from the board via
   // filter:url(#adF26Crumble). The displacement scale starts at 0 (no-op) and is ramped by the
@@ -3521,6 +3557,53 @@ svg.ad-board-svg text{
     return defs.querySelector("feDisplacementMap");
   }
 
+  // Glowing cracks spreading over the charring board: jagged radial paths walked inward from the
+  // rim with per-step angle jitter (plus branches), drawn in via the stroke-dash trick with
+  // staggered delays so the web spreads rather than appearing at once.
+  function spawnFire26Cracks(boardEl) {
+    if (fire26CracksEl) return;
+    const r = boardEl.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const wrap = document.createElement("div");
+    wrap.id = "ad-fire26-cracks";
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 100 100");
+    svg.setAttribute("preserveAspectRatio", "none");
+
+    const addCrack = (a0, rStart, rEnd, delayMs, width) => {
+      let a = a0, rr = rStart;
+      const pts = [`${(50 + Math.cos(a) * rr).toFixed(1)},${(50 + Math.sin(a) * rr).toFixed(1)}`];
+      while (rr > rEnd) {
+        rr -= 4.5 + Math.random() * 5;
+        a += (Math.random() - 0.5) * 0.55;
+        pts.push(`${(50 + Math.cos(a) * Math.max(rr, 0)).toFixed(1)},${(50 + Math.sin(a) * Math.max(rr, 0)).toFixed(1)}`);
+      }
+      const path = document.createElementNS(svgNS, "polyline");
+      path.setAttribute("points", pts.join(" "));
+      path.setAttribute("class", "ad-f26-crack");
+      path.setAttribute("stroke-width", width.toFixed(2));
+      path.setAttribute("pathLength", "1");
+      path.style.setProperty("--cd", (450 + Math.random() * 450).toFixed(0) + "ms");
+      path.style.setProperty("--cdl", delayMs.toFixed(0) + "ms");
+      svg.appendChild(path);
+      return { a, rr };
+    };
+
+    const mainCracks = 9;
+    for (let i = 0; i < mainCracks; i++) {
+      const a0 = (i / mainCracks) * Math.PI * 2 + Math.random() * 0.5;
+      const delay = i * 90 + Math.random() * 160;
+      const end = addCrack(a0, 50, 8 + Math.random() * 12, delay, 0.7 + Math.random() * 0.9);
+      // Branches forking off partway in, thinner and later.
+      if (Math.random() < 0.75) addCrack(end.a + (Math.random() - 0.5) * 1.4, end.rr + 14 + Math.random() * 10, end.rr + 2, delay + 300, 0.4 + Math.random() * 0.5);
+    }
+
+    wrap.appendChild(svg);
+    (document.body || document.documentElement).appendChild(wrap);
+    fire26CracksEl = wrap;
+  }
+
   // Charred flecks + glowing embers raining down from the disintegrating board.
   function spawnFire26Ash(boardEl) {
     let ash = document.getElementById("ad-fire26-ash");
@@ -3533,8 +3616,8 @@ svg.ad-board-svg text{
     if (!r.width || !r.height) return;
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2, rad = Math.min(r.width, r.height) / 2;
     const charcoal = ["#1b1917", "#26221e", "#0f0e0c", "#332c24"];
-    for (let i = 0; i < 26; i++) {
-      const ember = Math.random() < 0.3;
+    for (let i = 0; i < 40; i++) {
+      const ember = Math.random() < 0.45;
       const p = document.createElement("i");
       p.className = "ad-f26-ash" + (ember ? " ad-f26-ember" : "");
       const a = Math.random() * Math.PI * 2;
@@ -3576,6 +3659,7 @@ svg.ad-board-svg text{
     if (ov) ov.remove();
     const ash = document.getElementById("ad-fire26-ash");
     if (ash) ash.remove();
+    if (fire26CracksEl) { fire26CracksEl.remove(); fire26CracksEl = null; }
     if (fire26BoardEl) {
       fire26BoardEl.style.filter = "";
       const disp = document.querySelector("#ad-fire26-fx-defs feDisplacementMap");
@@ -3624,10 +3708,12 @@ svg.ad-board-svg text{
     video.setAttribute("playsinline", "");
     video.loop = false;
     video.preload = "auto";
-    // Play with the clip's own fire crackle when FX sound is on; fall back to muted if the browser
-    // blocks autoplay-with-audio. If the video can't load at all (CSP/network), just clean up.
-    video.muted = !c.FX_SOUND_ENABLED;
-    video.defaultMuted = video.muted;
+    // Always muted: unmuted <video> autoplay needs a recent user gesture, which a hands-free darts
+    // session doesn't have. The burning sound is synthesized instead (playFireCrackle below, via
+    // the shared WebAudio context that unlocks on the page's first pointerdown, same as the
+    // fireworks boom). If the video can't load at all (CSP/network), just clean up.
+    video.muted = true;
+    video.defaultMuted = true;
     video.onerror = () => stopFire26();
     overlay.appendChild(video);
 
@@ -3646,13 +3732,19 @@ svg.ad-board-svg text{
         overlay.style.height = fireSize.toFixed(0) + "px";
         overlay.style.left = (r.left + r.width / 2 - fireSize / 2).toFixed(0) + "px";
         overlay.style.top = (r.top + r.height / 2 - fireSize / 2).toFixed(0) + "px";
+        if (fire26CracksEl) {
+          fire26CracksEl.style.width = size.toFixed(0) + "px";
+          fire26CracksEl.style.height = size.toFixed(0) + "px";
+          fire26CracksEl.style.left = (r.left + r.width / 2 - size / 2).toFixed(0) + "px";
+          fire26CracksEl.style.top = (r.top + r.height / 2 - size / 2).toFixed(0) + "px";
+        }
       }
       if (disp) {
         const prog = ((now || performance.now()) - t0) / FIRE26_DUR_MS;
         if (prog > FIRE26_CRUMBLE_FROM) {
           const cp = Math.min(1, (prog - FIRE26_CRUMBLE_FROM) / (1 - FIRE26_CRUMBLE_FROM));
-          disp.setAttribute("scale", (cp * cp * 150).toFixed(1));
-          if ((now || 0) - lastSeedStep > 120) {
+          disp.setAttribute("scale", (cp * cp * 260).toFixed(1));
+          if ((now || 0) - lastSeedStep > 80) {
             lastSeedStep = now || 0;
             const turb = disp.previousElementSibling;
             if (turb) turb.setAttribute("seed", String(((Math.random() * 90) | 0) + 1));
@@ -3674,10 +3766,14 @@ svg.ad-board-svg text{
     const p = video.play();
     if (p && p.catch) p.catch(() => { video.muted = true; video.play().catch(() => {}); });
 
-    // Ash starts falling as the charred board begins to break apart.
+    if (c.FX_SOUND_ENABLED) playFireCrackle(FIRE26_DUR_MS);
+
+    // Cracks spread as the board chars; cinders start falling as it breaks apart.
+    fire26Timers.push(setTimeout(() => spawnFire26Cracks(boardEl), FIRE26_DUR_MS * FIRE26_CRACKS_FROM));
     fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 500));
-    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1000));
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 400));
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 800));
+    fire26Timers.push(setTimeout(() => spawnFire26Ash(boardEl), FIRE26_DUR_MS * FIRE26_CRUMBLE_FROM + 1200));
     fire26Timers.push(setTimeout(() => stopFire26(true), FIRE26_DUR_MS + 200));
   }
 
@@ -5588,6 +5684,73 @@ function markCheckoutInTurnBar(turn) {
       noiseGain.gain.value = big ? 0.4 : 0.25;
       noise.connect(noiseFilter).connect(noiseGain).connect(master);
       noise.start(now);
+    } catch {}
+  }
+
+  // Synthesized burning sound for the "26" fire: a low roaring bed (looped brown noise through a
+  // lowpass, faded in/out over the burn) + dozens of short bandpassed noise bursts at random times
+  // and pitches (the crackle) + a few louder low "knock" pops for wood splitting as it cracks.
+  function playFireCrackle(durMs) {
+    const ctx = ensureSfxCtx();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const dur = Math.max(1, (Number(durMs) || 5000) / 1000);
+      const master = ctx.createGain();
+      master.gain.value = 0.55;
+      master.connect(ctx.destination);
+
+      // Roaring bed: brown noise, lowpassed, swelling in and dying with the burn.
+      const bedBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const bd = bedBuf.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < bd.length; i++) {
+        const w = Math.random() * 2 - 1;
+        last = (last + 0.02 * w) / 1.02;
+        bd[i] = last * 3.5;
+      }
+      const bed = ctx.createBufferSource();
+      bed.buffer = bedBuf; bed.loop = true;
+      const bedFilter = ctx.createBiquadFilter();
+      bedFilter.type = "lowpass"; bedFilter.frequency.value = 500;
+      const bedGain = ctx.createGain();
+      bedGain.gain.setValueAtTime(0.0001, now);
+      bedGain.gain.exponentialRampToValueAtTime(0.5, now + 0.5);
+      bedGain.gain.setValueAtTime(0.5, now + dur * 0.72);
+      bedGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      bed.connect(bedFilter).connect(bedGain).connect(master);
+      bed.start(now); bed.stop(now + dur + 0.1);
+
+      // Crackle: short decaying noise bursts, random time/pitch/band.
+      const popBuf = ctx.createBuffer(1, (ctx.sampleRate * 0.05) | 0, ctx.sampleRate);
+      const pd = popBuf.getChannelData(0);
+      for (let i = 0; i < pd.length; i++) pd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / pd.length, 2);
+      for (let i = 0; i < 80; i++) {
+        const t = now + 0.15 + Math.random() * (dur - 0.4);
+        const src = ctx.createBufferSource();
+        src.buffer = popBuf;
+        src.playbackRate.value = 0.6 + Math.random() * 1.6;
+        const f = ctx.createBiquadFilter();
+        f.type = "bandpass"; f.frequency.value = 1500 + Math.random() * 3500; f.Q.value = 0.8;
+        const g = ctx.createGain();
+        g.gain.value = 0.12 + Math.random() * 0.45;
+        src.connect(f).connect(g).connect(master);
+        src.start(t);
+      }
+
+      // Wood-split knocks, clustered into the charring/crumbling half of the burn.
+      for (let i = 0; i < 7; i++) {
+        const t = now + dur * (0.4 + Math.random() * 0.5);
+        const src = ctx.createBufferSource();
+        src.buffer = popBuf;
+        src.playbackRate.value = 0.25 + Math.random() * 0.2;
+        const f = ctx.createBiquadFilter();
+        f.type = "lowpass"; f.frequency.value = 700 + Math.random() * 500;
+        const g = ctx.createGain();
+        g.gain.value = 0.5 + Math.random() * 0.35;
+        src.connect(f).connect(g).connect(master);
+        src.start(t);
+      }
     } catch {}
   }
 
