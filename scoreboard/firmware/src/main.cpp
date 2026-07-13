@@ -557,45 +557,92 @@ void handleWifiReset() { server.send(200, "text/plain", "wifi reset, rebooting")
 
 static const char PAGE[] PROGMEM = R"HTML(
 <!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Darts Scoreboard</title>
-<style>body{font-family:sans-serif;background:#111;color:#eee;margin:1em;max-width:760px}
-textarea{width:100%;height:200px;background:#1c1c1c;color:#6f6;font-family:monospace;border:1px solid #333}
-button{margin:.15em;padding:.35em .6em;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer}
-input,select{color:#eee;background:#1c1c1c;border:1px solid #444;padding:.25em;margin:.1em}
+<style>*{box-sizing:border-box}
+body{font-family:sans-serif;background:#111;color:#eee;margin:0}
+.app{display:flex;min-height:100vh}
+.side{width:164px;flex:none;background:#181818;border-right:1px solid #2c2c2c;padding:.6em .5em;position:sticky;top:0;align-self:flex-start;height:100vh}
+.brand{font-weight:bold;color:#fc6;font-size:1.05em;margin:.2em .3em 1em}
+.nav{display:block;width:100%;text-align:left;margin:.12em 0;padding:.55em .7em;background:transparent;border:0;color:#bbb;border-radius:6px;cursor:pointer;font-size:.95em}
+.nav:hover{background:#242424;color:#fff}.nav.sel{background:#1c3a24;color:#8f8}
+.main{flex:1;min-width:0;padding:1em 1.2em;max-width:900px}
+.panel{display:none}.panel.on{display:block}
+.bar{position:sticky;top:0;background:#111;padding:.5em 0;z-index:5;margin-bottom:.4em;border-bottom:1px solid #222}
+h2{margin:.1em 0 .5em}h3{margin-top:1.1em;color:#8cf}
+.hint{color:#888;font-size:.9em;margin:.2em 0 .6em}
+textarea{width:100%;height:240px;background:#1c1c1c;color:#6f6;font-family:monospace;border:1px solid #333;border-radius:6px}
+button{margin:.15em;padding:.42em .7em;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:5px;cursor:pointer}
+button:hover{background:#333}.primary{background:#164;font-weight:bold}
+input,select{color:#eee;background:#1c1c1c;border:1px solid #444;padding:.3em;margin:.1em;border-radius:4px}
 input[type=color]{padding:0;width:34px;height:24px;vertical-align:middle}
 label{margin-right:.6em;white-space:nowrap;display:inline-block}
-fieldset{border:1px solid #333;border-radius:6px;margin:.5em 0;padding:.5em}
+fieldset{border:1px solid #333;border-radius:8px;margin:.5em 0;padding:.6em}
 legend{color:#fc6;padding:0 .4em}
-.gif{display:inline-flex;align-items:center;gap:.3em;margin:.2em;padding:.3em .5em;background:#222;border-radius:4px}
-img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1c1c;padding:.6em;white-space:pre-wrap}
-.bar{position:sticky;top:0;background:#111;padding:.4em 0;z-index:5}</style>
-<h2>🎯 Darts Scoreboard</h2>
-<div class=bar><button onclick=save() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
+.gif{display:inline-flex;align-items:center;gap:.3em;margin:.2em;padding:.3em .5em;background:#222;border-radius:6px}
+img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pre-wrap;border-radius:6px}
+@media(max-width:640px){.app{flex-direction:column}.side{width:auto;height:auto;position:static;display:flex;flex-wrap:wrap;gap:.2em}.brand{width:100%}.nav{width:auto}}</style>
+<div class=app>
+<nav class=side>
+<div class=brand>🎯 Scoreboard</div>
+<button class=nav data-p=layout onclick="nav('layout')">Layout</button>
+<button class=nav data-p=events onclick="nav('events')">Celebrations</button>
+<button class=nav data-p=gifs onclick="nav('gifs')">GIFs</button>
+<button class=nav data-p=test onclick="nav('test')">Test</button>
+<button class=nav data-p=system onclick="nav('system')">System</button>
+<button class=nav data-p=adv onclick="nav('adv')">Advanced</button>
+</nav>
+<main class=main>
+<div class=bar><button onclick=save() class=primary>💾 Save &amp; apply</button>
 <button onclick=load()>Reload</button><button onclick=dl()>Download backup</button></div>
-<h3>Scoreboard panel</h3><div id=lo></div>
-<h3>Layout editor <span style="color:#888;font-weight:normal">— drag fields on the 64&times;64, click to select. Empty = classic layout.</span></h3>
+
+<section id=p-layout class="panel on">
+<h2>Layout</h2>
+<h3>Panel options</h3><div id=lo></div>
+<h3>Layout editor</h3><div class=hint>Drag fields on the 64&times;64, click to select. Empty = classic layout.</div>
 <div>Add for player <select id=lp><option>0</option><option>1</option><option>2</option><option>3</option></select> <span id=addbtns></span></div>
 <div id=led style="position:relative;width:320px;height:320px;background:#000;border:1px solid #555;margin:.4em 0;overflow:hidden"></div>
 <div id=fprops style="min-height:2em;margin:.3em 0">(no field selected)</div>
-<button onclick=savelay() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
+<button onclick=savelay() class=primary>💾 Save &amp; apply</button>
 <button onclick=deffields()>Load classic layout</button> <button onclick=clearfields()>Clear (blank &rarr; classic)</button>
-<div style="margin-top:.4em">Presets: <select id=preset></select> <button onclick=loadpreset()>Load into editor</button>
+<div style="margin-top:.5em">Presets: <select id=preset></select> <button onclick=loadpreset()>Load into editor</button>
  &nbsp;<input id=pname placeholder="new preset name" style=width:130px><button onclick=savepreset()>Save as preset</button> <button onclick=delpreset()>Delete</button></div>
-<h3>Celebrations (events)</h3>
-<div>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
+</section>
+
+<section id=p-events class=panel>
+<h2>Celebrations</h2>
+<div class=hint>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
 <div id=evl></div>
 <input id=ne placeholder="new event name"><button onclick=addev()>+ add event</button>
-<h3>Sprites (GIFs)</h3><div id=s></div>
-<input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button>
-<h3>Test — send to board</h3>
+</section>
+
+<section id=p-gifs class=panel>
+<h2>GIFs</h2>
+<div id=s></div>
+<div style="margin-top:.6em"><input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button></div>
+</section>
+
+<section id=p-test class=panel>
+<h2>Test &mdash; send to board</h2>
 <label>gif <select id=tgif></select></label>
 <input id=tx placeholder="message under gif (optional)"><label>ms <input id=tms type=number value=6000 style="width:64px"></label>
 <button onclick=sendgif()>Send GIF</button> <button onclick=say()>Send text only</button>
-<button onclick=rst()>Reset stats</button>
-<h3>Firmware / WiFi</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
-<button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
+<div style="margin-top:.6em"><button onclick=idf()>🔦 Identify outputs</button> <button onclick=rst()>Reset stats</button></div>
+</section>
+
+<section id=p-system class=panel>
+<h2>System</h2>
+<h3>Firmware update (OTA)</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
+<h3>Device</h3><button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
 <h3>Status</h3><pre id=st></pre>
-<h3>Log</h3><pre id=lg style="height:150px;overflow:auto"></pre>
-<h3>Advanced (raw JSON)</h3><textarea id=c></textarea><br><button onclick=applyRaw()>Apply raw JSON to form</button>
+<h3>Log</h3><pre id=lg style="height:180px;overflow:auto"></pre>
+</section>
+
+<section id=p-adv class=panel>
+<h2>Advanced</h2>
+<div class=hint>Raw config JSON &mdash; edit then apply to the form, or Save &amp; apply from the top bar.</div>
+<textarea id=c></textarea><br><button onclick=applyRaw()>Apply raw JSON to form</button>
+</section>
+</main>
+</div>
 <script>
 let C=null,gifs=[];
 const FX=['off','solid','flash','strobe','pulse','rainbow','palette','running','sparkle','twinkle','comet'];
@@ -726,7 +773,8 @@ async function idf(){await fetch('/identify',{method:'POST'})}
 async function rb(){if(confirm('Reboot device?'))await fetch('/reboot',{method:'POST'})}
 async function stat(){st.textContent=await t('/status')}
 async function lg_(){lg.textContent=await t('/log');lg.scrollTop=lg.scrollHeight}
-(async()=>{await sp();await load();renderAddBtns();stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
+function nav(p){document.querySelectorAll('.panel').forEach(e=>e.classList.remove('on'));document.getElementById('p-'+p).classList.add('on');document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('sel',b.dataset.p==p))}
+(async()=>{await sp();await load();renderAddBtns();nav('layout');stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
 </script>)HTML";
 
 // ===================== SETUP / LOOP =====================
