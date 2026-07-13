@@ -34,9 +34,10 @@
 #include <AnimatedGIF.h>
 
 // ===================== FIXED CONFIG =====================
-#define PANEL_W 64
+#define PANEL_RES_X 64          // one panel's native width
 #define PANEL_H 64
-#define PANEL_CHAIN 1
+#define PW_MAX 128              // max canvas width (two panels chained) — sizes static buffers
+int panelW = PANEL_RES_X;       // live canvas width = PANEL_RES_X * chain, set at boot from config
 // HUB75 -> S3 (r1,g1,b1,r2,g2,b2,a,b,c,d,e,lat,oe,clk)
 #define P_R1 4
 #define P_G1 5
@@ -80,7 +81,7 @@ int numPlayers = 2, activePlayer = 0;
 int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
 
 bool gifPlaying = false; int gifX = 0, gifY = 0; uint32_t gifNextFrame = 0; char gifPath[64] = {0};
-String eventText = ""; uint32_t eventUntil = 0; int marqueeX = PANEL_W; uint32_t lastMarquee = 0;
+String eventText = ""; uint32_t eventUntil = 0; int marqueeX = panelW; uint32_t lastMarquee = 0;
 
 // per-strip effect state: each strip has its own effect/colour/palette/speed,
 // or strip 2 can "mirror" (replicate) strip 1's buffer exactly.
@@ -128,7 +129,7 @@ void GIFClose(void *h) { if (h) ((File *)h)->close(); }
 int32_t GIFRead(GIFFILE *pF, uint8_t *b, int32_t l) { File *f = (File *)pF->fHandle; int32_t r = f->read(b, l); pF->iPos = f->position(); return r; }
 int32_t GIFSeek(GIFFILE *pF, int32_t p) { File *f = (File *)pF->fHandle; f->seek(p); pF->iPos = f->position(); return pF->iPos; }
 void GIFDraw(GIFDRAW *pDraw) {
-  int w = pDraw->iWidth; if (w > PANEL_W) w = PANEL_W;
+  int w = pDraw->iWidth; if (w > panelW) w = panelW;
   uint16_t *pal = pDraw->pPalette; uint8_t *s = pDraw->pPixels;
   int y = gifY + pDraw->iY + pDraw->y;
   if (pDraw->ucDisposalMethod == 2) for (int x = 0; x < w; x++) if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
@@ -139,7 +140,7 @@ bool openGif(const char *path) {
   if (!path || !LittleFS.exists(path)) return false;
   strncpy(gifPath, path, sizeof(gifPath) - 1);
   if (gif.open((char *)gifPath, GIFOpen, GIFClose, GIFRead, GIFSeek, GIFDraw)) {
-    gifX = (PANEL_W - gif.getCanvasWidth()) / 2; gifY = (PANEL_H - gif.getCanvasHeight()) / 2;
+    gifX = (panelW - gif.getCanvasWidth()) / 2; gifY = (PANEL_H - gif.getCanvasHeight()) / 2;
     gifPlaying = true; gifNextFrame = 0; return true;
   }
   return false;
@@ -213,7 +214,8 @@ void drawFields(JsonArray fields) {
     int p = f["p"] | 0, x = f["x"] | 0, y = f["y"] | 0, size = f["s"] | 1;
     bool act = (p == activePlayer && p >= 0 && p < numPlayers);
     if (t == "amark") { if (act) { uint16_t g = markColor(f["fx"] | "on"); if (g) dma->fillRect(x, y, 3, 8, g); } continue; }   // active-player marker (fx: on/blink/pulse)
-    if (t == "hline") { dma->drawFastHLine(x, y, PANEL_W - x, C_DIM); continue; }    // divider line
+    if (t == "hline") { dma->drawFastHLine(x, y, panelW - x, C_DIM); continue; }    // horizontal divider
+    if (t == "vline") { dma->drawFastVLine(x, y, PANEL_H - y, C_DIM); continue; }    // vertical divider (e.g. split 128x64)
     String v = fieldValue(t, p, f);
     if (!v.length()) continue;
     uint16_t col;
@@ -239,7 +241,7 @@ void drawScoreboard() {
   dma->clearScreen();
   int n = max(1, min(numPlayers, 4)), rowH = PANEL_H / n;
   // rows start at i*rowH; divider sits on the LAST row of the half above (GFX leaves it blank)
-  for (int i = 0; i < n; i++) { drawPlayer(i, i * rowH, rowH); if (i) dma->drawFastHLine(0, i * rowH - 1, PANEL_W, C_DIM); }
+  for (int i = 0; i < n; i++) { drawPlayer(i, i * rowH, rowH); if (i) dma->drawFastHLine(0, i * rowH - 1, panelW, C_DIM); }
 }
 void animateMarkers(uint32_t now) {                   // repaint only the blink/pulse active markers (no full redraw = no flicker)
   JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
@@ -329,28 +331,28 @@ bool runPanelFx(uint32_t now, const String &fx, const CRGBPalette16 &pal) {
   static uint32_t last = 0; if (now - last < 33) return false; last = now;   // ~30 fps
   static uint16_t z = 0; z += 22;
   if (fx == "plasma" || fx == "noise") {
-    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < PANEL_W; x++) {
+    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < panelW; x++) {
       CRGB c = ColorFromPalette(pal, inoise8(x * 24, y * 24, z));
       dma->drawPixelRGB888(x, y, c.r, c.g, c.b);
     }
   } else if (fx == "fire") {
-    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < PANEL_W; x++) {
+    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < panelW; x++) {
       uint8_t v = inoise8(x * 30, y * 35 - z * 3, z);
       uint8_t heat = qsub8(v, (uint8_t)((PANEL_H - 1 - y) * 3));      // hotter at the bottom
       CRGB c = ColorFromPalette(HeatColors_p, heat);
       dma->drawPixelRGB888(x, y, c.r, c.g, c.b);
     }
   } else if (fx == "matrix") {                                        // falling green code
-    static int head[PANEL_W]; static bool init = false;
-    if (!init) { for (int x = 0; x < PANEL_W; x++) head[x] = random16(PANEL_H); init = true; }
+    static int head[PW_MAX]; static bool init = false;
+    if (!init) { for (int x = 0; x < panelW; x++) head[x] = random16(PANEL_H); init = true; }
     dma->clearScreen();
-    for (int x = 0; x < PANEL_W; x++) {
+    for (int x = 0; x < panelW; x++) {
       head[x] = (head[x] + 1) % PANEL_H;
       for (int t = 0; t < 10; t++) { int y = (head[x] - t + PANEL_H) % PANEL_H; uint8_t b = 255 - t * 26; dma->drawPixelRGB888(x, y, 0, b, 0); }
     }
   } else if (fx == "sparkle") {
     dma->clearScreen();
-    for (int i = 0; i < 45; i++) { CRGB c = ColorFromPalette(pal, random8()); dma->drawPixelRGB888(random16(PANEL_W), random16(PANEL_H), c.r, c.g, c.b); }
+    for (int i = 0; i < 45; i++) { CRGB c = ColorFromPalette(pal, random8()); dma->drawPixelRGB888(random16(panelW), random16(PANEL_H), c.r, c.g, c.b); }
   } else return false;
   return true;
 }
@@ -373,7 +375,7 @@ void playEvent(const String &name, int value, const String &ovText) {
   panelFx = (const char *)(o["panelFx"] | "");
   panelPal = paletteByName((const char *)(o["palette"] | "rainbow"));
   eventUntil = millis() + (uint32_t)(o["ms"] | DEF_EVENT_MS);
-  marqueeX = PANEL_W; lastMarquee = 0;
+  marqueeX = panelW; lastMarquee = 0;
   dma->clearScreen();                            // clear the scoreboard behind the celebration
   const char *g = o["gif"] | "";
   if (strlen(g) && openGif(g)) panelFx = "";     // a GIF takes precedence over a 2D effect
@@ -407,7 +409,7 @@ void loadConfig() {
   JsonObject L = cfg["layout"].to<JsonObject>();
   L["players"] = 2; L["showAvg"] = true; L["showLegs"] = true; L["showThrows"] = false;
   L["showCheckout"] = true; L["brightness"] = DEF_PANEL_BRI; L["stripBrightness"] = DEF_STRIP_BRI;
-  L["rotation"] = 0; L["maxMilliamps"] = DEF_MAX_MA; L["idleMs"] = DEF_IDLE_MS; L["tzOffset"] = 0;
+  L["rotation"] = 0; L["maxMilliamps"] = DEF_MAX_MA; L["idleMs"] = DEF_IDLE_MS; L["tzOffset"] = 0; L["panelChain"] = 1;
   L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle
   L["strip1Pin"] = 17; L["strip2Pin"] = 21;       // strip data GPIOs (reboot to apply)
   L["strip1Count"] = 60; L["strip2Count"] = 60;   // LED counts (reboot to apply)
@@ -525,7 +527,7 @@ void handleText() {                              // scroll arbitrary text on dem
   panelFx = (const char *)(d["panelFx"] | "");   // default "" — don't inherit a stale 2D backdrop
   panelPal = paletteByName((const char *)(d["palette"] | "rainbow"));
   eventUntil = millis() + (uint32_t)(d["ms"] | 5000);
-  marqueeX = PANEL_W; lastMarquee = 0;
+  marqueeX = panelW; lastMarquee = 0;
   const char *g = d["gif"] | "";
   if (strlen(g)) { if (openGif(g)) panelFx = ""; }   // play the requested GIF; text (if any) scrolls off the bottom
   else if (gifPlaying) { gif.close(); gifPlaying = false; }
@@ -669,7 +671,8 @@ function renderLayout(){const L=C.layout||(C.layout={});
   +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
   +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
   +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
-  +' <button onclick=idf()>🔦 Identify outputs</button>';
+  +' <button onclick=idf()>🔦 Identify outputs</button>'
+  +`<br><b>Display</b> (reboot to apply): <select onchange="lset('panelChain',+this.value)"><option value=1 ${(L.panelChain||1)==1?'selected':''}>64&times;64 — 1 panel</option><option value=2 ${(L.panelChain||1)==2?'selected':''}>128&times;64 — 2 panels</option></select>`;
 }
 function eset(k,f,v){C.events[k][f]=v}
 function f2mode(k){const f=C.events[k].fx2;return f==null?'mirror':(typeof f=='string'?(f=='mirror'?'mirror':'off'):'custom')}
@@ -699,18 +702,19 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  </fieldset>`}).join('');
 }
 // ---- layout editor ----
-const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark','hline'];
+const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark','hline','vline'];
+function EW(){return 64*((C.layout&&C.layout.panelChain)||1)}   // editor canvas width in panel px (64 or 128)
 let selF=-1;
 function lfields(){if(!C.layout)C.layout={};if(!C.layout.fields)C.layout.fields=[];return C.layout.fields}
 function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t}')">+${t}</button>`).join(' ')}
 function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
-function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────'}[f.t]||f.t}
-function renderLED(){led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
+function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────',vline:'│'}[f.t]||f.t}
+function renderLED(){led.style.width=(EW()*SCALE)+'px';led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
  const a=f.a||'l',w=fprev(f).length*6*(f.s||1),off=a=='r'?w:a=='c'?w/2:0;   // mirror the board's alignment
  d.style.cssText=`position:absolute;left:${(f.x-off)*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
  d.textContent=fprev(f);d.onmousedown=e=>dragF(e,i);led.appendChild(d)});renderProps()}
 function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoundingClientRect();const ox=e.clientX-r.left-f.x*SCALE,oy=e.clientY-r.top-f.y*SCALE;
- const mv=ev=>{f.x=Math.max(0,Math.min(63,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
+ const mv=ev=>{f.x=Math.max(0,Math.min(EW()-1,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
  const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up);renderProps()}
 function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.innerHTML='(no field selected)';return}const f=F[selF];
  fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} ${f.t=='amark'?`fx <select onchange="fS('fx',this.value)">${opt(['on','blink','pulse'],f.fx||'on')}</select>`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
@@ -746,7 +750,14 @@ function BUILTINS(){return {
   {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'avg',p:1,x:1,y:56,s:1,a:'l',c:_CY},{t:'180s',p:1,x:40,y:56,s:1,a:'l',c:_MG},{t:'high',p:1,x:52,y:56,s:1,a:'l',c:_OR}],
  'Checkout (2P)':[
   {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'checkout',p:0,x:63,y:12,s:1,a:'r',c:_GR},{t:'hline',x:0,y:31},
-  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'checkout',p:1,x:63,y:44,s:1,a:'r',c:_GR}]
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'checkout',p:1,x:63,y:44,s:1,a:'r',c:_GR}],
+ 'Head-to-head (128)':[
+  {t:'name',p:0,x:32,y:1,s:1,a:'c'},{t:'amark',p:0,x:2,y:1},{t:'score',p:0,x:32,y:12,s:2,a:'c'},{t:'legs',p:0,x:20,y:38,s:1,a:'c',c:_CY},{t:'avg',p:0,x:44,y:38,s:1,a:'c',c:_CY},{t:'checkout',p:0,x:32,y:50,s:1,a:'c',c:_GR},
+  {t:'vline',x:63,y:0},
+  {t:'name',p:1,x:96,y:1,s:1,a:'c'},{t:'amark',p:1,x:122,y:1},{t:'score',p:1,x:96,y:12,s:2,a:'c'},{t:'legs',p:1,x:84,y:38,s:1,a:'c',c:_CY},{t:'avg',p:1,x:108,y:38,s:1,a:'c',c:_CY},{t:'checkout',p:1,x:96,y:50,s:1,a:'c',c:_GR}],
+ 'Wide + stats (128)':[
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'avg',p:0,x:70,y:2,s:1,a:'l',c:_CY},{t:'legs',p:0,x:70,y:12,s:1,a:'l',c:_CY},{t:'180s',p:0,x:70,y:22,s:1,a:'l',c:_MG},{t:'checkout',p:0,x:100,y:12,s:1,a:'l',c:_GR},{t:'hline',x:0,y:31},
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'avg',p:1,x:70,y:34,s:1,a:'l',c:_CY},{t:'legs',p:1,x:70,y:44,s:1,a:'l',c:_CY},{t:'180s',p:1,x:70,y:54,s:1,a:'l',c:_MG},{t:'checkout',p:1,x:100,y:44,s:1,a:'l',c:_GR}]
 }}
 function renderPresets(){const b=Object.keys(BUILTINS()),u=Object.keys(presets());
  preset.innerHTML=b.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')+(u.length?`<option disabled>── my presets ──</option>`+u.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join(''):'')}
@@ -784,7 +795,9 @@ void setup() {
   loadConfig();                                   // load before panel init (for driver/brightness)
 
   HUB75_I2S_CFG::i2s_pins pins = { P_R1, P_G1, P_B1, P_R2, P_G2, P_B2, P_A, P_B, P_C, P_D, P_E, P_LAT, P_OE, P_CLK };
-  HUB75_I2S_CFG mx(PANEL_W, PANEL_H, PANEL_CHAIN, pins); mx.clkphase = false;
+  int chain = constrain((int)(cfg["layout"]["panelChain"] | 1), 1, 2);   // 1 = 64x64, 2 = 128x64 (two panels)
+  panelW = PANEL_RES_X * chain;
+  HUB75_I2S_CFG mx(PANEL_RES_X, PANEL_H, chain, pins); mx.clkphase = false;
   String drv = (const char *)(cfg["layout"]["panelDriver"] | "SHIFTREG");
   if (drv == "FM6126A") mx.driver = HUB75_I2S_CFG::FM6126A;
   else if (drv == "FM6124") mx.driver = HUB75_I2S_CFG::FM6124;
@@ -852,11 +865,11 @@ void loop() {
       if (eventText.length() && (redrew || now - lastMarquee > 33)) {
         lastMarquee = now;
         int textY = gifPlaying ? (PANEL_H - 10) : (PANEL_H / 2 - 4);   // GIF playing: just off the bottom; otherwise: vertically centred
-        dma->fillRect(0, textY - 1, PANEL_W, 10, 0);
+        dma->fillRect(0, textY - 1, panelW, 10, 0);
         dma->setTextSize(1); dma->setTextColor(C_WHITE);
         dma->setCursor(marqueeX, textY); dma->print(eventText);
         marqueeX -= 2; int w = eventText.length() * 6;
-        if (marqueeX < -w) marqueeX = PANEL_W;
+        if (marqueeX < -w) marqueeX = panelW;
       }
       runEffect(now);
     } else {                                        // event finished
