@@ -626,7 +626,7 @@ void setup() {
   if (!wm.autoConnect(AP_NAME)) ESP.restart();
   configTime((long)(cfg["layout"]["tzOffset"] | 0), 0, "pool.ntp.org");   // for the idle clock
   if (MDNS.begin(MDNS_NAME)) MDNS.addService("http", "tcp", 80);
-  gif.begin(GIF_PALETTE_RGB565_BE);               // flip _BE/_LE if GIF colours look wrong
+  gif.begin(GIF_PALETTE_RGB565_LE);               // LE matches HUB75 drawPixel byte order (BE swaps colours: yellow->purple)
   players[0].name = "PLAYER 1"; players[1].name = "PLAYER 2";   // other fields use struct defaults
 
   server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", PAGE); });
