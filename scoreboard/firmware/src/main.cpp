@@ -180,8 +180,49 @@ void drawPlayer(int i, int yTop, int rowH) {
   }
   if (a) dma->fillRect(60, yTop, 3, 8, C_GREEN);
 }
+// ---- config-driven field layout (the drag-drop editor writes layout.fields) ----
+String fieldValue(const String &t, int p, JsonObject f) {
+  if (t == "label") return (const char *)(f["v"] | "");
+  if (p < 0 || p >= numPlayers) return "";
+  Player &pl = players[p];
+  bool act = (p == activePlayer);
+  if (t == "name")     return pl.name;
+  if (t == "score")    return String(pl.score);
+  if (t == "avg")      return String(pl.avg, 1);
+  if (t == "legs")     return String(pl.legs);
+  if (t == "180s")     return String(pl.c180);
+  if (t == "high")     return String(pl.high);
+  if (t == "checkout") return (pl.score >= 2 && pl.score <= 170) ? checkoutFor(pl.score) : "";
+  if (!act) return "";                                   // turn fields: active player only
+  if (t == "darts")    return String(turnThrowCount);
+  if (t == "last")     return turnThrowCount ? String(turnThrows[turnThrowCount - 1]) : "";
+  if (t == "turn")   { String s; for (int k = 0; k < turnThrowCount; k++) { if (k) s += " "; s += turnThrows[k]; } return s; }
+  if (t == "total")  { int s = 0; for (int k = 0; k < turnThrowCount; k++) s += turnThrows[k]; return String(s); }
+  return "";
+}
+void drawFields(JsonArray fields) {
+  dma->clearScreen(); dma->setTextWrap(false);
+  for (JsonObject f : fields) {
+    String t = (const char *)(f["t"] | "");
+    int p = f["p"] | 0, x = f["x"] | 0, y = f["y"] | 0, size = f["s"] | 1;
+    bool act = (p == activePlayer && p >= 0 && p < numPlayers);
+    if (t == "amark") { if (act) dma->fillRect(x, y, 3, 8, C_GREEN); continue; }   // active-player marker
+    String v = fieldValue(t, p, f);
+    if (!v.length()) continue;
+    uint16_t col;
+    JsonArray c = f["c"].as<JsonArray>();
+    if (!c.isNull() && c.size() == 3) col = dma->color565((int)(c[0] | 255), (int)(c[1] | 255), (int)(c[2] | 255));
+    else col = act ? C_YELLOW : C_WHITE;                 // no explicit colour → highlight active player
+    const char *a = f["a"] | "l";
+    int w = (int)v.length() * 6 * size;
+    if (a[0] == 'r') x -= w; else if (a[0] == 'c') x -= w / 2;
+    dma->setTextSize(size); dma->setTextColor(col); dma->setCursor(x, y); dma->print(v);
+  }
+}
 void drawScoreboard() {
   idle = false;
+  JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
+  if (!fields.isNull() && fields.size() > 0) { drawFields(fields); return; }   // custom layout
   dma->clearScreen();
   int n = max(1, min(numPlayers, 4)), rowH = PANEL_H / n;
   // rows start at i*rowH; divider sits on the LAST row of the half above (GFX leaves it blank)
@@ -506,6 +547,12 @@ img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1
 <div class=bar><button onclick=save() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
 <button onclick=load()>Reload</button><button onclick=dl()>Download backup</button></div>
 <h3>Scoreboard panel</h3><div id=lo></div>
+<h3>Layout editor <span style="color:#888;font-weight:normal">— drag fields on the 64&times;64, click to select. Empty = classic layout.</span></h3>
+<div>Add for player <select id=lp><option>0</option><option>1</option><option>2</option><option>3</option></select> <span id=addbtns></span></div>
+<div id=led style="position:relative;width:320px;height:320px;background:#000;border:1px solid #555;margin:.4em 0;overflow:hidden"></div>
+<div id=fprops style="min-height:2em;margin:.3em 0">(no field selected)</div>
+<button onclick=savelay() style="background:#164;font-weight:bold">💾 Save layout</button>
+<button onclick=deffields()>Load default</button> <button onclick=clearfields()>Clear (use classic)</button>
 <h3>Celebrations (events)</h3>
 <div>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
 <div id=evl></div>
@@ -577,7 +624,29 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  <input type=color value="${hx(f2.color)}" onchange="f2set('${k}','color',rgb(this.value))">`:''}
  </fieldset>`}).join('');
 }
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents()}
+// ---- layout editor ----
+const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark'];
+let selF=-1;
+function lfields(){if(!C.layout)C.layout={};if(!C.layout.fields)C.layout.fields=[];return C.layout.fields}
+function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t}')">+${t}</button>`).join(' ')}
+function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
+function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮'}[f.t]||f.t}
+function renderLED(){led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
+ d.style.cssText=`position:absolute;left:${f.x*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
+ d.textContent=fprev(f);d.onmousedown=e=>dragF(e,i);led.appendChild(d)});renderProps()}
+function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoundingClientRect();const ox=e.clientX-r.left-f.x*SCALE,oy=e.clientY-r.top-f.y*SCALE;
+ const mv=ev=>{f.x=Math.max(0,Math.min(63,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
+ const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up);renderProps()}
+function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.innerHTML='(no field selected)';return}const f=F[selF];
+ fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} <button onclick="delF(${selF})">✕ delete</button>`}
+function fS(k,v){lfields()[selF][k]=v;renderLED()}
+function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
+async function savelay(){await save();alert('Layout saved & applied')}
+function clearfields(){C.layout.fields=[];selF=-1;renderLED()}
+function deffields(){C.layout.fields=[
+ {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l',c:[255,215,0]},{t:'legs',p:0,x:63,y:1,s:1,a:'r',c:[40,200,230]},{t:'avg',p:0,x:63,y:24,s:1,a:'r',c:[40,200,230]},
+ {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l',c:[255,215,0]},{t:'legs',p:1,x:63,y:33,s:1,a:'r',c:[40,200,230]},{t:'avg',p:1,x:63,y:56,s:1,a:'r',c:[40,200,230]}];selF=-1;renderLED()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
@@ -596,7 +665,7 @@ async function idf(){await fetch('/identify',{method:'POST'})}
 async function rb(){if(confirm('Reboot device?'))await fetch('/reboot',{method:'POST'})}
 async function stat(){st.textContent=await t('/status')}
 async function lg_(){lg.textContent=await t('/log');lg.scrollTop=lg.scrollHeight}
-(async()=>{await sp();await load();stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
+(async()=>{await sp();await load();renderAddBtns();stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
 </script>)HTML";
 
 // ===================== SETUP / LOOP =====================
