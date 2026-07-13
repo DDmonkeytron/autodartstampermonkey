@@ -89,7 +89,7 @@ StripFx sfx[2]; bool mirror2 = true;
 String panelFx = ""; CRGBPalette16 panelPal = RainbowColors_p;
 File gifFile, uploadFile;
 uint32_t lastActivity = 0; bool idle = false;
-String evQueue[6]; int evVal[6]; int evCount = 0;
+String evQueue[6]; int evVal[6]; String evText[6]; int evCount = 0;   // evText = optional dynamic text per queued event
 
 // debug log ring buffer + per-turn stats dedup
 #define LOGN 30
@@ -290,10 +290,10 @@ bool runPanelFx(uint32_t now, const String &fx, const CRGBPalette16 &pal) {
 }
 
 // ===================== EVENTS (with queue) =====================
-void playEvent(const String &name, int value) {
+void playEvent(const String &name, int value, const String &ovText) {
   JsonObject o = cfg["events"][name];
   if (o.isNull()) return;
-  eventText = (const char *)(o["text"] | name.c_str());
+  eventText = ovText.length() ? ovText : (const char *)(o["text"] | name.c_str());  // dynamic text overrides config
   // strips: flat fields = strip 1; optional "fx1" object overrides; "fx2" is
   // "mirror" (default — replicate strip 1), "off", or its own {effect,palette,color,speed}
   parseFx(o, sfx[0]);
@@ -312,14 +312,14 @@ void playEvent(const String &name, int value) {
   const char *g = o["gif"] | "";
   if (strlen(g) && openGif(g)) panelFx = "";     // a GIF takes precedence over a 2D effect
 }
-void enqueueEvent(const String &name, int value) {
+void enqueueEvent(const String &name, int value, const String &ovText) {
   JsonObject o = cfg["events"][name];
   if (o.isNull()) { LOG("unmapped event: " + name); return; }
   if (!(o["enabled"] | true)) { LOG("disabled: " + name); return; }
   int mn = o["min"] | 0;                          // celebration threshold, e.g. treble min 15 = T15+
   if (mn && value && value < mn) { LOG(name + " " + value + " < min " + mn + ", skipped"); return; }
-  if (!eventUntil) playEvent(name, value);
-  else if (evCount < 6) { evQueue[evCount] = name; evVal[evCount] = value; evCount++; }
+  if (!eventUntil) playEvent(name, value, ovText);
+  else if (evCount < 6) { evQueue[evCount] = name; evVal[evCount] = value; evText[evCount] = ovText; evCount++; }
   else LOG("queue full, dropped: " + name);
 }
 
@@ -412,8 +412,9 @@ void handleEvent() {
   lastActivity = millis();
   String name = (const char *)(d["event"] | "");
   int value = d["value"] | 0;                     // dart number / turn total (for min thresholds)
+  String ovText = (const char *)(d["text"] | "");  // optional dynamic text, e.g. "DAVETHEW WINS THE LEG 2-1"
   LOG("event: " + name + (value ? " (" + String(value) + ")" : ""));
-  enqueueEvent(name, value);
+  enqueueEvent(name, value, ovText);
   server.send(200, "application/json", "{\"ok\":true}");
 }
 void handleConfigGet() { File f = LittleFS.open("/config.json", "r"); if (!f) { server.send(200, "application/json", "{}"); return; } server.streamFile(f, "application/json"); f.close(); }
@@ -666,9 +667,10 @@ void loop() {
       // scrolling text ticker — repaint whenever the backdrop repainted (kills flicker)
       if (eventText.length() && (redrew || now - lastMarquee > 33)) {
         lastMarquee = now;
-        dma->fillRect(0, PANEL_H - 8, PANEL_W, 8, 0);
+        int textY = gifPlaying ? (PANEL_H - 10) : (PANEL_H / 2 - 4);   // GIF playing: just off the bottom; otherwise: vertically centred
+        dma->fillRect(0, textY - 1, PANEL_W, 10, 0);
         dma->setTextSize(1); dma->setTextColor(C_WHITE);
-        dma->setCursor(marqueeX, PANEL_H - 7); dma->print(eventText);
+        dma->setCursor(marqueeX, textY); dma->print(eventText);
         marqueeX -= 2; int w = eventText.length() * 6;
         if (marqueeX < -w) marqueeX = PANEL_W;
       }
@@ -678,9 +680,9 @@ void loop() {
       if (gifPlaying) { gif.close(); gifPlaying = false; }
       stopEffect();
       if (evCount > 0) {
-        String n = evQueue[0]; int v = evVal[0];
-        for (int i = 1; i < evCount; i++) { evQueue[i - 1] = evQueue[i]; evVal[i - 1] = evVal[i]; }
-        evCount--; playEvent(n, v);
+        String n = evQueue[0]; int v = evVal[0]; String t = evText[0];
+        for (int i = 1; i < evCount; i++) { evQueue[i - 1] = evQueue[i]; evVal[i - 1] = evVal[i]; evText[i - 1] = evText[i]; }
+        evCount--; playEvent(n, v, t);
       } else drawScoreboard();
     }
   } else {                                          // idle screen after inactivity

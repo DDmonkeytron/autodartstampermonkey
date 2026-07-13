@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.4
+// @version      0.6.5
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -272,11 +272,20 @@
     }
 
     // leg win (legs counter increased)
-    s.players.forEach((p, i) => { if (prevLegs[i] != null && p.legs > prevLegs[i]) postEvent("legWon"); });
+    s.players.forEach((p, i) => {
+      if (prevLegs[i] != null && p.legs > prevLegs[i]) {
+        const legStr = s.players.map((q) => q.legs).join("-");        // e.g. "2-1"
+        postEvent("legWon", `${p.name} WINS THE LEG  ${legStr}`, p.legs);
+      }
+    });
     prevLegs = s.players.map((p) => p.legs);
 
     // game win
-    if (s.winner != null && s.winner !== lastWinner) { lastWinner = s.winner; postEvent("gameWon"); }
+    if (s.winner != null && s.winner !== lastWinner) {
+      lastWinner = s.winner;
+      const w = s.players[s.winner];
+      postEvent("gameWon", w ? `${w.name} WINS THE MATCH` : undefined, s.winner);
+    }
   }
 
   hookWebSocket();   // must run at document-start (before the app opens its socket)
