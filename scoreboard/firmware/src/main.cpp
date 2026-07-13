@@ -460,7 +460,9 @@ void handleText() {                              // scroll arbitrary text on dem
   panelPal = paletteByName((const char *)(d["palette"] | "rainbow"));
   eventUntil = millis() + (uint32_t)(d["ms"] | 5000);
   marqueeX = PANEL_W; lastMarquee = 0;
-  if (gifPlaying) { gif.close(); gifPlaying = false; }
+  const char *g = d["gif"] | "";
+  if (strlen(g)) { if (openGif(g)) panelFx = ""; }   // play the requested GIF; text (if any) scrolls off the bottom
+  else if (gifPlaying) { gif.close(); gifPlaying = false; }
   dma->clearScreen(); lastActivity = millis();
   LOG("text: " + eventText);
   server.send(200, "application/json", "{\"ok\":true}");
@@ -510,8 +512,10 @@ img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1
 <input id=ne placeholder="new event name"><button onclick=addev()>+ add event</button>
 <h3>Sprites (GIFs)</h3><div id=s></div>
 <input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button>
-<h3>Test</h3>
-<input id=tx placeholder="scroll some text"><button onclick=say()>Send text</button>
+<h3>Test — send to board</h3>
+<label>gif <select id=tgif></select></label>
+<input id=tx placeholder="message under gif (optional)"><label>ms <input id=tms type=number value=6000 style="width:64px"></label>
+<button onclick=sendgif()>Send GIF</button> <button onclick=say()>Send text only</button>
 <button onclick=rst()>Reset stats</button>
 <h3>Firmware / WiFi</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
 <button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
@@ -579,10 +583,12 @@ function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catc
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
  s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n)}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
+ tgif.innerHTML=gifopt('');
  if(C)renderEvents()}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
 async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
-async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:5000,effect:'pulse',color:[0,180,255]})})}
+async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:+tms.value||5000,effect:'pulse',color:[0,180,255]})})}
+async function sendgif(){await fetch('/text',{method:'POST',body:JSON.stringify({gif:tgif.value,text:tx.value,ms:+tms.value||6000})})}
 async function rst(){await fetch('/reset',{method:'POST'});alert('stats reset')}
 async function ota(){let x=fw.files[0];if(!x)return;let d=new FormData();d.append('f',x,x.name);await fetch('/update',{method:'POST',body:d});alert('updating, rebooting')}
 async function wr(){if(confirm('Reset WiFi and reboot?'))await fetch('/wifi/reset',{method:'POST'})}
