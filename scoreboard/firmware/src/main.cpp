@@ -1,0 +1,699 @@
+/*
+ * Autodarts LED Scoreboard — ESP32-S3 (N16R8)
+ * ============================================================
+ *  Matrix : 64x64 HUB75  — scoreboard (2-4 players) + animated GIF sprites
+ *                          + scrolling event text + checkout suggestions
+ *  Strips : 2x WS2812     — parametric LED effects, current-limited
+ *  WiFi   : WiFiManager captive portal, mDNS http://darts.local, NTP clock
+ *  Storage: LittleFS      — GIF library + config.json
+ *  Extras : web config UI (/), OTA updates (/update), idle clock, event queue
+ *
+ *  Control model: Tampermonkey (or the web UI) pushes config + live data and
+ *  uploads GIFs. The ESP32 stores everything and renders.
+ *
+ *  HTTP API
+ *    GET  /            web config UI
+ *    GET  /ping        identify (scan)             GET  /status   heap/rssi/uptime
+ *    GET  /config      read config                 POST /config   replace config
+ *    GET  /sprites     list GIFs                    POST /sprite   upload GIF (multipart)
+ *    POST /delete?name=x.gif   delete a GIF         POST /update   OTA firmware (multipart)
+ *    POST /score       scoreboard data             POST /event    trigger celebration
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <LittleFS.h>
+#include <Update.h>
+#include <time.h>
+#include <WiFiManager.h>
+#include <ArduinoJson.h>
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <FastLED.h>
+#include <AnimatedGIF.h>
+
+// ===================== FIXED CONFIG =====================
+#define PANEL_W 64
+#define PANEL_H 64
+#define PANEL_CHAIN 1
+// HUB75 -> S3 (r1,g1,b1,r2,g2,b2,a,b,c,d,e,lat,oe,clk)
+#define P_R1 4
+#define P_G1 5
+#define P_B1 6
+#define P_R2 7
+#define P_G2 15
+#define P_B2 16
+#define P_A 18
+#define P_B 8
+#define P_C 9
+#define P_D 10
+#define P_E 11
+#define P_LAT 13
+#define P_OE 14
+#define P_CLK 12
+// Strip data pins + LED counts now live in config.json (web UI → Scoreboard panel;
+// reboot to apply). Defaults: strip1 = IO17, strip2 = IO21, 60 LEDs each.
+// STRIP_MAX is only the buffer ceiling.
+#define STRIP_MAX 300
+#define DEF_PANEL_BRI 120
+#define DEF_STRIP_BRI 90
+#define DEF_MAX_MA 8000          // strip current cap (protects the shared 5V PSU)
+#define DEF_IDLE_MS 90000
+#define DEF_EVENT_MS 5000
+#define AP_NAME "DartsScoreboard-Setup"
+#define MDNS_NAME "darts"
+
+// ===================== GLOBALS =====================
+MatrixPanel_I2S_DMA *dma = nullptr;
+CRGB strip1[STRIP_MAX], strip2[STRIP_MAX];
+int s1n = 60, s2n = 60;              // actual LED counts (from config at boot)
+uint32_t identifyUntil = 0;          // "which strip is which" mode
+WebServer server(80);
+AnimatedGIF gif;
+JsonDocument cfg;
+uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
+
+struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; };
+Player players[4];
+int numPlayers = 2, activePlayer = 0;
+int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
+
+bool gifPlaying = false; int gifX = 0, gifY = 0; uint32_t gifNextFrame = 0; char gifPath[64] = {0};
+String eventText = ""; uint32_t eventUntil = 0; int marqueeX = PANEL_W; uint32_t lastMarquee = 0;
+
+// per-strip effect state: each strip has its own effect/colour/palette/speed,
+// or strip 2 can "mirror" (replicate) strip 1's buffer exactly.
+struct StripFx { String effect = "off"; CRGB color = CRGB::White; CRGBPalette16 pal = RainbowColors_p; uint8_t speed = 4; };
+StripFx sfx[2]; bool mirror2 = true;
+String panelFx = ""; CRGBPalette16 panelPal = RainbowColors_p;
+File gifFile, uploadFile;
+uint32_t lastActivity = 0; bool idle = false;
+String evQueue[6]; int evVal[6]; int evCount = 0;
+
+// debug log ring buffer + per-turn stats dedup
+#define LOGN 30
+String logBuf[LOGN]; int logHead = 0; String lastTurnSig = "";
+void LOG(const String &s) { logBuf[logHead] = String(millis() / 1000) + "s  " + s; logHead = (logHead + 1) % LOGN; Serial.println(s); }
+
+// ===================== CHECKOUTS =====================
+String checkoutFor(int score) {
+  static int lastS = -1; static String lastR = "";
+  if (score == lastS) return lastR;
+  lastS = score;
+  auto done = [&](String r) { lastR = r; return r; };
+  if (score < 2 || score > 170) return done("");
+  static int segV[64], dblV[24], nSeg = 0, nDbl = 0; static char segN[64][5], dblN[24][5];
+  if (!nSeg) {
+    for (int i = 20; i >= 1; i--) { segV[nSeg] = i * 3; sprintf(segN[nSeg], "T%d", i); nSeg++; }
+    segV[nSeg] = 50; strcpy(segN[nSeg], "50"); nSeg++;   // "50" keeps 3-dart routes ≤11 chars wide
+    segV[nSeg] = 25; strcpy(segN[nSeg], "25"); nSeg++;
+    for (int i = 20; i >= 1; i--) { segV[nSeg] = i; sprintf(segN[nSeg], "S%d", i); nSeg++; }
+    for (int i = 20; i >= 1; i--) { dblV[nDbl] = i * 2; sprintf(dblN[nDbl], "D%d", i); nDbl++; }
+    dblV[nDbl] = 50; strcpy(dblN[nDbl], "BULL"); nDbl++;
+  }
+  // in composed routes bull shortens to "B" so 3-dart strings fit 64px (e.g. 170 = "T20 T20 B")
+  auto D = [&](int d) { return String(dblN[d]) == "BULL" ? String("B") : String(dblN[d]); };
+  for (int d = 0; d < nDbl; d++) if (dblV[d] == score) return done(dblN[d]);
+  for (int a = 0; a < nSeg; a++) for (int d = 0; d < nDbl; d++)
+    if (segV[a] + dblV[d] == score) return done(String(segN[a]) + " " + D(d));
+  for (int a = 0; a < nSeg; a++) for (int b = 0; b < nSeg; b++) for (int d = 0; d < nDbl; d++)
+    if (segV[a] + segV[b] + dblV[d] == score) return done(String(segN[a]) + " " + segN[b] + " " + D(d));
+  return done("");
+}
+
+// ===================== GIF =====================
+void *GIFOpen(const char *fn, int32_t *pSize) { gifFile = LittleFS.open(fn, "r"); if (!gifFile) return nullptr; *pSize = gifFile.size(); return (void *)&gifFile; }
+void GIFClose(void *h) { if (h) ((File *)h)->close(); }
+int32_t GIFRead(GIFFILE *pF, uint8_t *b, int32_t l) { File *f = (File *)pF->fHandle; int32_t r = f->read(b, l); pF->iPos = f->position(); return r; }
+int32_t GIFSeek(GIFFILE *pF, int32_t p) { File *f = (File *)pF->fHandle; f->seek(p); pF->iPos = f->position(); return pF->iPos; }
+void GIFDraw(GIFDRAW *pDraw) {
+  int w = pDraw->iWidth; if (w > PANEL_W) w = PANEL_W;
+  uint16_t *pal = pDraw->pPalette; uint8_t *s = pDraw->pPixels;
+  int y = gifY + pDraw->iY + pDraw->y;
+  if (pDraw->ucDisposalMethod == 2) for (int x = 0; x < w; x++) if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
+  for (int x = 0; x < w; x++) { if (pDraw->ucHasTransparency && s[x] == pDraw->ucTransparent) continue; dma->drawPixel(gifX + pDraw->iX + x, y, pal[s[x]]); }
+}
+bool openGif(const char *path) {
+  if (gifPlaying) { gif.close(); gifPlaying = false; }
+  if (!path || !LittleFS.exists(path)) return false;
+  strncpy(gifPath, path, sizeof(gifPath) - 1);
+  if (gif.open((char *)gifPath, GIFOpen, GIFClose, GIFRead, GIFSeek, GIFDraw)) {
+    gifX = (PANEL_W - gif.getCanvasWidth()) / 2; gifY = (PANEL_H - gif.getCanvasHeight()) / 2;
+    gifPlaying = true; gifNextFrame = 0; return true;
+  }
+  return false;
+}
+
+// ===================== SCOREBOARD =====================
+void drawPlayer(int i, int yTop, int rowH) {
+  Player &p = players[i]; bool a = (i == activePlayer);
+  dma->setTextWrap(false);
+  if (rowH < 28) {                              // compact (3-4 players)
+    dma->setTextSize(1); dma->setTextColor(a ? C_YELLOW : C_DIM);
+    dma->setCursor(1, yTop); dma->print(p.name.substring(0, 8));
+    dma->setTextColor(C_WHITE); dma->setCursor(1, yTop + 8); dma->printf("%d", p.score);
+    if (a) dma->fillRect(60, yTop, 3, 7, C_GREEN);
+    return;
+  }
+  bool showAvg = cfg["layout"]["showAvg"] | true, showLegs = cfg["layout"]["showLegs"] | true;
+  bool showThrows = cfg["layout"]["showThrows"] | false, showCk = cfg["layout"]["showCheckout"] | false;
+  dma->setTextSize(1); dma->setTextColor(a ? C_YELLOW : C_DIM);
+  dma->setCursor(1, yTop); dma->print(p.name.substring(0, 10));
+  uint16_t pc = C_WHITE;                          // optional per-player colour
+  JsonArray pcs = cfg["layout"]["playerColors"].as<JsonArray>();
+  if (!pcs.isNull() && i < (int)pcs.size()) pc = dma->color565(pcs[i][0] | 255, pcs[i][1] | 255, pcs[i][2] | 255);
+  // a 32px half is exactly name(8) + size-2 score(16) + line(8): rows yTop..+7, +8..+23, +24..+31
+  dma->setTextSize(2); dma->setTextColor(pc);
+  dma->setCursor(1, yTop + 8); dma->print(p.score);
+  dma->setTextSize(1); dma->setCursor(1, yTop + 24);
+  String co = (a && showCk && p.score >= 2 && p.score <= 170) ? checkoutFor(p.score) : "";
+  if (a && showThrows && turnThrowCount > 0) {                 // priority 1: this turn's darts
+    dma->setTextColor(C_YELLOW);
+    for (int k = 0; k < turnThrowCount; k++) { if (k) dma->print(" "); dma->print(turnThrows[k]); }
+  } else if (co.length()) {                                    // priority 2: checkout route
+    dma->setTextColor(C_GREEN); dma->setCursor(0, yTop + 24); dma->print(co);   // x=0: fits 3-dart routes
+  } else {                                                     // priority 3: legs / average
+    dma->setTextColor(C_CYAN);
+    if (showLegs) dma->printf("L%d ", p.legs);
+    if (showAvg) dma->printf("%.1f", p.avg);
+  }
+  if (a) dma->fillRect(60, yTop, 3, 8, C_GREEN);
+}
+void drawScoreboard() {
+  idle = false;
+  dma->clearScreen();
+  int n = max(1, min(numPlayers, 4)), rowH = PANEL_H / n;
+  // rows start at i*rowH; divider sits on the LAST row of the half above (GFX leaves it blank)
+  for (int i = 0; i < n; i++) { drawPlayer(i, i * rowH, rowH); if (i) dma->drawFastHLine(0, i * rowH - 1, PANEL_W, C_DIM); }
+}
+void drawIdle() {
+  static uint32_t last = 0; if (millis() - last < 1000) return; last = millis();
+  dma->clearScreen(); struct tm t;
+  if (getLocalTime(&t, 5)) {
+    char buf[6]; strftime(buf, sizeof(buf), "%H:%M", &t);
+    dma->setTextSize(2); dma->setTextColor(C_CYAN); dma->setCursor(8, 18); dma->print(buf);
+  } else { dma->setTextSize(1); dma->setTextColor(C_DIM); dma->setCursor(3, 22); dma->print("AUTODARTS"); }
+  // session stats under the clock
+  dma->setTextSize(1); dma->setTextColor(C_DIM);
+  dma->setCursor(2, 44); dma->printf("180s %d-%d", players[0].c180, players[1].c180);
+  dma->setCursor(2, 54); dma->printf("HI %d", max(players[0].high, players[1].high));
+}
+
+// ===================== EFFECTS (palettes · 1D strips · 2D panel) =====================
+CRGBPalette16 paletteByName(const String &n) {
+  if (n == "fire" || n == "heat") return HeatColors_p;
+  if (n == "lava") return LavaColors_p;
+  if (n == "ocean") return OceanColors_p;
+  if (n == "forest") return ForestColors_p;
+  if (n == "party") return PartyColors_p;
+  if (n == "cloud") return CloudColors_p;
+  return RainbowColors_p;
+}
+
+// ---- 1D strip effects (per-strip config) ----
+void parseFx(JsonVariantConst o, StripFx &f) {
+  f.effect = (const char *)(o["effect"] | "off");
+  f.speed = o["speed"] | 4;
+  f.color = CRGB(o["color"][0] | 255, o["color"][1] | 255, o["color"][2] | 255);
+  f.pal = paletteByName((const char *)(o["palette"] | "rainbow"));
+}
+void applyEffect(CRGB *arr, int n, uint32_t now, uint8_t hue, StripFx &f) {
+  if (f.effect == "solid") fill_solid(arr, n, f.color);
+  else if (f.effect == "flash") fill_solid(arr, n, ((now / 120) % 2) ? f.color : CRGB::Black);
+  else if (f.effect == "strobe") fill_solid(arr, n, ((now / 60) % 2) ? CRGB::White : CRGB::Black);
+  else if (f.effect == "pulse") { CRGB v = f.color; v.nscale8(beatsin8(30)); fill_solid(arr, n, v); }
+  else if (f.effect == "rainbow") fill_rainbow(arr, n, hue, 4);
+  else if (f.effect == "palette") for (int i = 0; i < n; i++) arr[i] = ColorFromPalette(f.pal, hue + i * (255 / max(1, n)));
+  else if (f.effect == "running") for (int i = 0; i < n; i++) arr[i] = ColorFromPalette(f.pal, hue + sin8(i * 16 + now / 8));
+  else if (f.effect == "sparkle") { fadeToBlackBy(arr, n, 40); arr[random16(n)] = f.color; }
+  else if (f.effect == "twinkle") { fadeToBlackBy(arr, n, 20); if (random8() < 90) arr[random16(n)] = ColorFromPalette(f.pal, random8()); }
+  else if (f.effect == "comet") { fadeToBlackBy(arr, n, 64); arr[(now / 30) % n] = f.color; }
+  else fill_solid(arr, n, CRGB::Black);
+}
+void runEffect(uint32_t now) {
+  static uint32_t last = 0; static uint8_t hue[2] = {0, 0};
+  if (now - last < 20) return; last = now;
+  hue[0] += sfx[0].speed;
+  applyEffect(strip1, s1n, now, hue[0], sfx[0]);
+  if (mirror2) { for (int i = 0; i < s2n; i++) strip2[i] = strip1[i % s1n]; }   // slave/replicate
+  else { hue[1] += sfx[1].speed; applyEffect(strip2, s2n, now, hue[1], sfx[1]); }
+  FastLED.show();
+}
+void stopEffect() { fill_solid(strip1, s1n, CRGB::Black); fill_solid(strip2, s2n, CRGB::Black); FastLED.show(); }
+
+// FastLED pins are template parameters, so runtime pin choice = a switch over the
+// clean spare GPIOs on this board (avoids reserved 26-37 and strapping/USB pins).
+template <uint8_t PIN> void addStripT(CRGB *buf, int n) { FastLED.addLeds<WS2812B, PIN, GRB>(buf, n); }
+void addStripPin(int pin, CRGB *buf, int n) {
+  switch (pin) {
+    case 1: addStripT<1>(buf, n); break;   case 2: addStripT<2>(buf, n); break;
+    case 17: addStripT<17>(buf, n); break; case 21: addStripT<21>(buf, n); break;
+    case 38: addStripT<38>(buf, n); break; case 39: addStripT<39>(buf, n); break;
+    case 40: addStripT<40>(buf, n); break; case 41: addStripT<41>(buf, n); break;
+    case 42: addStripT<42>(buf, n); break; case 47: addStripT<47>(buf, n); break;
+    case 48: addStripT<48>(buf, n); break;
+    default: LOG("invalid strip pin " + String(pin) + " — using IO17"); addStripT<17>(buf, n);
+  }
+}
+
+// ---- 2D panel effects (rendered pixel-by-pixel on the 64x64) ----
+// Returns true when it actually redrew (so overlays can repaint in the same pass).
+bool runPanelFx(uint32_t now, const String &fx, const CRGBPalette16 &pal) {
+  static uint32_t last = 0; if (now - last < 33) return false; last = now;   // ~30 fps
+  static uint16_t z = 0; z += 22;
+  if (fx == "plasma" || fx == "noise") {
+    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < PANEL_W; x++) {
+      CRGB c = ColorFromPalette(pal, inoise8(x * 24, y * 24, z));
+      dma->drawPixelRGB888(x, y, c.r, c.g, c.b);
+    }
+  } else if (fx == "fire") {
+    for (int y = 0; y < PANEL_H; y++) for (int x = 0; x < PANEL_W; x++) {
+      uint8_t v = inoise8(x * 30, y * 35 - z * 3, z);
+      uint8_t heat = qsub8(v, (uint8_t)((PANEL_H - 1 - y) * 3));      // hotter at the bottom
+      CRGB c = ColorFromPalette(HeatColors_p, heat);
+      dma->drawPixelRGB888(x, y, c.r, c.g, c.b);
+    }
+  } else if (fx == "matrix") {                                        // falling green code
+    static int head[PANEL_W]; static bool init = false;
+    if (!init) { for (int x = 0; x < PANEL_W; x++) head[x] = random16(PANEL_H); init = true; }
+    dma->clearScreen();
+    for (int x = 0; x < PANEL_W; x++) {
+      head[x] = (head[x] + 1) % PANEL_H;
+      for (int t = 0; t < 10; t++) { int y = (head[x] - t + PANEL_H) % PANEL_H; uint8_t b = 255 - t * 26; dma->drawPixelRGB888(x, y, 0, b, 0); }
+    }
+  } else if (fx == "sparkle") {
+    dma->clearScreen();
+    for (int i = 0; i < 45; i++) { CRGB c = ColorFromPalette(pal, random8()); dma->drawPixelRGB888(random16(PANEL_W), random16(PANEL_H), c.r, c.g, c.b); }
+  } else return false;
+  return true;
+}
+
+// ===================== EVENTS (with queue) =====================
+void playEvent(const String &name, int value) {
+  JsonObject o = cfg["events"][name];
+  if (o.isNull()) return;
+  eventText = (const char *)(o["text"] | name.c_str());
+  // strips: flat fields = strip 1; optional "fx1" object overrides; "fx2" is
+  // "mirror" (default — replicate strip 1), "off", or its own {effect,palette,color,speed}
+  parseFx(o, sfx[0]);
+  if (!o["fx1"].isNull()) parseFx(o["fx1"], sfx[0]);
+  JsonVariant f2 = o["fx2"];
+  if (f2.isNull()) { sfx[1] = sfx[0]; mirror2 = true; }
+  else if (f2.is<const char *>()) {
+    mirror2 = (String((const char *)f2) == "mirror");
+    if (!mirror2) sfx[1].effect = "off";
+  } else { mirror2 = false; parseFx(f2, sfx[1]); }
+  panelFx = (const char *)(o["panelFx"] | "");
+  panelPal = paletteByName((const char *)(o["palette"] | "rainbow"));
+  eventUntil = millis() + (uint32_t)(o["ms"] | DEF_EVENT_MS);
+  marqueeX = PANEL_W; lastMarquee = 0;
+  dma->clearScreen();                            // clear the scoreboard behind the celebration
+  const char *g = o["gif"] | "";
+  if (strlen(g) && openGif(g)) panelFx = "";     // a GIF takes precedence over a 2D effect
+}
+void enqueueEvent(const String &name, int value) {
+  JsonObject o = cfg["events"][name];
+  if (o.isNull()) { LOG("unmapped event: " + name); return; }
+  if (!(o["enabled"] | true)) { LOG("disabled: " + name); return; }
+  int mn = o["min"] | 0;                          // celebration threshold, e.g. treble min 15 = T15+
+  if (mn && value && value < mn) { LOG(name + " " + value + " < min " + mn + ", skipped"); return; }
+  if (!eventUntil) playEvent(name, value);
+  else if (evCount < 6) { evQueue[evCount] = name; evVal[evCount] = value; evCount++; }
+  else LOG("queue full, dropped: " + name);
+}
+
+// ===================== CONFIG =====================
+void applyLive() {
+  dma->setBrightness8(cfg["layout"]["brightness"] | DEF_PANEL_BRI);
+  dma->setRotation(cfg["layout"]["rotation"] | 0);
+  FastLED.setBrightness(cfg["layout"]["stripBrightness"] | DEF_STRIP_BRI);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, cfg["layout"]["maxMilliamps"] | DEF_MAX_MA);
+}
+void saveConfig() { File f = LittleFS.open("/config.json", "w"); if (f) { serializeJson(cfg, f); f.close(); } }
+void loadConfig() {
+  if (LittleFS.exists("/config.json")) {
+    File f = LittleFS.open("/config.json", "r");
+    DeserializationError e = deserializeJson(cfg, f); f.close();
+    if (!e) return;
+  }
+  cfg.clear();
+  JsonObject L = cfg["layout"].to<JsonObject>();
+  L["players"] = 2; L["showAvg"] = true; L["showLegs"] = true; L["showThrows"] = false;
+  L["showCheckout"] = true; L["brightness"] = DEF_PANEL_BRI; L["stripBrightness"] = DEF_STRIP_BRI;
+  L["rotation"] = 0; L["maxMilliamps"] = DEF_MAX_MA; L["idleMs"] = DEF_IDLE_MS; L["tzOffset"] = 0;
+  L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle
+  L["strip1Pin"] = 17; L["strip2Pin"] = 21;       // strip data GPIOs (reboot to apply)
+  L["strip1Count"] = 60; L["strip2Count"] = 60;   // LED counts (reboot to apply)
+  JsonObject ev = cfg["events"].to<JsonObject>();
+  auto add = [&](const char *k, const char *g, const char *t, const char *fx, int r, int gg, int b) {
+    JsonObject o = ev[k].to<JsonObject>(); o["gif"] = g; o["text"] = t; o["effect"] = fx;
+    o["color"][0] = r; o["color"][1] = gg; o["color"][2] = b; o["ms"] = DEF_EVENT_MS;
+  };
+  add("180", "/gifs/laugh.gif", "180!", "flash", 255, 0, 0);
+  add("140", "/gifs/fire.gif", "140", "comet", 255, 120, 0);
+  add("100", "/gifs/fire.gif", "TON", "pulse", 255, 200, 0);
+  add("26", "/gifs/laugh.gif", "26", "rainbow", 0, 0, 0);
+  add("double", "/gifs/target.gif", "DOUBLE", "sparkle", 0, 200, 255);
+  add("treble", "/gifs/target.gif", "TREBLE", "sparkle", 0, 255, 120);
+  add("bust", "/gifs/cry.gif", "BUST", "strobe", 80, 80, 255);
+  add("legWon", "/gifs/trophy.gif", "LEG WON", "sparkle", 255, 215, 0);
+  add("gameWon", "/gifs/trophy.gif", "GAME SHOT!", "rainbow", 255, 215, 0);
+  // showcase palettes + 2D panel effects (panelFx renders when no gif is set/found)
+  ev["180"]["palette"] = "party";
+  ev["140"]["palette"] = "lava";
+  ev["gameWon"]["panelFx"] = "plasma"; ev["gameWon"]["palette"] = "party"; ev["gameWon"]["gif"] = "";
+  ev["bust"]["effect"] = "twinkle"; ev["bust"]["palette"] = "ocean";
+  // celebration thresholds: only celebrate D10+ / T15+ by default (set 0 = every one)
+  ev["double"]["min"] = 10;
+  ev["treble"]["min"] = 15;
+  // per-strip showcase: on gameWon, strip 1 rainbows while strip 2 runs a gold comet
+  ev["gameWon"]["fx2"]["effect"] = "comet"; ev["gameWon"]["fx2"]["color"][0] = 255;
+  ev["gameWon"]["fx2"]["color"][1] = 215; ev["gameWon"]["fx2"]["color"][2] = 0;
+  saveConfig();
+}
+
+// ===================== HTTP HANDLERS =====================
+void handleScore() {
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  activePlayer = d["activePlayer"] | activePlayer;
+  JsonArray a = d["players"].as<JsonArray>();
+  if (!a.isNull()) {
+    numPlayers = min((int)a.size(), 4);
+    for (int i = 0; i < numPlayers; i++) {
+      players[i].name = (const char *)(a[i]["name"] | players[i].name.c_str());
+      players[i].score = a[i]["score"] | players[i].score;
+      players[i].legs = a[i]["legs"] | players[i].legs;
+      players[i].avg = a[i]["avg"] | players[i].avg;
+    }
+  }
+  JsonArray th = d["throws"].as<JsonArray>(); turnThrowCount = 0;
+  if (!th.isNull()) for (size_t i = 0; i < th.size() && i < 3; i++) { turnThrows[i] = th[i] | 0; turnThrowCount++; }
+  // stats: highest turn + 180 count (once per completed 3-dart turn)
+  if (turnThrowCount == 3 && activePlayer >= 0 && activePlayer < 4) {
+    String sig = String(activePlayer) + ":" + turnThrows[0] + "," + turnThrows[1] + "," + turnThrows[2];
+    if (sig != lastTurnSig) {
+      lastTurnSig = sig;
+      int sum = turnThrows[0] + turnThrows[1] + turnThrows[2];
+      if (sum > players[activePlayer].high) players[activePlayer].high = sum;
+      if (sum == 180) players[activePlayer].c180++;
+    }
+  }
+  lastActivity = millis();
+  if (!eventUntil && !identifyUntil) drawScoreboard();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+void handleEvent() {
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  lastActivity = millis();
+  String name = (const char *)(d["event"] | "");
+  int value = d["value"] | 0;                     // dart number / turn total (for min thresholds)
+  LOG("event: " + name + (value ? " (" + String(value) + ")" : ""));
+  enqueueEvent(name, value);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+void handleConfigGet() { File f = LittleFS.open("/config.json", "r"); if (!f) { server.send(200, "application/json", "{}"); return; } server.streamFile(f, "application/json"); f.close(); }
+void handleConfigPost() {
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  cfg = d; saveConfig(); applyLive();            // (panelDriver / strip pins+counts need a reboot)
+  if (!eventUntil && !identifyUntil) drawScoreboard();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+void handleSprites() {
+  String out = "["; File dir = LittleFS.open("/gifs");
+  if (dir) for (File f = dir.openNextFile(); f; f = dir.openNextFile()) { if (out.length() > 1) out += ","; out += "\"" + String(f.name()) + "\""; }
+  server.send(200, "application/json", out + "]");
+}
+void handleSpriteUpload() {
+  HTTPUpload &up = server.upload();
+  if (up.status == UPLOAD_FILE_START) { if (!LittleFS.exists("/gifs")) LittleFS.mkdir("/gifs"); uploadFile = LittleFS.open("/gifs/" + up.filename, "w"); }
+  else if (up.status == UPLOAD_FILE_WRITE) { if (uploadFile) uploadFile.write(up.buf, up.currentSize); }
+  else if (up.status == UPLOAD_FILE_END) { if (uploadFile) uploadFile.close(); }
+}
+void handleDelete() { if (server.hasArg("name")) LittleFS.remove("/gifs/" + server.arg("name")); server.send(200, "application/json", "{\"ok\":true}"); }
+void handleStatus() {
+  JsonDocument s; s["heap"] = ESP.getFreeHeap(); s["rssi"] = WiFi.RSSI();
+  s["ip"] = WiFi.localIP().toString(); s["gif"] = gifPath; s["uptime"] = millis() / 1000; s["queue"] = evCount;
+  for (int i = 0; i < numPlayers; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
+  String o; serializeJson(s, o); server.send(200, "application/json", o);
+}
+void handleOTAUpload() {
+  HTTPUpload &up = server.upload();
+  if (up.status == UPLOAD_FILE_START) Update.begin(UPDATE_SIZE_UNKNOWN);
+  else if (up.status == UPLOAD_FILE_WRITE) Update.write(up.buf, up.currentSize);
+  else if (up.status == UPLOAD_FILE_END) Update.end(true);
+}
+void handleText() {                              // scroll arbitrary text on demand
+  if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  eventText = (const char *)(d["text"] | "");
+  parseFx(d.as<JsonVariantConst>(), sfx[0]); sfx[1] = sfx[0]; mirror2 = true;
+  panelFx = (const char *)(d["panelFx"] | "");   // default "" — don't inherit a stale 2D backdrop
+  panelPal = paletteByName((const char *)(d["palette"] | "rainbow"));
+  eventUntil = millis() + (uint32_t)(d["ms"] | 5000);
+  marqueeX = PANEL_W; lastMarquee = 0;
+  if (gifPlaying) { gif.close(); gifPlaying = false; }
+  dma->clearScreen(); lastActivity = millis();
+  LOG("text: " + eventText);
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+void handleLog() {
+  String o; for (int i = 0; i < LOGN; i++) { String &l = logBuf[(logHead + i) % LOGN]; if (l.length()) o += l + "\n"; }
+  server.send(200, "text/plain", o);
+}
+void handleReset() { for (int i = 0; i < 4; i++) { players[i].c180 = 0; players[i].high = 0; } LOG("stats reset"); server.send(200, "application/json", "{\"ok\":true}"); }
+void handleIdentify() {                          // light each output so you can see which is which
+  identifyUntil = millis() + 8000;
+  eventUntil = 0; evCount = 0;
+  if (gifPlaying) { gif.close(); gifPlaying = false; }
+  fill_solid(strip1, s1n, CRGB::Red);
+  fill_solid(strip2, s2n, CRGB::Blue);
+  FastLED.show();
+  dma->clearScreen(); dma->setTextSize(1);
+  dma->setTextColor(C_WHITE);  dma->setCursor(8, 4);  dma->print("IDENTIFY");
+  dma->setTextColor(C_RED);    dma->setCursor(2, 20); dma->printf("S1 RED %d", (int)(cfg["layout"]["strip1Pin"] | 17));
+  dma->setTextColor(dma->color565(90, 90, 255)); dma->setCursor(2, 32); dma->printf("S2 BLU %d", (int)(cfg["layout"]["strip2Pin"] | 21));
+  dma->setTextColor(C_GREEN);  dma->setCursor(2, 48); dma->print("PANEL OK");
+  LOG("identify: strip1=RED strip2=BLUE");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+void handleWifiReset() { server.send(200, "text/plain", "wifi reset, rebooting"); WiFiManager wm; wm.resetSettings(); delay(400); ESP.restart(); }
+
+static const char PAGE[] PROGMEM = R"HTML(
+<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Darts Scoreboard</title>
+<style>body{font-family:sans-serif;background:#111;color:#eee;margin:1em;max-width:760px}
+textarea{width:100%;height:200px;background:#1c1c1c;color:#6f6;font-family:monospace;border:1px solid #333}
+button{margin:.15em;padding:.35em .6em;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer}
+input,select{color:#eee;background:#1c1c1c;border:1px solid #444;padding:.25em;margin:.1em}
+input[type=color]{padding:0;width:34px;height:24px;vertical-align:middle}
+label{margin-right:.6em;white-space:nowrap;display:inline-block}
+fieldset{border:1px solid #333;border-radius:6px;margin:.5em 0;padding:.5em}
+legend{color:#fc6;padding:0 .4em}
+.gif{display:inline-flex;align-items:center;gap:.3em;margin:.2em;padding:.3em .5em;background:#222;border-radius:4px}
+img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1c1c;padding:.6em;white-space:pre-wrap}
+.bar{position:sticky;top:0;background:#111;padding:.4em 0;z-index:5}</style>
+<h2>🎯 Darts Scoreboard</h2>
+<div class=bar><button onclick=save() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
+<button onclick=load()>Reload</button><button onclick=dl()>Download backup</button></div>
+<h3>Scoreboard panel</h3><div id=lo></div>
+<h3>Celebrations (events)</h3>
+<div>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
+<div id=evl></div>
+<input id=ne placeholder="new event name"><button onclick=addev()>+ add event</button>
+<h3>Sprites (GIFs)</h3><div id=s></div>
+<input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button>
+<h3>Test</h3>
+<input id=tx placeholder="scroll some text"><button onclick=say()>Send text</button>
+<button onclick=rst()>Reset stats</button>
+<h3>Firmware / WiFi</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
+<button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
+<h3>Status</h3><pre id=st></pre>
+<h3>Log</h3><pre id=lg style="height:150px;overflow:auto"></pre>
+<h3>Advanced (raw JSON)</h3><textarea id=c></textarea><br><button onclick=applyRaw()>Apply raw JSON to form</button>
+<script>
+let C=null,gifs=[];
+const FX=['off','solid','flash','strobe','pulse','rainbow','palette','running','sparkle','twinkle','comet'];
+const PAL=['rainbow','party','ocean','forest','lava','fire','cloud'];
+const PFX=['','plasma','fire','matrix','sparkle'];
+const DRV=['SHIFTREG','FM6126A','FM6124'];
+const t=(p,o)=>fetch(p,o).then(r=>r.text());
+const norm=n=>n.startsWith('/')?n:'/gifs/'+n;
+const hx=a=>'#'+((Array.isArray(a)&&a.length?a:[255,255,255]).map(x=>(+x||0).toString(16).padStart(2,'0')).join(''));
+const rgb=h=>[parseInt(h.substr(1,2),16),parseInt(h.substr(3,2),16),parseInt(h.substr(5,2),16)];
+const esc=x=>String(x).replace(/"/g,'&quot;');
+const opt=(a,v)=>a.map(o=>`<option value="${o}" ${o==v?'selected':''}>${o===''?'(none)':o}</option>`).join('');
+const gifopt=v=>['',...gifs.map(norm)].map(o=>`<option value="${o}" ${o==v?'selected':''}>${o?o.split('/').pop():'(none)'}</option>`).join('');
+function lset(k,v){C.layout[k]=v}
+function pcol(i,h){if(!C.layout.playerColors)C.layout.playerColors=[];C.layout.playerColors[i]=rgb(h)}
+function renderLayout(){const L=C.layout||(C.layout={});
+ const chk=k=>`<label><input type=checkbox ${L[k]?'checked':''} onchange="lset('${k}',this.checked)"> ${k}</label>`;
+ const num=k=>`<label>${k} <input type=number style="width:72px" value="${L[k]??''}" onchange="lset('${k}',+this.value)"></label>`;
+ const sl=(k,a)=>`<label>${k} <select onchange="lset('${k}',this.value)">${opt(a,L[k]??a[0])}</select></label>`;
+ const p=L.playerColors||[];
+ lo.innerHTML=[num('players'),chk('showAvg'),chk('showLegs'),chk('showThrows'),chk('showCheckout'),num('brightness'),
+  num('stripBrightness'),num('maxMilliamps'),num('rotation'),num('idleMs'),sl('idleFx',PFX),sl('idlePalette',PAL),
+  num('tzOffset'),sl('panelDriver',DRV)].join(' ')
+  +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
+  +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
+  +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
+  +' <button onclick=idf()>🔦 Identify outputs</button>';
+}
+function eset(k,f,v){C.events[k][f]=v}
+function f2mode(k){const f=C.events[k].fx2;return f==null?'mirror':(typeof f=='string'?(f=='mirror'?'mirror':'off'):'custom')}
+function setmode(k,m){if(m=='mirror')delete C.events[k].fx2;else if(m=='off')C.events[k].fx2='off';
+ else C.events[k].fx2={effect:'sparkle',palette:'rainbow',color:[255,255,255]};renderEvents()}
+function f2set(k,f,v){let o=C.events[k].fx2;if(typeof o!='object'||!o)o=C.events[k].fx2={};o[f]=v}
+function delev(k){if(confirm('Delete event '+k+'?')){delete C.events[k];renderEvents()}}
+function addev(){const n=ne.value.trim();if(!n)return;if(!C.events)C.events={};
+ C.events[n]={enabled:true,text:n.toUpperCase(),effect:'flash',color:[255,255,255],ms:3000};ne.value='';renderEvents()}
+function fire(k){fetch('/event',{method:'POST',body:JSON.stringify({event:k,value:999})})}
+function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
+ const o=C.events[k],m=f2mode(k),f2=(typeof o.fx2=='object'&&o.fx2)?o.fx2:{};
+ return `<fieldset><legend><b>${k}</b> <button onclick="fire('${k}')">▶ test</button> <button onclick="delev('${k}')">✕</button></legend>
+ <label><input type=checkbox ${o.enabled===false?'':'checked'} onchange="eset('${k}','enabled',this.checked)"> on</label>
+ <label>min <input type=number style="width:54px" value="${o.min||0}" onchange="eset('${k}','min',+this.value)"></label>
+ <label>text <input style="width:120px" value="${esc(o.text||'')}" onchange="eset('${k}','text',this.value)"></label>
+ <label>ms <input type=number style="width:66px" value="${o.ms||5000}" onchange="eset('${k}','ms',+this.value)"></label>
+ <label>gif <select onchange="eset('${k}','gif',this.value)">${gifopt(o.gif||'')}</select></label>
+ <label>2D <select onchange="eset('${k}','panelFx',this.value)">${opt(PFX,o.panelFx||'')}</select></label><br>
+ <b>Strip 1:</b> <select onchange="eset('${k}','effect',this.value)">${opt(FX,o.effect||'off')}</select>
+ <select onchange="eset('${k}','palette',this.value)">${opt(PAL,o.palette||'rainbow')}</select>
+ <input type=color value="${hx(o.color)}" onchange="eset('${k}','color',rgb(this.value))">
+ &nbsp; <b>Strip 2:</b> <select onchange="setmode('${k}',this.value)">${opt(['mirror','custom','off'],m)}</select>
+ ${m=='custom'?` <select onchange="f2set('${k}','effect',this.value)">${opt(FX,f2.effect||'off')}</select>
+ <select onchange="f2set('${k}','palette',this.value)">${opt(PAL,f2.palette||'rainbow')}</select>
+ <input type=color value="${hx(f2.color)}" onchange="f2set('${k}','color',rgb(this.value))">`:''}
+ </fieldset>`}).join('');
+}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents()}
+async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
+function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
+function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
+async function sp(){gifs=JSON.parse(await t('/sprites'));
+ s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n)}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
+ if(C)renderEvents()}
+async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
+async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
+async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:5000,effect:'pulse',color:[0,180,255]})})}
+async function rst(){await fetch('/reset',{method:'POST'});alert('stats reset')}
+async function ota(){let x=fw.files[0];if(!x)return;let d=new FormData();d.append('f',x,x.name);await fetch('/update',{method:'POST',body:d});alert('updating, rebooting')}
+async function wr(){if(confirm('Reset WiFi and reboot?'))await fetch('/wifi/reset',{method:'POST'})}
+async function idf(){await fetch('/identify',{method:'POST'})}
+async function rb(){if(confirm('Reboot device?'))await fetch('/reboot',{method:'POST'})}
+async function stat(){st.textContent=await t('/status')}
+async function lg_(){lg.textContent=await t('/log');lg.scrollTop=lg.scrollHeight}
+(async()=>{await sp();await load();stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
+</script>)HTML";
+
+// ===================== SETUP / LOOP =====================
+void setup() {
+  Serial.begin(115200);
+  LittleFS.begin(true);
+  loadConfig();                                   // load before panel init (for driver/brightness)
+
+  HUB75_I2S_CFG::i2s_pins pins = { P_R1, P_G1, P_B1, P_R2, P_G2, P_B2, P_A, P_B, P_C, P_D, P_E, P_LAT, P_OE, P_CLK };
+  HUB75_I2S_CFG mx(PANEL_W, PANEL_H, PANEL_CHAIN, pins); mx.clkphase = false;
+  String drv = (const char *)(cfg["layout"]["panelDriver"] | "SHIFTREG");
+  if (drv == "FM6126A") mx.driver = HUB75_I2S_CFG::FM6126A;
+  else if (drv == "FM6124") mx.driver = HUB75_I2S_CFG::FM6124;
+  dma = new MatrixPanel_I2S_DMA(mx); dma->begin();
+  C_WHITE = dma->color565(255,255,255); C_RED = dma->color565(255,40,40); C_GREEN = dma->color565(40,220,60);
+  C_YELLOW = dma->color565(255,210,40); C_CYAN = dma->color565(40,200,230); C_DIM = dma->color565(90,90,90);
+
+  s1n = constrain((int)(cfg["layout"]["strip1Count"] | 60), 1, STRIP_MAX);
+  s2n = constrain((int)(cfg["layout"]["strip2Count"] | 60), 1, STRIP_MAX);
+  addStripPin(cfg["layout"]["strip1Pin"] | 17, strip1, s1n);
+  addStripPin(cfg["layout"]["strip2Pin"] | 21, strip2, s2n);
+  FastLED.clear(true);
+  applyLive();                                    // brightness / rotation / current cap from config
+
+  dma->setTextSize(1); dma->setCursor(1, 1); dma->print("WiFi setup.."); dma->setCursor(1, 12); dma->print(AP_NAME);
+  WiFiManager wm; wm.setConfigPortalTimeout(180);
+  if (!wm.autoConnect(AP_NAME)) ESP.restart();
+  configTime((long)(cfg["layout"]["tzOffset"] | 0), 0, "pool.ntp.org");   // for the idle clock
+  if (MDNS.begin(MDNS_NAME)) MDNS.addService("http", "tcp", 80);
+  gif.begin(GIF_PALETTE_RGB565_BE);               // flip _BE/_LE if GIF colours look wrong
+  players[0].name = "PLAYER 1"; players[1].name = "PLAYER 2";   // other fields use struct defaults
+
+  server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", PAGE); });
+  server.on("/ping", HTTP_GET, [](){ server.send(200,"application/json","{\"device\":\"darts-scoreboard\",\"ip\":\""+WiFi.localIP().toString()+"\"}"); });
+  server.on("/status", HTTP_GET, handleStatus);
+  server.on("/score", HTTP_POST, handleScore);
+  server.on("/event", HTTP_POST, handleEvent);
+  server.on("/config", HTTP_GET, handleConfigGet);
+  server.on("/config", HTTP_POST, handleConfigPost);
+  server.on("/sprites", HTTP_GET, handleSprites);
+  server.on("/sprite", HTTP_POST, [](){ server.send(200,"application/json","{\"ok\":true}"); }, handleSpriteUpload);
+  server.on("/delete", HTTP_POST, handleDelete);
+  server.on("/text", HTTP_POST, handleText);
+  server.on("/log", HTTP_GET, handleLog);
+  server.on("/reset", HTTP_POST, handleReset);
+  server.on("/identify", HTTP_POST, handleIdentify);
+  server.on("/reboot", HTTP_POST, [](){ server.send(200, "text/plain", "rebooting"); delay(300); ESP.restart(); });
+  server.on("/wifi/reset", HTTP_POST, handleWifiReset);
+  server.on("/update", HTTP_POST, [](){ server.send(200,"text/plain",Update.hasError()?"FAIL":"OK"); delay(400); ESP.restart(); }, handleOTAUpload);
+  server.serveStatic("/gifs", LittleFS, "/gifs");   // serve GIFs so the web UI can preview them
+  server.enableCORS(true); server.begin();
+
+  lastActivity = millis();
+  drawScoreboard();
+  LOG("ready http://" MDNS_NAME ".local " + WiFi.localIP().toString());
+}
+
+void loop() {
+  server.handleClient();
+  uint32_t now = millis();
+  if (identifyUntil) {                              // identify mode holds red/blue until it expires
+    if (now >= identifyUntil) { identifyUntil = 0; stopEffect(); drawScoreboard(); }
+  } else if (eventUntil) {
+    if (now < eventUntil) {
+      bool redrew = false;                                                    // did the backdrop repaint this pass?
+      if (gifPlaying) {                                                       // GIF backdrop
+        if (now >= gifNextFrame) {
+          int delayMs = 0;
+          if (gif.playFrame(false, &delayMs, nullptr) == 0) gif.reset();      // rewind = loop (no reopen)
+          gifNextFrame = now + (delayMs > 0 ? delayMs : 80);
+          redrew = true;
+        }
+      } else if (panelFx.length()) redrew = runPanelFx(now, panelFx, panelPal); // 2D effect backdrop
+      // scrolling text ticker — repaint whenever the backdrop repainted (kills flicker)
+      if (eventText.length() && (redrew || now - lastMarquee > 33)) {
+        lastMarquee = now;
+        dma->fillRect(0, PANEL_H - 8, PANEL_W, 8, 0);
+        dma->setTextSize(1); dma->setTextColor(C_WHITE);
+        dma->setCursor(marqueeX, PANEL_H - 7); dma->print(eventText);
+        marqueeX -= 2; int w = eventText.length() * 6;
+        if (marqueeX < -w) marqueeX = PANEL_W;
+      }
+      runEffect(now);
+    } else {                                        // event finished
+      eventUntil = 0;
+      if (gifPlaying) { gif.close(); gifPlaying = false; }
+      stopEffect();
+      if (evCount > 0) {
+        String n = evQueue[0]; int v = evVal[0];
+        for (int i = 1; i < evCount; i++) { evQueue[i - 1] = evQueue[i]; evVal[i - 1] = evVal[i]; }
+        evCount--; playEvent(n, v);
+      } else drawScoreboard();
+    }
+  } else {                                          // idle screen after inactivity
+    uint32_t idleMs = cfg["layout"]["idleMs"] | DEF_IDLE_MS;
+    if (idleMs && now - lastActivity > idleMs) {
+      idle = true;
+      String ifx = (const char *)(cfg["layout"]["idleFx"] | "");
+      if (ifx.length()) {                           // animated 2D wallpaper + clock overlay
+        bool redrew = runPanelFx(now, ifx, paletteByName((const char *)(cfg["layout"]["idlePalette"] | "ocean")));
+        static uint32_t lc = 0; static char clk[6] = "";
+        if (now - lc > 1000) { lc = now; struct tm t; if (getLocalTime(&t, 5)) strftime(clk, 6, "%H:%M", &t); }
+        if (redrew && clk[0]) { dma->setTextSize(1); dma->setTextColor(C_WHITE); dma->setCursor(20, 2); dma->print(clk); }
+      } else drawIdle();
+    }
+  }
+}
