@@ -200,13 +200,19 @@ String fieldValue(const String &t, int p, JsonObject f) {
   if (t == "total")  { int s = 0; for (int k = 0; k < turnThrowCount; k++) s += turnThrows[k]; return String(s); }
   return "";
 }
+uint16_t markColor(const char *fx) {                  // active-marker colour for the current instant
+  uint32_t now = millis();
+  if (!strcmp(fx, "blink")) return ((now / 400) % 2) ? 0 : C_GREEN;                 // on/off blink (~1.25 Hz)
+  if (!strcmp(fx, "pulse")) { uint8_t b = beatsin8(45, 45, 255); return dma->color565(0, b, 0); }   // brightness pulse
+  return C_GREEN;                                     // "on" = solid
+}
 void drawFields(JsonArray fields) {
   dma->clearScreen(); dma->setTextWrap(false);
   for (JsonObject f : fields) {
     String t = (const char *)(f["t"] | "");
     int p = f["p"] | 0, x = f["x"] | 0, y = f["y"] | 0, size = f["s"] | 1;
     bool act = (p == activePlayer && p >= 0 && p < numPlayers);
-    if (t == "amark") { if (act) dma->fillRect(x, y, 3, 8, C_GREEN); continue; }    // active-player marker
+    if (t == "amark") { if (act) { uint16_t g = markColor(f["fx"] | "on"); if (g) dma->fillRect(x, y, 3, 8, g); } continue; }   // active-player marker (fx: on/blink/pulse)
     if (t == "hline") { dma->drawFastHLine(x, y, PANEL_W - x, C_DIM); continue; }    // divider line
     String v = fieldValue(t, p, f);
     if (!v.length()) continue;
@@ -234,6 +240,18 @@ void drawScoreboard() {
   int n = max(1, min(numPlayers, 4)), rowH = PANEL_H / n;
   // rows start at i*rowH; divider sits on the LAST row of the half above (GFX leaves it blank)
   for (int i = 0; i < n; i++) { drawPlayer(i, i * rowH, rowH); if (i) dma->drawFastHLine(0, i * rowH - 1, PANEL_W, C_DIM); }
+}
+void animateMarkers(uint32_t now) {                   // repaint only the blink/pulse active markers (no full redraw = no flicker)
+  JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
+  if (fields.isNull()) return;
+  for (JsonObject f : fields) {
+    if (strcmp(f["t"] | "", "amark")) continue;
+    const char *fx = f["fx"] | "on";
+    if (!strcmp(fx, "on")) continue;                  // static marker — nothing to animate
+    int p = f["p"] | 0;
+    if (p != activePlayer || p < 0 || p >= numPlayers) continue;
+    dma->fillRect((int)(f["x"] | 0), (int)(f["y"] | 0), 3, 8, markColor(fx));
+  }
 }
 void drawIdle() {
   static uint32_t last = 0; if (millis() - last < 1000) return; last = millis();
@@ -648,7 +666,7 @@ function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoun
  const mv=ev=>{f.x=Math.max(0,Math.min(63,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
  const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up);renderProps()}
 function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.innerHTML='(no field selected)';return}const f=F[selF];
- fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
+ fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} ${f.t=='amark'?`fx <select onchange="fS('fx',this.value)">${opt(['on','blink','pulse'],f.fx||'on')}</select>`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
 function fS(k,v){lfields()[selF][k]=v;renderLED()}
 function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
 async function savelay(){await save();alert('Layout saved & applied')}
@@ -814,6 +832,9 @@ void loop() {
         if (now - lc > 1000) { lc = now; struct tm t; if (getLocalTime(&t, 5)) strftime(clk, 6, "%H:%M", &t); }
         if (redrew && clk[0]) { dma->setTextSize(1); dma->setTextColor(C_WHITE); dma->setCursor(20, 2); dma->print(clk); }
       } else drawIdle();
+    } else {                                          // scoreboard is showing — animate any blink/pulse markers
+      static uint32_t lm = 0;
+      if (now - lm > 33) { lm = now; animateMarkers(now); }
     }
   }
 }
