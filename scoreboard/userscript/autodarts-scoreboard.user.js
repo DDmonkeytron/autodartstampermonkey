@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.0
+// @version      0.6.2
+// @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
+// @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -22,7 +24,7 @@
 
   // Turn on to log the raw autodarts match state to the console so you can
   // confirm / tune the field paths in readMatch(). Set false once it works.
-  const DEBUG = true;
+  const DEBUG = false;   // schema confirmed live 2026-07-13 (see readMatch paths); flip true to re-tune
 
   // ---------- default event map (edit, then "Push config") ----------
   // NOTE: the friendlier way to edit all of this is the ESP32's web UI (http://darts.local/) —
@@ -189,9 +191,9 @@
   function readMatch(m) {
     const players = (m.players || []).map((p, i) => ({
       name: String(p.name || p.playerName || `P${i + 1}`).toUpperCase().slice(0, 10),
-      score: (m.gameScores && m.gameScores[i]) ?? p.score ?? (m.scores && m.scores[i]) ?? 0,
-      legs:  (m.legs && m.legs[i]) ?? p.legs ?? 0,
-      avg:   Math.round((p.average ?? p.avg ?? 0) * 10) / 10,
+      score: (m.gameScores && m.gameScores[i]) ?? p.score ?? 0,
+      legs:  m.scores?.[i]?.legs ?? p.legs ?? 0,          // autodarts: legs live in scores[i].legs
+      avg:   Math.round((m.stats?.[i]?.matchStats?.average ?? p.average ?? p.avg ?? 0) * 10) / 10,
     }));
     const turns  = m.turns || (m.turn ? [m.turn] : []);
     const cur    = turns.length ? turns[turns.length - 1] : (m.turn || {});
@@ -199,8 +201,8 @@
       players,
       active:  m.player ?? m.turn?.player ?? cur.player ?? 0,
       throws:  cur.throws || [],
-      busted:  !!(cur.busted || m.turn?.busted),
-      winner:  m.winner ?? m.gameWinner ?? null,
+      busted:  !!(cur.busted || m.turnBusted || m.turn?.busted),
+      winner:  (m.winner ?? m.gameWinner ?? -1) >= 0 ? (m.winner ?? m.gameWinner) : null,  // autodarts uses -1 for "no winner"
     };
   }
 
