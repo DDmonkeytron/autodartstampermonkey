@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.2
+// @version      0.6.3
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -25,6 +25,7 @@
   // Turn on to log the raw autodarts match state to the console so you can
   // confirm / tune the field paths in readMatch(). Set false once it works.
   const DEBUG = false;   // schema confirmed live 2026-07-13 (see readMatch paths); flip true to re-tune
+  const GAME_SHOT_CALL = true;   // announce "GAME SHOT COMING – <double> TO WIN" when a player steps up on a 1-dart finish
 
   // ---------- default event map (edit, then "Push config") ----------
   // NOTE: the friendlier way to edit all of this is the ESP32's web UI (http://darts.local/) —
@@ -86,6 +87,7 @@
   // value = dart number (D16 → 16, T18 → 18) or turn total — the ESP32 checks it
   // against the event's "min" threshold (e.g. treble min 15 = only T15+ celebrates)
   const postEvent  = (event, text, value) => { lastEv = event + (value ? ` (${value})` : ""); updateHud(); log("event →", event, value ?? ""); return postJSON("/event", { event, text, value }); };
+  const postText   = (text, opts)  => { lastEv = "call"; updateHud(); log("text →", text); return postJSON("/text", Object.assign({ text }, opts || {})); };
   const pushConfig = (cfg)         => postJSON("/config", cfg).then(() => log("config pushed"));
 
   async function uploadGifFromUrl(url, filename) {
@@ -188,6 +190,12 @@
     if (total >= 100)  return "100";
     return null;
   }
+  // "game shot" anticipation: is this remaining score a ONE-DART finish? → the double/bull to win on.
+  function oneDartFinish(n) {
+    if (n === 50) return "BULL";
+    if (n >= 2 && n <= 40 && n % 2 === 0) return "D" + (n / 2);
+    return null;
+  }
   function readMatch(m) {
     const players = (m.players || []).map((p, i) => ({
       name: String(p.name || p.playerName || `P${i + 1}`).toUpperCase().slice(0, 10),
@@ -207,7 +215,7 @@
   }
 
   // ---- state machine ----
-  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false;
+  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotCalled = false;
 
   function finishTurn(throws) {
     if (!throws.length || bustedThisTurn || turnCelebrated) return;
@@ -233,7 +241,14 @@
     // immediate 3rd-dart check below didn't fire, e.g. missed updates)
     if (s.active !== curActive || s.throws.length < curThrows.length) {
       finishTurn(curThrows);
-      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false;
+      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false; shotCalled = false;
+    }
+
+    // "game shot coming": active player steps up on a one-dart finish → call the winning double/bull
+    if (GAME_SHOT_CALL && !shotCalled && s.throws.length === 0 && !s.busted) {
+      const act = s.players[s.active];
+      const fin = act && oneDartFinish(act.score);
+      if (fin) { shotCalled = true; postText(`GAME SHOT COMING - ${fin} TO WIN`, { effect: "flash", palette: "party", color: [255, 40, 40], ms: 3200 }); }
     }
     // new darts this update → per-dart events (with segment value for thresholds)
     for (let i = curThrows.length; i < s.throws.length; i++) {
@@ -296,7 +311,7 @@
   // Must live on unsafeWindow: with @grant sandboxing, window.* stays inside the
   // Tampermonkey sandbox and the devtools console would see Scoreboard as undefined.
   const api = {
-    score: postScore, event: postEvent, pushConfig: () => pushConfig(DEFAULT_CONFIG),
+    score: postScore, event: postEvent, text: postText, pushConfig: () => pushConfig(DEFAULT_CONFIG),
     uploadGif: uploadGifFromUrl, listGifs: listSprites, scan,
     setIP: (ip) => { ESP_IP = ip; GM_setValue(KEY_IP, ip); },
     config: DEFAULT_CONFIG,
