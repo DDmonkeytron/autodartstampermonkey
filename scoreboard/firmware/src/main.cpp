@@ -648,7 +648,7 @@ function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoun
  const mv=ev=>{f.x=Math.max(0,Math.min(63,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
  const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up);renderProps()}
 function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.innerHTML='(no field selected)';return}const f=F[selF];
- fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} <button onclick="delF(${selF})">✕ delete</button>`}
+ fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
 function fS(k,v){lfields()[selF][k]=v;renderLED()}
 function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
 async function savelay(){await save();alert('Layout saved & applied')}
@@ -660,10 +660,35 @@ function DEFAULT_FIELDS(){return [
 const clone=o=>JSON.parse(JSON.stringify(o));
 function deffields(){C.layout.fields=DEFAULT_FIELDS();selF=-1;renderLED()}
 function presets(){if(!C.layout.presets)C.layout.presets={};return C.layout.presets}
-function renderPresets(){preset.innerHTML=['(built-in default)',...Object.keys(presets())].map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
-function loadpreset(){const n=preset.value;C.layout.fields=n=='(built-in default)'?DEFAULT_FIELDS():clone(presets()[n]||[]);selF=-1;renderLED()}
-async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
-async function delpreset(){const n=preset.value;if(n=='(built-in default)'){alert("Can't delete the built-in default");return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
+const _CY=[40,200,230],_GR=[40,220,60],_GD=[255,215,0],_MG=[230,80,230],_OR=[255,140,0];
+function BUILTINS(){return {
+ '1 Player':[{t:'name',p:0,x:32,y:1,s:1,a:'c'},{t:'score',p:0,x:32,y:12,s:2,a:'c'},{t:'checkout',p:0,x:32,y:32,s:1,a:'c',c:_GR},{t:'avg',p:0,x:32,y:44,s:1,a:'c',c:_CY},{t:'turn',p:0,x:32,y:54,s:1,a:'c',c:_GD}],
+ '2 Player (classic)':DEFAULT_FIELDS(),
+ '3 Player':[
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'score',p:0,x:63,y:0,s:1,a:'r'},{t:'legs',p:0,x:1,y:9,s:1,a:'l',c:_CY},{t:'avg',p:0,x:63,y:9,s:1,a:'r',c:_CY},{t:'hline',x:0,y:20},
+  {t:'name',p:1,x:1,y:22,s:1,a:'l'},{t:'score',p:1,x:63,y:22,s:1,a:'r'},{t:'legs',p:1,x:1,y:31,s:1,a:'l',c:_CY},{t:'avg',p:1,x:63,y:31,s:1,a:'r',c:_CY},{t:'hline',x:0,y:42},
+  {t:'name',p:2,x:1,y:44,s:1,a:'l'},{t:'score',p:2,x:63,y:44,s:1,a:'r'},{t:'legs',p:2,x:1,y:53,s:1,a:'l',c:_CY},{t:'avg',p:2,x:63,y:53,s:1,a:'r',c:_CY}],
+ '4 Player':[
+  {t:'name',p:0,x:1,y:1,s:1,a:'l'},{t:'legs',p:0,x:32,y:1,s:1,a:'c',c:_CY},{t:'score',p:0,x:63,y:1,s:1,a:'r'},{t:'hline',x:0,y:15},
+  {t:'name',p:1,x:1,y:17,s:1,a:'l'},{t:'legs',p:1,x:32,y:17,s:1,a:'c',c:_CY},{t:'score',p:1,x:63,y:17,s:1,a:'r'},{t:'hline',x:0,y:31},
+  {t:'name',p:2,x:1,y:33,s:1,a:'l'},{t:'legs',p:2,x:32,y:33,s:1,a:'c',c:_CY},{t:'score',p:2,x:63,y:33,s:1,a:'r'},{t:'hline',x:0,y:47},
+  {t:'name',p:3,x:1,y:49,s:1,a:'l'},{t:'legs',p:3,x:32,y:49,s:1,a:'c',c:_CY},{t:'score',p:3,x:63,y:49,s:1,a:'r'}],
+ 'Big Scores (2P)':[
+  {t:'score',p:0,x:32,y:3,s:2,a:'c'},{t:'name',p:0,x:32,y:22,s:1,a:'c'},{t:'hline',x:0,y:31},
+  {t:'score',p:1,x:32,y:35,s:2,a:'c'},{t:'name',p:1,x:32,y:54,s:1,a:'c'}],
+ 'Stats (2P)':[
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'avg',p:0,x:1,y:24,s:1,a:'l',c:_CY},{t:'180s',p:0,x:40,y:24,s:1,a:'l',c:_MG},{t:'high',p:0,x:52,y:24,s:1,a:'l',c:_OR},{t:'hline',x:0,y:31},
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'avg',p:1,x:1,y:56,s:1,a:'l',c:_CY},{t:'180s',p:1,x:40,y:56,s:1,a:'l',c:_MG},{t:'high',p:1,x:52,y:56,s:1,a:'l',c:_OR}],
+ 'Checkout (2P)':[
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'checkout',p:0,x:63,y:12,s:1,a:'r',c:_GR},{t:'hline',x:0,y:31},
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'checkout',p:1,x:63,y:44,s:1,a:'r',c:_GR}]
+}}
+function renderPresets(){const b=Object.keys(BUILTINS()),u=Object.keys(presets());
+ preset.innerHTML=b.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')+(u.length?`<option disabled>── my presets ──</option>`+u.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join(''):'')}
+function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clone(b[n]):clone(presets()[n]||[]);selF=-1;renderLED()}
+async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
+async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
+function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
 async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
