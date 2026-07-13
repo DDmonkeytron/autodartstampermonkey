@@ -551,8 +551,10 @@ img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1
 <div>Add for player <select id=lp><option>0</option><option>1</option><option>2</option><option>3</option></select> <span id=addbtns></span></div>
 <div id=led style="position:relative;width:320px;height:320px;background:#000;border:1px solid #555;margin:.4em 0;overflow:hidden"></div>
 <div id=fprops style="min-height:2em;margin:.3em 0">(no field selected)</div>
-<button onclick=savelay() style="background:#164;font-weight:bold">💾 Save layout</button>
+<button onclick=savelay() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
 <button onclick=deffields()>Load default</button> <button onclick=clearfields()>Clear (use classic)</button>
+<div style="margin-top:.4em">Presets: <select id=preset></select> <button onclick=loadpreset()>Load into editor</button>
+ &nbsp;<input id=pname placeholder="new preset name" style=width:130px><button onclick=savepreset()>Save as preset</button> <button onclick=delpreset()>Delete</button></div>
 <h3>Celebrations (events)</h3>
 <div>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
 <div id=evl></div>
@@ -643,10 +645,17 @@ function fS(k,v){lfields()[selF][k]=v;renderLED()}
 function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
 async function savelay(){await save();alert('Layout saved & applied')}
 function clearfields(){C.layout.fields=[];selF=-1;renderLED()}
-function deffields(){C.layout.fields=[
+function DEFAULT_FIELDS(){return [
  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l',c:[255,215,0]},{t:'legs',p:0,x:63,y:1,s:1,a:'r',c:[40,200,230]},{t:'avg',p:0,x:63,y:24,s:1,a:'r',c:[40,200,230]},
- {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l',c:[255,215,0]},{t:'legs',p:1,x:63,y:33,s:1,a:'r',c:[40,200,230]},{t:'avg',p:1,x:63,y:56,s:1,a:'r',c:[40,200,230]}];selF=-1;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED()}
+ {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l',c:[255,215,0]},{t:'legs',p:1,x:63,y:33,s:1,a:'r',c:[40,200,230]},{t:'avg',p:1,x:63,y:56,s:1,a:'r',c:[40,200,230]}]}
+const clone=o=>JSON.parse(JSON.stringify(o));
+function deffields(){C.layout.fields=DEFAULT_FIELDS();selF=-1;renderLED()}
+function presets(){if(!C.layout.presets)C.layout.presets={};return C.layout.presets}
+function renderPresets(){preset.innerHTML=['(built-in default)',...Object.keys(presets())].map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+function loadpreset(){const n=preset.value;C.layout.fields=n=='(built-in default)'?DEFAULT_FIELDS():clone(presets()[n]||[]);selF=-1;renderLED()}
+async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
+async function delpreset(){const n=preset.value;if(n=='(built-in default)'){alert("Can't delete the built-in default");return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
