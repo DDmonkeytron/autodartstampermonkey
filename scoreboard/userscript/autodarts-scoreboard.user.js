@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.3
+// @version      0.6.4
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -215,7 +215,7 @@
   }
 
   // ---- state machine ----
-  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotCalled = false;
+  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotSig = "";
 
   function finishTurn(throws) {
     if (!throws.length || bustedThisTurn || turnCelebrated) return;
@@ -241,14 +241,18 @@
     // immediate 3rd-dart check below didn't fire, e.g. missed updates)
     if (s.active !== curActive || s.throws.length < curThrows.length) {
       finishTurn(curThrows);
-      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false; shotCalled = false;
+      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false; shotSig = "";
     }
 
-    // "game shot coming": active player steps up on a one-dart finish → call the winning double/bull
-    if (GAME_SHOT_CALL && !shotCalled && s.throws.length === 0 && !s.busted) {
+    // "game shot coming": whenever the active player is on a ONE-DART finish with a dart still in
+    // hand — start of turn OR mid-turn (gameScores[active] is the LIVE remaining, updates per dart).
+    // Re-fires if the finish changes (e.g. missed D20 leaves D10); shotSig resets each turn above.
+    if (GAME_SHOT_CALL && !s.busted && s.throws.length < 3) {
       const act = s.players[s.active];
-      const fin = act && oneDartFinish(act.score);
-      if (fin) { shotCalled = true; postText(`GAME SHOT COMING - ${fin} TO WIN`, { effect: "flash", palette: "party", color: [255, 40, 40], ms: 3200 }); }
+      const rem = act ? act.score : -1;
+      const fin = oneDartFinish(rem);
+      const sig = s.active + ":" + rem;
+      if (fin && sig !== shotSig) { shotSig = sig; postText(`GAME SHOT COMING - ${fin} TO WIN`, { effect: "flash", palette: "party", color: [255, 40, 40], ms: 3200 }); }
     }
     // new darts this update → per-dart events (with segment value for thresholds)
     for (let i = curThrows.length; i < s.throws.length; i++) {
