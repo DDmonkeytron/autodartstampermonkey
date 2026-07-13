@@ -206,12 +206,19 @@ void drawFields(JsonArray fields) {
     String t = (const char *)(f["t"] | "");
     int p = f["p"] | 0, x = f["x"] | 0, y = f["y"] | 0, size = f["s"] | 1;
     bool act = (p == activePlayer && p >= 0 && p < numPlayers);
-    if (t == "amark") { if (act) dma->fillRect(x, y, 3, 8, C_GREEN); continue; }   // active-player marker
+    if (t == "amark") { if (act) dma->fillRect(x, y, 3, 8, C_GREEN); continue; }    // active-player marker
+    if (t == "hline") { dma->drawFastHLine(x, y, PANEL_W - x, C_DIM); continue; }    // divider line
     String v = fieldValue(t, p, f);
     if (!v.length()) continue;
     uint16_t col;
     JsonArray c = f["c"].as<JsonArray>();
     if (!c.isNull() && c.size() == 3) col = dma->color565((int)(c[0] | 255), (int)(c[1] | 255), (int)(c[2] | 255));
+    else if (t == "score") {                             // score, no explicit colour → per-player colour (classic look)
+      JsonArray pcs = cfg["layout"]["playerColors"].as<JsonArray>();
+      if (!pcs.isNull() && p >= 0 && p < (int)pcs.size() && !pcs[p].isNull())
+        col = dma->color565((int)(pcs[p][0] | 255), (int)(pcs[p][1] | 255), (int)(pcs[p][2] | 255));
+      else col = act ? C_YELLOW : C_WHITE;
+    }
     else col = act ? C_YELLOW : C_WHITE;                 // no explicit colour → highlight active player
     const char *a = f["a"] | "l";
     int w = (int)v.length() * 6 * size;
@@ -627,12 +634,12 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  </fieldset>`}).join('');
 }
 // ---- layout editor ----
-const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark'];
+const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark','hline'];
 let selF=-1;
 function lfields(){if(!C.layout)C.layout={};if(!C.layout.fields)C.layout.fields=[];return C.layout.fields}
 function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t}')">+${t}</button>`).join(' ')}
 function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
-function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮'}[f.t]||f.t}
+function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────'}[f.t]||f.t}
 function renderLED(){led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
  const a=f.a||'l',w=fprev(f).length*6*(f.s||1),off=a=='r'?w:a=='c'?w/2:0;   // mirror the board's alignment
  d.style.cssText=`position:absolute;left:${(f.x-off)*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
@@ -647,8 +654,9 @@ function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
 async function savelay(){await save();alert('Layout saved & applied')}
 function clearfields(){C.layout.fields=[];selF=-1;renderLED()}
 function DEFAULT_FIELDS(){return [
- {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l',c:[255,215,0]},{t:'legs',p:0,x:63,y:1,s:1,a:'r',c:[40,200,230]},{t:'avg',p:0,x:63,y:24,s:1,a:'r',c:[40,200,230]},
- {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l',c:[255,215,0]},{t:'legs',p:1,x:63,y:33,s:1,a:'r',c:[40,200,230]},{t:'avg',p:1,x:63,y:56,s:1,a:'r',c:[40,200,230]}]}
+ {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'legs',p:0,x:1,y:24,s:1,a:'l',c:[40,200,230]},{t:'avg',p:0,x:14,y:24,s:1,a:'l',c:[40,200,230]},
+ {t:'hline',x:0,y:31},
+ {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'legs',p:1,x:1,y:56,s:1,a:'l',c:[40,200,230]},{t:'avg',p:1,x:14,y:56,s:1,a:'l',c:[40,200,230]}]}
 const clone=o=>JSON.parse(JSON.stringify(o));
 function deffields(){C.layout.fields=DEFAULT_FIELDS();selF=-1;renderLED()}
 function presets(){if(!C.layout.presets)C.layout.presets={};return C.layout.presets}
