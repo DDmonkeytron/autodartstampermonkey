@@ -531,7 +531,7 @@ void handleIdentify() {                          // light each output so you can
 void handleWifiReset() { server.send(200, "text/plain", "wifi reset, rebooting"); WiFiManager wm; wm.resetSettings(); delay(400); ESP.restart(); }
 
 static const char PAGE[] PROGMEM = R"HTML(
-<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Darts Scoreboard</title>
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Darts Scoreboard</title>
 <style>body{font-family:sans-serif;background:#111;color:#eee;margin:1em;max-width:760px}
 textarea{width:100%;height:200px;background:#1c1c1c;color:#6f6;font-family:monospace;border:1px solid #333}
 button{margin:.15em;padding:.35em .6em;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:4px;cursor:pointer}
@@ -552,7 +552,7 @@ img{image-rendering:pixelated}h3{margin-top:1.2em;color:#8cf}pre{background:#1c1
 <div id=led style="position:relative;width:320px;height:320px;background:#000;border:1px solid #555;margin:.4em 0;overflow:hidden"></div>
 <div id=fprops style="min-height:2em;margin:.3em 0">(no field selected)</div>
 <button onclick=savelay() style="background:#164;font-weight:bold">💾 Save &amp; apply</button>
-<button onclick=deffields()>Load default</button> <button onclick=clearfields()>Clear (use classic)</button>
+<button onclick=deffields()>Load classic layout</button> <button onclick=clearfields()>Clear (blank &rarr; classic)</button>
 <div style="margin-top:.4em">Presets: <select id=preset></select> <button onclick=loadpreset()>Load into editor</button>
  &nbsp;<input id=pname placeholder="new preset name" style=width:130px><button onclick=savepreset()>Save as preset</button> <button onclick=delpreset()>Delete</button></div>
 <h3>Celebrations (events)</h3>
@@ -634,7 +634,8 @@ function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t
 function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
 function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮'}[f.t]||f.t}
 function renderLED(){led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
- d.style.cssText=`position:absolute;left:${f.x*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
+ const a=f.a||'l',w=fprev(f).length*6*(f.s||1),off=a=='r'?w:a=='c'?w/2:0;   // mirror the board's alignment
+ d.style.cssText=`position:absolute;left:${(f.x-off)*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
  d.textContent=fprev(f);d.onmousedown=e=>dragF(e,i);led.appendChild(d)});renderProps()}
 function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoundingClientRect();const ox=e.clientX-r.left-f.x*SCALE,oy=e.clientY-r.top-f.y*SCALE;
  const mv=ev=>{f.x=Math.max(0,Math.min(63,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
