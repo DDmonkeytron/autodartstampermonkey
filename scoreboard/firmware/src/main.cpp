@@ -378,7 +378,11 @@ void playEvent(const String &name, int value, const String &ovText) {
   marqueeX = panelW; lastMarquee = 0;
   dma->clearScreen();                            // clear the scoreboard behind the celebration
   const char *g = o["gif"] | "";
-  if (strlen(g) && openGif(g)) panelFx = "";     // a GIF takes precedence over a 2D effect
+  String gp;                                      // resolve gif: "cat:NAME" plays a RANDOM gif from that category
+  if (!strncmp(g, "cat:", 4)) { JsonArray cat = cfg["layout"]["gifCategories"][g + 4].as<JsonArray>();
+    if (!cat.isNull() && cat.size()) gp = (const char *)cat[random(cat.size())]; }
+  else gp = g;
+  if (gp.length() && openGif(gp.c_str())) panelFx = "";     // a GIF takes precedence over a 2D effect
 }
 void enqueueEvent(const String &name, int value, const String &ovText) {
   JsonObject o = cfg["events"][name];
@@ -427,6 +431,7 @@ void loadConfig() {
   add("bust", "/gifs/cry.gif", "BUST", "strobe", 80, 80, 255);
   add("legWon", "/gifs/trophy.gif", "LEG WON", "sparkle", 255, 215, 0);
   add("gameWon", "/gifs/trophy.gif", "GAME SHOT!", "rainbow", 255, 215, 0);
+  add("miss", "", "MISS", "strobe", 120, 120, 120);   // dart off the board
   // showcase palettes + 2D panel effects (panelFx renders when no gif is set/found)
   ev["180"]["palette"] = "party";
   ev["140"]["palette"] = "lava";
@@ -618,8 +623,13 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 
 <section id=p-gifs class=panel>
 <h2>GIFs</h2>
+<h3>Uploaded GIFs</h3>
 <div id=s></div>
 <div style="margin-top:.6em"><input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button></div>
+<h3>Categories</h3>
+<div class=hint>Group GIFs into named categories. An event set to a category plays a <b>random</b> GIF from it. Deleting a category keeps the GIFs.</div>
+<div id=catlist></div>
+<div style="margin-top:.5em"><input id=cname placeholder="new category name"><button onclick=addcat()>Add category</button></div>
 </section>
 
 <section id=p-test class=panel>
@@ -657,7 +667,8 @@ const hx=a=>'#'+((Array.isArray(a)&&a.length?a:[255,255,255]).map(x=>(+x||0).toS
 const rgb=h=>[parseInt(h.substr(1,2),16),parseInt(h.substr(3,2),16),parseInt(h.substr(5,2),16)];
 const esc=x=>String(x).replace(/"/g,'&quot;');
 const opt=(a,v)=>a.map(o=>`<option value="${o}" ${o==v?'selected':''}>${o===''?'(none)':o}</option>`).join('');
-const gifopt=v=>['',...gifs.map(norm)].map(o=>`<option value="${o}" ${o==v?'selected':''}>${o?o.split('/').pop():'(none)'}</option>`).join('');
+const gifopt=v=>{const cs=Object.keys((C&&C.layout&&C.layout.gifCategories)||{}).map(n=>'cat:'+n);
+ return ['',...gifs.map(norm),...cs].map(o=>`<option value="${o}" ${o==v?'selected':''}>${o?(o.slice(0,4)=='cat:'?'🎲 '+o.slice(4)+' (random)':o.split('/').pop()):'(none)'}</option>`).join('')};
 function lset(k,v){C.layout[k]=v}
 function pcol(i,h){if(!C.layout.playerColors)C.layout.playerColors=[];C.layout.playerColors[i]=rgb(h)}
 function renderLayout(){const L=C.layout||(C.layout={});
@@ -765,15 +776,26 @@ function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clo
 async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
 async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
 function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
  s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n)}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
  tgif.innerHTML=gifopt('');
- if(C)renderEvents()}
+ if(C){renderEvents();renderCats()}}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
+function catg(){if(!C.layout.gifCategories)C.layout.gifCategories={};return C.layout.gifCategories}
+function renderCats(){if(!C)return;const g=catg(),ks=Object.keys(g);
+ catlist.innerHTML=ks.length?ks.map(n=>{const arr=g[n]||[];
+  const chips=arr.length?arr.map((p,i)=>`<span class=gif>${p.split('/').pop()} <button onclick="rmgif('${esc(n)}',${i})">x</button></span>`).join(' '):'<i>(empty)</i>';
+  const opts=['',...gifs.map(norm)].map(p=>`<option value="${p}">${p?p.split('/').pop():'(pick a GIF…)'}</option>`).join('');
+  return `<fieldset><legend>${esc(n)} <button onclick="delcat('${esc(n)}')">delete category</button></legend>${chips}<br><select>${opts}</select><button onclick="addgif(this,'${esc(n)}')">+ add GIF</button></fieldset>`;
+ }).join(''):'<i>No categories yet.</i>'}
+async function addcat(){const n=cname.value.trim();if(!n){alert('Enter a category name');return}if(catg()[n]){alert('Already exists');return}catg()[n]=[];cname.value='';await save();renderCats();renderEvents()}
+async function delcat(n){if(!confirm('Delete category "'+n+'"? (the GIFs are kept)'))return;delete catg()[n];await save();renderCats();renderEvents()}
+async function addgif(btn,n){const v=btn.previousElementSibling.value;if(!v)return;const a=catg()[n]||(catg()[n]=[]);if(!a.includes(v))a.push(v);await save();renderCats()}
+async function rmgif(n,i){catg()[n].splice(i,1);await save();renderCats()}
 async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
 async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:+tms.value||5000,effect:'pulse',color:[0,180,255]})})}
 async function sendgif(){await fetch('/text',{method:'POST',body:JSON.stringify({gif:tgif.value,text:tx.value,ms:+tms.value||6000})})}

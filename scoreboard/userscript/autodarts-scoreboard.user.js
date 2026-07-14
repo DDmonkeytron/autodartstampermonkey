@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.5
+// @version      0.6.6
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -61,6 +61,7 @@
       "treble":  { min: 15, gif: "/gifs/target.gif", text: "TREBLE",  effect: "sparkle", palette: "forest", color: [0, 255, 120], ms: 2000 },
       "bull":    { gif: "/gifs/target.gif", text: "BULL",       effect: "sparkle", palette: "party", color: [255, 60, 60], ms: 2000 },
       "bust":    { gif: "/gifs/cry.gif",    text: "BUST",       effect: "twinkle", palette: "ocean", color: [80, 80, 255], ms: 3000 },
+      "miss":    { text: "MISS",       effect: "strobe", palette: "ocean", color: [120, 120, 120], ms: 1500 },
       "legWon":  { gif: "/gifs/trophy.gif", text: "LEG WON",    effect: "running", palette: "party", color: [255, 215, 0], ms: 4000 },
       // gameWon: 2D plasma backdrop; strip 1 rainbows while strip 2 runs its own gold comet:
       "gameWon": { gif: "", panelFx: "plasma", text: "GAME SHOT!", effect: "rainbow", palette: "party", color: [255, 215, 0], ms: 6000,
@@ -178,6 +179,7 @@
     const mult = seg.multiplier ?? t.multiplier;
     const num = seg.number ?? seg.num;
     // returns {ev, val}: val = the segment number, used for "min" thresholds on the ESP32
+    if (num === 0 || bed.includes("outside") || bed.includes("miss")) return { ev: "miss", val: 0 };   // dart off the board
     if (num === 25 || bed.includes("bull") || bed === "25" || bed === "50") return { ev: "bull", val: (mult === 2 || bed === "50") ? 50 : 25 };
     if (mult === 3 || bed.includes("triple")) return { ev: "treble", val: num || 0 };
     if (mult === 2 || bed.includes("double")) return { ev: "double", val: num || 0 };
