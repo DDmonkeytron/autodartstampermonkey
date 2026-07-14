@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 export interface Env {
   BOARD: DurableObjectNamespace<BoardDO>;
   BOARD_TOKENS: string; // JSON: { "<boardId>": "<token>" }
+  DASH_PASSWORD: string; // dashboard login password (secret)
 }
 
 // One Durable Object per board. Holds the board's outbound WebSocket (the

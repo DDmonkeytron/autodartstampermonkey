@@ -1,5 +1,7 @@
-import { BoardDO, type Env } from "./board";
+import { BoardDO, type Env, type ProxyRes } from "./board";
 export { BoardDO };
+
+type Status = { online: boolean; lastSeen: number | null; meta: unknown };
 
 // base64 <-> bytes (handles binary bodies: gif uploads, thumbnails, etc.)
 const toB64 = (buf: ArrayBuffer): string => {
@@ -9,6 +11,26 @@ const toB64 = (buf: ArrayBuffer): string => {
   return btoa(s);
 };
 const fromB64 = (s: string): Uint8Array => Uint8Array.from(atob(s || ""), (c) => c.charCodeAt(0));
+
+// --- dashboard login (simple password gate; /connect stays token-authed & open) ---
+const sha256hex = async (s: string): Promise<string> => {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+};
+const authToken = (env: Env) => sha256hex("darts-dash-v1:" + (env.DASH_PASSWORD || ""));
+async function isAuthed(request: Request, env: Env): Promise<boolean> {
+  if (!env.DASH_PASSWORD) return false; // no password set → fail closed
+  const m = (request.headers.get("Cookie") || "").match(/(?:^|;\s*)auth=([a-f0-9]+)/);
+  return !!m && m[1] === (await authToken(env));
+}
+const loginHtml = (err: string) => `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Darts Boards — Login</title>
+<style>body{font-family:sans-serif;background:#111;color:#eee;margin:0;height:100vh;display:flex;align-items:center;justify-content:center}
+form{background:#1a1a1a;padding:2em;border:1px solid #333;border-radius:12px;min-width:260px}h2{margin:0 0 .6em;color:#fc6}
+input{padding:.55em;margin:.4em 0;width:100%;background:#1c1c1c;color:#eee;border:1px solid #444;border-radius:6px;box-sizing:border-box}
+button{padding:.55em 1em;background:#164;color:#eee;border:0;border-radius:6px;cursor:pointer;width:100%;font-weight:bold}.err{color:#f77;min-height:1.1em;font-size:.9em}</style>
+<form method=POST action=/login><h2>🎯 Darts Boards</h2><div class=err>${err}</div>
+<input type=password name=password placeholder="Password" autofocus><button>Log in</button></form>`;
+
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -24,12 +46,28 @@ export default {
       return env.BOARD.getByName(id).fetch(request);
     }
 
-    // --- everything below is meant to sit behind Cloudflare Access (see README) ---
+    // --- login gate: everything below requires the dashboard password (/connect stays open above) ---
+    if (url.pathname === "/login") {
+      if (request.method === "POST") {
+        const pw = String((await request.formData()).get("password") || "");
+        if (env.DASH_PASSWORD && pw === env.DASH_PASSWORD)
+          return new Response(null, {
+            status: 302,
+            headers: { Location: "/", "Set-Cookie": `auth=${await authToken(env)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000` },
+          });
+        return new Response(loginHtml("Wrong password"), { status: 401, headers: { "content-type": "text/html; charset=utf-8" } });
+      }
+      return new Response(loginHtml(""), { headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    if (!(await isAuthed(request, env))) return Response.redirect(new URL("/login", url).toString(), 302);
 
     // 2) Board list + live status for the dashboard.
     if (url.pathname === "/api/boards") {
       const out = [];
-      for (const id of Object.keys(tokens)) out.push({ id, ...(await env.BOARD.getByName(id).status()) });
+      for (const id of Object.keys(tokens)) {
+        const s = (await env.BOARD.getByName(id).status()) as Status;
+        out.push({ id, online: s.online, lastSeen: s.lastSeen, meta: s.meta });
+      }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
 
@@ -40,12 +78,12 @@ export default {
       if (!tokens[id]) return new Response("unknown board", { status: 404 });
       const path = (m[2] || "/") + url.search;
       const bodyB64 = request.method === "GET" || request.method === "HEAD" ? "" : toB64(await request.arrayBuffer());
-      const res = await env.BOARD.getByName(id).proxy(
+      const res = (await env.BOARD.getByName(id).proxy(
         request.method,
         path,
         request.headers.get("content-type") || "",
         bodyB64,
-      );
+      )) as ProxyRes;
       let bytes: Uint8Array = fromB64(res.body);
       const ctype = res.ctype || "application/octet-stream";
       // Inject a shim so the board UI's absolute-path fetches ("/config" etc.) route back through /board/:id/.
