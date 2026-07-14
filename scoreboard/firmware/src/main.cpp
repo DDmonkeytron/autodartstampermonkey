@@ -135,12 +135,18 @@ void GIFDraw(GIFDRAW *pDraw) {
   if (pDraw->ucDisposalMethod == 2) for (int x = 0; x < w; x++) if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
   for (int x = 0; x < w; x++) { if (pDraw->ucHasTransparency && s[x] == pDraw->ucTransparent) continue; dma->drawPixel(gifX + pDraw->iX + x, y, pal[s[x]]); }
 }
+int evX0 = 0, evW = PANEL_RES_X;   // event render region (x, width) — lets a GIF target one panel of a 128-wide board
+void setRegion(const char *r) {    // "full" | "left" | "right" (left/right only meaningful on a 128-wide board)
+  if (panelW >= 128 && !strcmp(r, "left"))       { evX0 = 0;  evW = 64; }
+  else if (panelW >= 128 && !strcmp(r, "right")) { evX0 = 64; evW = 64; }
+  else                                           { evX0 = 0;  evW = panelW; }
+}
 bool openGif(const char *path) {
   if (gifPlaying) { gif.close(); gifPlaying = false; }
   if (!path || !LittleFS.exists(path)) return false;
   strncpy(gifPath, path, sizeof(gifPath) - 1);
   if (gif.open((char *)gifPath, GIFOpen, GIFClose, GIFRead, GIFSeek, GIFDraw)) {
-    gifX = (panelW - gif.getCanvasWidth()) / 2; gifY = (PANEL_H - gif.getCanvasHeight()) / 2;
+    gifX = evX0 + (evW - gif.getCanvasWidth()) / 2; gifY = (PANEL_H - gif.getCanvasHeight()) / 2;
     gifPlaying = true; gifNextFrame = 0; return true;
   }
   return false;
@@ -377,6 +383,7 @@ void playEvent(const String &name, int value, const String &ovText) {
   eventUntil = millis() + (uint32_t)(o["ms"] | DEF_EVENT_MS);
   marqueeX = panelW; lastMarquee = 0;
   dma->clearScreen();                            // clear the scoreboard behind the celebration
+  setRegion(o["region"] | "full");               // which panel(s) the GIF plays on: full / left / right
   const char *g = o["gif"] | "";
   String gp;                                      // resolve gif: "cat:NAME" plays a RANDOM gif from that category
   if (!strncmp(g, "cat:", 4)) { JsonArray cat = cfg["layout"]["gifCategories"][g + 4].as<JsonArray>();
@@ -536,6 +543,7 @@ void handleText() {                              // scroll arbitrary text on dem
   panelPal = paletteByName((const char *)(d["palette"] | "rainbow"));
   eventUntil = millis() + (uint32_t)(d["ms"] | 5000);
   marqueeX = panelW; lastMarquee = 0;
+  setRegion(d["region"] | "full");
   const char *g = d["gif"] | "";
   if (strlen(g)) { if (openGif(g)) panelFx = ""; }   // play the requested GIF; text (if any) scrolls off the bottom
   else if (gifPlaying) { gif.close(); gifPlaying = false; }
@@ -639,12 +647,14 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <h2>Test &mdash; send to board</h2>
 <label>gif <select id=tgif></select></label>
 <input id=tx placeholder="message under gif (optional)"><label>ms <input id=tms type=number value=6000 style="width:64px"></label>
+<label>panel <select id=treg><option>full</option><option>left</option><option>right</option></select></label>
 <button onclick=sendgif()>Send GIF</button> <button onclick=say()>Send text only</button>
 <div style="margin-top:.6em"><button onclick=idf()>🔦 Identify outputs</button> <button onclick=rst()>Reset stats</button></div>
 </section>
 
 <section id=p-system class=panel>
 <h2>System</h2>
+<h3>Panels</h3><div id=panels></div>
 <h3>Firmware update (OTA)</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
 <h3>Device</h3><button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
 <h3>Status</h3><pre id=st></pre>
@@ -685,8 +695,10 @@ function renderLayout(){const L=C.layout||(C.layout={});
   +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
   +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
   +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
-  +' <button onclick=idf()>🔦 Identify outputs</button>'
-  +`<br><b>Display</b> (reboot to apply): <select onchange="lset('panelChain',+this.value)"><option value=1 ${(L.panelChain||1)==1?'selected':''}>64&times;64 — 1 panel</option><option value=2 ${(L.panelChain||1)==2?'selected':''}>128&times;64 — 2 panels</option></select>`;
+  +' <button onclick=idf()>🔦 Identify outputs</button>';
+}
+function renderPanels(){const L=C.layout||(C.layout={});
+ panels.innerHTML=`Display: <select onchange="lset('panelChain',+this.value)"><option value=1 ${(L.panelChain||1)==1?'selected':''}>Single 64&times;64 (1 panel)</option><option value=2 ${(L.panelChain||1)==2?'selected':''}>Wide 128&times;64 (2 panels)</option></select> <span class=hint>reboot to apply &middot; each celebration can target the left or right panel (event &rarr; panel)</span>`;
 }
 function eset(k,f,v){C.events[k][f]=v}
 function f2mode(k){const f=C.events[k].fx2;return f==null?'mirror':(typeof f=='string'?(f=='mirror'?'mirror':'off'):'custom')}
@@ -705,7 +717,7 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  <label>text <input style="width:120px" value="${esc(o.text||'')}" onchange="eset('${k}','text',this.value)"></label>
  <label>ms <input type=number style="width:66px" value="${o.ms||5000}" onchange="eset('${k}','ms',+this.value)"></label>
  <label>gif <select onchange="eset('${k}','gif',this.value)">${gifopt(o.gif||'')}</select></label>
- <label>2D <select onchange="eset('${k}','panelFx',this.value)">${opt(PFX,o.panelFx||'')}</select></label><br>
+ <label>2D <select onchange="eset('${k}','panelFx',this.value)">${opt(PFX,o.panelFx||'')}</select></label> <label>panel <select onchange="eset('${k}','region',this.value)">${opt(['full','left','right'],o.region||'full')}</select></label><br>
  <b>Strip 1:</b> <select onchange="eset('${k}','effect',this.value)">${opt(FX,o.effect||'off')}</select>
  <select onchange="eset('${k}','palette',this.value)">${opt(PAL,o.palette||'rainbow')}</select>
  <input type=color value="${hx(o.color)}" onchange="eset('${k}','color',rgb(this.value))">
@@ -779,7 +791,7 @@ function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clo
 async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
 async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
 function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
@@ -801,7 +813,7 @@ async function addgif(btn,n){const v=btn.previousElementSibling.value;if(!v)retu
 async function rmgif(n,i){catg()[n].splice(i,1);await save();renderCats()}
 async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
 async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:+tms.value||5000,effect:'pulse',color:[0,180,255]})})}
-async function sendgif(){await fetch('/text',{method:'POST',body:JSON.stringify({gif:tgif.value,text:tx.value,ms:+tms.value||6000})})}
+async function sendgif(){await fetch('/text',{method:'POST',body:JSON.stringify({gif:tgif.value,text:tx.value,ms:+tms.value||6000,region:treg.value})})}
 async function rst(){await fetch('/reset',{method:'POST'});alert('stats reset')}
 async function ota(){let x=fw.files[0];if(!x)return;let d=new FormData();d.append('f',x,x.name);await fetch('/update',{method:'POST',body:d});alert('updating, rebooting')}
 async function wr(){if(confirm('Reset WiFi and reboot?'))await fetch('/wifi/reset',{method:'POST'})}
