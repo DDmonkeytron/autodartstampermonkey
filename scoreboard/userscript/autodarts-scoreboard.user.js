@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.6
+// @version      0.6.7
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -61,7 +61,10 @@
       "treble":  { min: 15, gif: "/gifs/target.gif", text: "TREBLE",  effect: "sparkle", palette: "forest", color: [0, 255, 120], ms: 2000 },
       "bull":    { gif: "/gifs/target.gif", text: "BULL",       effect: "sparkle", palette: "party", color: [255, 60, 60], ms: 2000 },
       "bust":    { gif: "/gifs/cry.gif",    text: "BUST",       effect: "twinkle", palette: "ocean", color: [80, 80, 255], ms: 3000 },
-      "miss":    { text: "MISS",       effect: "strobe", palette: "ocean", color: [120, 120, 120], ms: 1500 },
+      "miss":       { text: "MISS",          effect: "strobe", palette: "ocean", color: [120, 120, 120], ms: 1500 },
+      "highFinish": { min: 100, text: "HIGH CHECKOUT", effect: "flash", palette: "fire",  color: [255, 180, 0], ms: 4000 },
+      "shanghai":   { text: "SHANGHAI!",     effect: "strobe", palette: "party", color: [255, 0, 255], ms: 4000 },
+      "legStart":   { text: "GAME ON",       effect: "rainbow", palette: "party", color: [0, 255, 120], ms: 2500 },
       "legWon":  { gif: "/gifs/trophy.gif", text: "LEG WON",    effect: "running", palette: "party", color: [255, 215, 0], ms: 4000 },
       // gameWon: 2D plasma backdrop; strip 1 rainbows while strip 2 runs its own gold comet:
       "gameWon": { gif: "", panelFx: "plasma", text: "GAME SHOT!", effect: "rainbow", palette: "party", color: [255, 215, 0], ms: 6000,
@@ -213,11 +216,12 @@
       throws:  cur.throws || [],
       busted:  !!(cur.busted || m.turnBusted || m.turn?.busted),
       winner:  (m.winner ?? m.gameWinner ?? -1) >= 0 ? (m.winner ?? m.gameWinner) : null,  // autodarts uses -1 for "no winner"
+      leg:     m.leg ?? 0, set: m.set ?? 0,
     };
   }
 
   // ---- state machine ----
-  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotSig = "";
+  let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotSig = "", coFired = false, shFired = false, prevLegNo = null;
 
   function finishTurn(throws) {
     if (!throws.length || bustedThisTurn || turnCelebrated) return;
@@ -243,7 +247,7 @@
     // immediate 3rd-dart check below didn't fire, e.g. missed updates)
     if (s.active !== curActive || s.throws.length < curThrows.length) {
       finishTurn(curThrows);
-      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false; shotSig = "";
+      curThrows = []; curActive = s.active; bustedThisTurn = false; turnCelebrated = false; shotSig = ""; coFired = false; shFired = false;
     }
 
     // "game shot coming": whenever the active player is on a ONE-DART finish with a dart still in
@@ -263,6 +267,14 @@
     }
     curThrows = s.throws.slice();
 
+    // high checkout — active player just went out (score 0). Fire once; the event's "min" gates it (default 100).
+    const cop = s.players[s.active];
+    if (cop && cop.score === 0 && throwPoints.length && !coFired) {
+      coFired = true;
+      const co = throwPoints.reduce((a, b) => a + b, 0);
+      postEvent("highFinish", `${cop.name} ${co} CHECKOUT`, co);
+    }
+
     // bust (once per turn)
     if (s.busted && !bustedThisTurn) { bustedThisTurn = true; postEvent("bust"); }
 
@@ -273,6 +285,14 @@
       if (ev) { turnCelebrated = true; postEvent(ev, undefined, total); }
     }
 
+    // shanghai — single + double + treble of the SAME number in one 3-dart visit
+    if (curThrows.length === 3 && !bustedThisTurn && !shFired) {
+      const nm = curThrows.map((t) => { const g = t.segment || t; return { n: g.number ?? g.num, m: g.multiplier ?? t.multiplier }; });
+      if (nm[0].n && nm.every((d) => d.n === nm[0].n) && [1, 2, 3].every((mm) => nm.some((d) => d.m === mm))) {
+        shFired = true; postEvent("shanghai", `SHANGHAI ${nm[0].n}`, nm[0].n);
+      }
+    }
+
     // leg win (legs counter increased)
     s.players.forEach((p, i) => {
       if (prevLegs[i] != null && p.legs > prevLegs[i]) {
@@ -281,6 +301,11 @@
       }
     });
     prevLegs = s.players.map((p) => p.legs);
+
+    // new leg started (leg/set counter advanced) → "game on"
+    const legNo = s.set * 100 + s.leg;
+    if (prevLegNo != null && legNo !== prevLegNo) postEvent("legStart", undefined, 0);
+    prevLegNo = legNo;
 
     // game win
     if (s.winner != null && s.winner !== lastWinner) {

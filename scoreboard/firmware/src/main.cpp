@@ -432,6 +432,9 @@ void loadConfig() {
   add("legWon", "/gifs/trophy.gif", "LEG WON", "sparkle", 255, 215, 0);
   add("gameWon", "/gifs/trophy.gif", "GAME SHOT!", "rainbow", 255, 215, 0);
   add("miss", "", "MISS", "strobe", 120, 120, 120);   // dart off the board
+  add("highFinish", "", "HIGH CHECKOUT", "flash", 255, 180, 0); ev["highFinish"]["min"] = 100;   // checkout >= 100
+  add("shanghai", "", "SHANGHAI!", "strobe", 255, 0, 255);      // S+D+T of one number in a visit
+  add("legStart", "", "GAME ON", "rainbow", 0, 255, 120);       // new leg begins
   // showcase palettes + 2D panel effects (panelFx renders when no gif is set/found)
   ev["180"]["palette"] = "party";
   ev["140"]["palette"] = "lava";
