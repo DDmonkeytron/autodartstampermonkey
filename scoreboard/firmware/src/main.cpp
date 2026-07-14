@@ -786,8 +786,11 @@ function BUILTINS(){return {
   {t:'vline',x:63,y:0},
   {t:'name',p:1,x:96,y:1,s:1,a:'c'},{t:'amark',p:1,x:122,y:1},{t:'score',p:1,x:96,y:12,s:2,a:'c'},{t:'legs',p:1,x:84,y:38,s:1,a:'c',c:_CY},{t:'avg',p:1,x:108,y:38,s:1,a:'c',c:_CY},{t:'checkout',p:1,x:96,y:50,s:1,a:'c',c:_GR}],
  'Wide + stats (128)':[
-  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'avg',p:0,x:70,y:2,s:1,a:'l',c:_CY},{t:'legs',p:0,x:70,y:12,s:1,a:'l',c:_CY},{t:'180s',p:0,x:70,y:22,s:1,a:'l',c:_MG},{t:'checkout',p:0,x:100,y:12,s:1,a:'l',c:_GR},{t:'hline',x:0,y:31},
-  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'avg',p:1,x:70,y:34,s:1,a:'l',c:_CY},{t:'legs',p:1,x:70,y:44,s:1,a:'l',c:_CY},{t:'180s',p:1,x:70,y:54,s:1,a:'l',c:_MG},{t:'checkout',p:1,x:100,y:44,s:1,a:'l',c:_GR}],
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'checkout',p:0,x:1,y:24,s:1,a:'l',c:_GR},
+  {t:'label',v:'AVG',x:66,y:0,s:1,a:'l',c:_CY},{t:'avg',p:0,x:127,y:0,s:1,a:'r',c:_CY},{t:'label',v:'LEG',x:66,y:8,s:1,a:'l',c:_CY},{t:'legs',p:0,x:127,y:8,s:1,a:'r',c:_CY},{t:'label',v:'180',x:66,y:16,s:1,a:'l',c:_MG},{t:'180s',p:0,x:127,y:16,s:1,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:24,s:1,a:'l',c:_OR},{t:'high',p:0,x:127,y:24,s:1,a:'r',c:_OR},
+  {t:'hline',x:0,y:31},
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'checkout',p:1,x:1,y:56,s:1,a:'l',c:_GR},
+  {t:'label',v:'AVG',x:66,y:32,s:1,a:'l',c:_CY},{t:'avg',p:1,x:127,y:32,s:1,a:'r',c:_CY},{t:'label',v:'LEG',x:66,y:40,s:1,a:'l',c:_CY},{t:'legs',p:1,x:127,y:40,s:1,a:'r',c:_CY},{t:'label',v:'180',x:66,y:48,s:1,a:'l',c:_MG},{t:'180s',p:1,x:127,y:48,s:1,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:56,s:1,a:'l',c:_OR},{t:'high',p:1,x:127,y:56,s:1,a:'r',c:_OR}],
  '1 per panel (2P)':[
   {t:'name',p:0,x:32,y:0,s:1,a:'c'},{t:'amark',p:0,x:2,y:0},{t:'score',p:0,x:32,y:8,s:2,a:'c'},{t:'avg',p:0,x:32,y:26,s:1,a:'c',c:_CY},{t:'legs',p:0,x:14,y:38,s:1,a:'c',c:_CY},{t:'180s',p:0,x:50,y:38,s:1,a:'c',c:_MG},{t:'checkout',p:0,x:32,y:50,s:1,a:'c',c:_GR},
   {t:'vline',x:63,y:0},
