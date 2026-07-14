@@ -1,0 +1,17 @@
+{
+  // Darts Scoreboard remote-access relay (Cloudflare Worker + Durable Object).
+  // Each board dials OUT to wss://<worker>/connect and the dashboard proxies
+  // that board's own web UI back through the tunnel.
+  "name": "darts-scoreboard-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-15",
+  "durable_objects": {
+    "bindings": [{ "name": "BOARD", "class_name": "BoardDO" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BoardDO"] }
+  ],
+  "observability": { "enabled": true }
+  // BOARD_TOKENS is a secret set via:  wrangler secret put BOARD_TOKENS
+  //   value = JSON like {"garage":"long-random-1","daves":"long-random-2"}
+}
