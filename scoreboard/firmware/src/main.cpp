@@ -135,7 +135,7 @@ void GIFDraw(GIFDRAW *pDraw) {
   if (pDraw->ucDisposalMethod == 2) for (int x = 0; x < w; x++) if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
   for (int x = 0; x < w; x++) { if (pDraw->ucHasTransparency && s[x] == pDraw->ucTransparent) continue; dma->drawPixel(gifX + pDraw->iX + x, y, pal[s[x]]); }
 }
-int evX0 = 0, evW = PANEL_RES_X;   // event render region (x, width) — lets a GIF target one panel of a 128-wide board
+int evX0 = 0, evW = PANEL_RES_X; bool evSplit = false;   // event render region (x, width) + split-screen flag
 void setRegion(const char *r) {    // "full" | "left" | "right" (left/right only meaningful on a 128-wide board)
   if (panelW >= 128 && !strcmp(r, "left"))       { evX0 = 0;  evW = 64; }
   else if (panelW >= 128 && !strcmp(r, "right")) { evX0 = 64; evW = 64; }
@@ -381,9 +381,12 @@ void playEvent(const String &name, int value, const String &ovText) {
   panelFx = (const char *)(o["panelFx"] | "");
   panelPal = paletteByName((const char *)(o["palette"] | "rainbow"));
   eventUntil = millis() + (uint32_t)(o["ms"] | DEF_EVENT_MS);
-  marqueeX = panelW; lastMarquee = 0;
-  dma->clearScreen();                            // clear the scoreboard behind the celebration
   setRegion(o["region"] | "full");               // which panel(s) the GIF plays on: full / left / right
+  evSplit = (o["split"] | false) && evW < panelW;   // split-screen: keep the live scoreboard on the OTHER panel
+  if (evSplit) panelFx = "";                      // no full-screen 2D backdrop when splitting
+  marqueeX = evX0 + evW; lastMarquee = 0;
+  if (evSplit) { drawScoreboard(); dma->fillRect(evX0, 0, evW, PANEL_H, 0); }   // scoreboard stays; clear only the event panel
+  else dma->clearScreen();                        // full celebration: clear the whole board
   const char *g = o["gif"] | "";
   String gp;                                      // resolve gif: "cat:NAME" plays a RANDOM gif from that category
   if (!strncmp(g, "cat:", 4)) { JsonArray cat = cfg["layout"]["gifCategories"][g + 4].as<JsonArray>();
@@ -637,6 +640,7 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <h3>Uploaded GIFs</h3>
 <div id=s></div>
 <div style="margin-top:.6em"><input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button></div>
+<div class=hint>A <b>128&times;64</b> GIF fills both panels; a 64&times;64 fills one (centred). Resize at ezgif.com.</div>
 <h3>Categories</h3>
 <div class=hint>Group GIFs into named categories. An event set to a category plays a <b>random</b> GIF from it. Deleting a category keeps the GIFs.</div>
 <div id=catlist></div>
@@ -717,7 +721,7 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  <label>text <input style="width:120px" value="${esc(o.text||'')}" onchange="eset('${k}','text',this.value)"></label>
  <label>ms <input type=number style="width:66px" value="${o.ms||5000}" onchange="eset('${k}','ms',+this.value)"></label>
  <label>gif <select onchange="eset('${k}','gif',this.value)">${gifopt(o.gif||'')}</select></label>
- <label>2D <select onchange="eset('${k}','panelFx',this.value)">${opt(PFX,o.panelFx||'')}</select></label> <label>panel <select onchange="eset('${k}','region',this.value)">${opt(['full','left','right'],o.region||'full')}</select></label><br>
+ <label>2D <select onchange="eset('${k}','panelFx',this.value)">${opt(PFX,o.panelFx||'')}</select></label> <label>panel <select onchange="eset('${k}','region',this.value)">${opt(['full','left','right'],o.region||'full')}</select></label> <label title="keep the live scoreboard on the other panel"><input type=checkbox ${o.split?'checked':''} onchange="eset('${k}','split',this.checked)"> split</label><br>
  <b>Strip 1:</b> <select onchange="eset('${k}','effect',this.value)">${opt(FX,o.effect||'off')}</select>
  <select onchange="eset('${k}','palette',this.value)">${opt(PAL,o.palette||'rainbow')}</select>
  <input type=color value="${hx(o.color)}" onchange="eset('${k}','color',rgb(this.value))">
@@ -902,11 +906,11 @@ void loop() {
       if (eventText.length() && (redrew || now - lastMarquee > 33)) {
         lastMarquee = now;
         int textY = gifPlaying ? (PANEL_H - 10) : (PANEL_H / 2 - 4);   // GIF playing: just off the bottom; otherwise: vertically centred
-        dma->fillRect(0, textY - 1, panelW, 10, 0);
+        dma->fillRect(evX0, textY - 1, evW, 10, 0);                     // clear the text band within the active region
         dma->setTextSize(1); dma->setTextColor(C_WHITE);
-        dma->setCursor(marqueeX, textY); dma->print(eventText);
-        marqueeX -= 2; int w = eventText.length() * 6;
-        if (marqueeX < -w) marqueeX = panelW;
+        int w = eventText.length() * 6;
+        if (evW < panelW) { dma->setCursor(evX0 + (evW - w) / 2, textY); dma->print(eventText); }   // one panel: static, centred (no spill)
+        else { dma->setCursor(marqueeX, textY); dma->print(eventText); marqueeX -= 2; if (marqueeX < -w) marqueeX = panelW; }
       }
       runEffect(now);
     } else {                                        // event finished
