@@ -32,6 +32,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
 #include <AnimatedGIF.h>
+#include <Fonts/TomThumb.h>   // tiny ~4x6 font for the "small" text-field size
 
 // ===================== FIXED CONFIG =====================
 #define PANEL_RES_X 64          // one panel's native width
@@ -235,9 +236,12 @@ void drawFields(JsonArray fields) {
     }
     else col = act ? C_YELLOW : C_WHITE;                 // no explicit colour → highlight active player
     const char *a = f["a"] | "l";
-    int w = (int)v.length() * 6 * size;
+    int cw = (size <= 0) ? 4 : 6 * size;               // char cell width; size 0 = tiny TomThumb font (~4x6)
+    int w = (int)v.length() * cw;
     if (a[0] == 'r') x -= w; else if (a[0] == 'c') x -= w / 2;
-    dma->setTextSize(size); dma->setTextColor(col); dma->setCursor(x, y); dma->print(v);
+    dma->setTextColor(col);
+    if (size <= 0) { dma->setFont(&TomThumb); dma->setCursor(x, y + 5); dma->print(v); dma->setFont(nullptr); }  // baseline font: y+5 puts glyph top ~y
+    else { dma->setTextSize(size); dma->setCursor(x, y); dma->print(v); }
   }
 }
 void drawScoreboard() {
@@ -739,15 +743,17 @@ function lfields(){if(!C.layout)C.layout={};if(!C.layout.fields)C.layout.fields=
 function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t}')">+${t}</button>`).join(' ')}
 function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
 function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────',vline:'│'}[f.t]||f.t}
-function renderLED(){led.style.width=(EW()*SCALE)+'px';led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');const px=8*SCALE*(f.s||1);
- const a=f.a||'l',w=fprev(f).length*6*(f.s||1),off=a=='r'?w:a=='c'?w/2:0;   // mirror the board's alignment
- d.style.cssText=`position:absolute;left:${(f.x-off)*SCALE}px;top:${f.y*SCALE}px;height:${px}px;line-height:${px}px;font:${Math.round(px*0.9)}px/1 monospace;color:#fff;white-space:nowrap;cursor:move;padding:0 1px;outline:${i==selF?'2px solid #fc6':'1px dotted #556'};background:rgba(120,160,255,.12)`;
- d.textContent=fprev(f);d.onmousedown=e=>dragF(e,i);led.appendChild(d)});renderProps()}
+function renderLED(){led.style.width=(EW()*SCALE)+'px';led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');
+ const sz=f.s??1, cw=(sz<=0?4:6*sz), ch=(sz<=0?6:8*sz), t=fprev(f);        // panel char cell = cw x ch pixels (matches firmware)
+ const a=f.a||'l', w=t.length*cw, off=a=='r'?w:a=='c'?w/2:0;
+ const bw=w*SCALE, bh=ch*SCALE, fs=ch*SCALE, ls=(cw*SCALE-fs*0.6);         // exact footprint; letter-spacing tunes char advance to cw
+ d.style.cssText=`position:absolute;left:${(f.x-off)*SCALE}px;top:${f.y*SCALE}px;width:${bw}px;height:${bh}px;overflow:hidden;font:${fs}px/1 monospace;letter-spacing:${ls.toFixed(1)}px;color:#fff;white-space:nowrap;cursor:move;outline:${i==selF?'2px solid #fc6':'1px dotted #667'};background:rgba(120,160,255,.14)`;
+ d.textContent=t;d.onmousedown=e=>dragF(e,i);led.appendChild(d)});renderProps()}
 function dragF(e,i){e.preventDefault();selF=i;const f=lfields()[i],r=led.getBoundingClientRect();const ox=e.clientX-r.left-f.x*SCALE,oy=e.clientY-r.top-f.y*SCALE;
  const mv=ev=>{f.x=Math.max(0,Math.min(EW()-1,Math.round((ev.clientX-r.left-ox)/SCALE)));f.y=Math.max(0,Math.min(63,Math.round((ev.clientY-r.top-oy)/SCALE)));renderLED()};
  const up=()=>{removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};addEventListener('mousemove',mv);addEventListener('mouseup',up);renderProps()}
 function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.innerHTML='(no field selected)';return}const f=F[selF];
- fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)">${opt(['1','2'],''+(f.s||1))}</select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} ${f.t=='amark'?`fx <select onchange="fS('fx',this.value)">${opt(['on','blink','pulse'],f.fx||'on')}</select>`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
+ fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)"><option value=0 ${(f.s??1)==0?'selected':''}>small</option><option value=1 ${(f.s??1)==1?'selected':''}>1</option><option value=2 ${(f.s??1)==2?'selected':''}>2</option></select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} ${f.t=='amark'?`fx <select onchange="fS('fx',this.value)">${opt(['on','blink','pulse'],f.fx||'on')}</select>`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
 function fS(k,v){lfields()[selF][k]=v;renderLED()}
 function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
 async function savelay(){await save();alert('Layout saved & applied')}
