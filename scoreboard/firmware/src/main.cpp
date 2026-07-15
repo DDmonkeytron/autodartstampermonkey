@@ -23,12 +23,15 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>       // cloud tunnel: loopback proxy to our own web server
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <Update.h>
 #include <time.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
+#include <WebSocketsClient.h> // cloud remote: outbound WSS tunnel to the relay
+#include <mbedtls/base64.h>   // base64 for tunnelled request/response bodies
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
 #include <AnimatedGIF.h>
@@ -75,6 +78,7 @@ WebServer server(80);
 AnimatedGIF gif;
 JsonDocument cfg;
 uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
+bool cloudUp = false;                // cloud tunnel connected? (reported by /status; set by the cloud task)
 
 struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours
 Player players[4];
@@ -436,6 +440,9 @@ void loadConfig() {
   L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle
   L["strip1Pin"] = 17; L["strip2Pin"] = 21;       // strip data GPIOs (reboot to apply)
   L["strip1Count"] = 60; L["strip2Count"] = 60;   // LED counts (reboot to apply)
+  // cloud remote (System -> Cloud): board dials out to the Cloudflare relay; reboot to (re)connect
+  L["cloudEnabled"] = false; L["cloudHost"] = "darts-scoreboard-relay.ddmonkeytron.workers.dev";
+  L["cloudId"] = ""; L["cloudToken"] = ""; L["cloudName"] = "";
   JsonObject ev = cfg["events"].to<JsonObject>();
   auto add = [&](const char *k, const char *g, const char *t, const char *fx, int r, int gg, int b) {
     JsonObject o = ev[k].to<JsonObject>(); o["gif"] = g; o["text"] = t; o["effect"] = fx;
@@ -538,6 +545,7 @@ void handleStatus() {
   JsonDocument s; s["heap"] = ESP.getFreeHeap(); s["rssi"] = WiFi.RSSI();
   s["ip"] = WiFi.localIP().toString(); s["gif"] = gifPath; s["uptime"] = millis() / 1000; s["queue"] = evCount;
   for (int i = 0; i < numPlayers; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
+  s["cloud"]["enabled"] = (bool)(cfg["layout"]["cloudEnabled"] | false); s["cloud"]["up"] = cloudUp;
   String o; serializeJson(s, o); server.send(200, "application/json", o);
 }
 void handleOTAUpload() {
@@ -669,6 +677,7 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <section id=p-system class=panel>
 <h2>System</h2>
 <h3>Panels</h3><div id=panels></div>
+<h3>Cloud remote</h3><div id=cloud></div>
 <h3>Firmware update (OTA)</h3><input type=file id=fw accept=.bin><button onclick=ota()>OTA update</button>
 <h3>Device</h3><button onclick=rb()>Reboot</button><button onclick=wr()>Reset WiFi</button>
 <h3>Status</h3><pre id=st></pre>
@@ -713,6 +722,14 @@ function renderLayout(){const L=C.layout||(C.layout={});
 }
 function renderPanels(){const L=C.layout||(C.layout={});
  panels.innerHTML=`Display: <select onchange="lset('panelChain',+this.value)"><option value=1 ${(L.panelChain||1)==1?'selected':''}>Single 64&times;64 (1 panel)</option><option value=2 ${(L.panelChain||1)==2?'selected':''}>Wide 128&times;64 (2 panels)</option></select> <span class=hint>reboot to apply &middot; each celebration can target the left or right panel (event &rarr; panel)</span>`;
+}
+function renderCloud(){const L=C.layout||(C.layout={});
+ const cx=`<label><input type=checkbox ${L.cloudEnabled?'checked':''} onchange="lset('cloudEnabled',this.checked)"> <b>Enable cloud remote</b></label>`;
+ const tx=(k,lbl,ph,w)=>`<label>${lbl} <input style="width:${w||220}px" value="${esc(L[k]??'')}" placeholder="${ph}" onchange="lset('${k}',this.value)"></label>`;
+ cloud.innerHTML=cx+'<br>'+tx('cloudName','Name','friendly name shown in the dashboard',200)
+  +'<br>'+tx('cloudHost','Relay','your-relay.workers.dev',300)
+  +'<br>'+tx('cloudId','Board id','e.g. home',120)+' '+tx('cloudToken','Token','board token',260)
+  +'<div class=hint>The board dials out to your relay so you can manage it from anywhere. Save, then <b>reboot</b> to (re)connect. Connection state shows in Status below (<code>cloud.up</code>).</div>';
 }
 function eset(k,f,v){C.events[k][f]=v}
 function f2mode(k){const f=C.events[k].fx2;return f==null?'mirror':(typeof f=='string'?(f=='mirror'?'mirror':'off'):'custom')}
@@ -825,7 +842,7 @@ function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clo
 async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
 async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
 function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels();renderCloud()}
 async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
@@ -858,6 +875,114 @@ async function lg_(){lg.textContent=await t('/log');lg.scrollTop=lg.scrollHeight
 function nav(p){document.querySelectorAll('.panel').forEach(e=>e.classList.remove('on'));document.getElementById('p-'+p).classList.add('on');document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('sel',b.dataset.p==p))}
 (async()=>{await sp();await load();renderAddBtns();nav('layout');stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
 </script>)HTML";
+
+// ===================== CLOUD REMOTE (outbound WSS tunnel) =====================
+// The board dials OUT to the Cloudflare relay (works behind home NAT, no port-forward).
+// The relay forwards admin HTTP requests down the socket as {t:"req",...}; we replay each
+// one to our OWN web server over loopback and send the response back as {t:"res",...}.
+// Runs on its own FreeRTOS task (core 0): the loopback HTTP call is serviced by loop()'s
+// server.handleClient() on core 1, so blocking here never deadlocks the single-threaded server.
+WebSocketsClient cloudWS;
+TaskHandle_t cloudTaskH = nullptr;
+volatile bool cloudRun = false;
+
+static String b64encode(const uint8_t *data, size_t len) {           // -> base64 String ("" on empty/oom)
+  if (!len) return String();
+  size_t olen = 0; mbedtls_base64_encode(nullptr, 0, &olen, data, len);   // query required size
+  char *buf = (char *)malloc(olen + 1); if (!buf) return String();
+  String out; if (mbedtls_base64_encode((unsigned char *)buf, olen + 1, &olen, data, len) == 0) { buf[olen] = 0; out = buf; }
+  free(buf); return out;
+}
+static uint8_t *b64decode(const char *b64, size_t &outLen) {         // -> malloc'd bytes (caller frees) or nullptr
+  outLen = 0; size_t inlen = strlen(b64); if (!inlen) return nullptr;
+  size_t need = 0; mbedtls_base64_decode(nullptr, 0, &need, (const unsigned char *)b64, inlen);
+  uint8_t *buf = (uint8_t *)malloc(need ? need : 1); if (!buf) return nullptr;
+  if (mbedtls_base64_decode(buf, need, &outLen, (const unsigned char *)b64, inlen) != 0) { free(buf); outLen = 0; return nullptr; }
+  return buf;
+}
+
+void sendHello() {
+  String name = (const char *)(cfg["layout"]["cloudName"] | "");
+  if (!name.length()) name = (const char *)(cfg["layout"]["cloudId"] | "darts");
+  name.replace("\"", "");
+  String msg = "{\"t\":\"hello\",\"meta\":{\"name\":\"" + name + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"fw\":\"scoreboard\"}}";
+  cloudWS.sendTXT(msg);
+}
+
+// Replay one tunnelled request to our own web server and stream the response back.
+void handleTunnelReq(JsonDocument &m) {
+  const char *rid = m["rid"] | "";
+  String method = (const char *)(m["method"] | "GET");
+  String path = (const char *)(m["path"] | "/");
+  String ctype = (const char *)(m["ctype"] | "");
+  const char *bodyB64 = m["body"] | "";
+  size_t blen = 0; uint8_t *body = (bodyB64[0]) ? b64decode(bodyB64, blen) : nullptr;
+
+  HTTPClient http;
+  http.begin("http://" + WiFi.localIP().toString() + path);   // loopback to our own :80
+  const char *hk[] = { "Content-Type" }; http.collectHeaders(hk, 1);
+  if (ctype.length()) http.addHeader("Content-Type", ctype);
+  http.setTimeout(15000);
+  int code = (method == "GET") ? http.GET() : http.sendRequest(method.c_str(), body ? body : (uint8_t *)"", blen);
+  if (body) free(body);
+
+  int status = code > 0 ? code : 502;
+  String rctype = http.header("Content-Type"); if (!rctype.length()) rctype = "application/octet-stream";
+  String respB64;
+  if (code > 0) {
+    int clen = http.getSize();
+    if (clen > 0) {                                            // known length: read exactly, then encode + free
+      uint8_t *rb = (uint8_t *)malloc(clen);
+      if (rb) { int got = http.getStreamPtr()->readBytes(rb, clen); respB64 = b64encode(rb, got); free(rb); }
+    } else {                                                   // chunked / unknown length
+      String s = http.getString(); respB64 = b64encode((const uint8_t *)s.c_str(), s.length());
+    }
+  }
+  http.end();
+
+  String msg; msg.reserve(respB64.length() + rctype.length() + 96);
+  msg = "{\"t\":\"res\",\"rid\":\""; msg += rid; msg += "\",\"status\":"; msg += status;
+  msg += ",\"ctype\":\""; msg += rctype; msg += "\",\"body\":\""; msg += respB64; msg += "\"}";
+  respB64 = String();                                          // free the encoded copy before the WS/TLS send buffer
+  cloudWS.sendTXT(msg);
+}
+
+void cloudEvent(WStype_t type, uint8_t *payload, size_t len) {
+  if (type == WStype_CONNECTED) { cloudUp = true; LOG("cloud: connected"); sendHello(); }
+  else if (type == WStype_DISCONNECTED) { if (cloudUp) LOG("cloud: disconnected"); cloudUp = false; }
+  else if (type == WStype_TEXT) {
+    JsonDocument m;
+    if (deserializeJson(m, (char *)payload, len)) return;       // zero-copy over the WS receive buffer
+    if (!strcmp(m["t"] | "", "req")) handleTunnelReq(m);
+  }
+}
+
+void cloudTask(void *) {
+  String host = (const char *)(cfg["layout"]["cloudHost"] | "");
+  String id   = (const char *)(cfg["layout"]["cloudId"] | "");
+  String tok  = (const char *)(cfg["layout"]["cloudToken"] | "");
+  String path = "/connect?id=" + id + "&token=" + tok;
+  cloudWS.beginSSL(host.c_str(), 443, path.c_str());            // TLS (workers.dev); token in the URL is the auth
+  cloudWS.onEvent(cloudEvent);
+  cloudWS.setReconnectInterval(5000);
+  cloudWS.enableHeartbeat(15000, 4000, 2);                      // WS-level keepalive through NAT
+  uint32_t lastPing = 0;
+  while (cloudRun) {
+    cloudWS.loop();
+    uint32_t now = millis();
+    if (cloudUp && now - lastPing > 30000) { lastPing = now; cloudWS.sendTXT("{\"t\":\"ping\"}"); }   // refresh lastSeen
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+  cloudWS.disconnect(); cloudUp = false; cloudTaskH = nullptr; vTaskDelete(nullptr);
+}
+void startCloud() {
+  if (cloudTaskH) return;
+  if (!(cfg["layout"]["cloudEnabled"] | false)) { LOG("cloud: disabled"); return; }
+  if (!strlen(cfg["layout"]["cloudId"] | "") || !strlen(cfg["layout"]["cloudToken"] | "")) { LOG("cloud: id/token missing"); return; }
+  cloudRun = true;
+  xTaskCreatePinnedToCore(cloudTask, "cloud", 12288, nullptr, 1, &cloudTaskH, 0);
+  LOG("cloud: connecting " + String((const char *)(cfg["layout"]["cloudHost"] | "")));
+}
 
 // ===================== SETUP / LOOP =====================
 void setup() {
@@ -914,6 +1039,7 @@ void setup() {
   lastActivity = millis();
   drawScoreboard();
   LOG("ready http://" MDNS_NAME ".local " + WiFi.localIP().toString());
+  startCloud();                                   // dial out to the relay if configured (System -> Cloud)
 }
 
 void loop() {
