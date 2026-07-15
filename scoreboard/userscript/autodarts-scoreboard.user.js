@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.7
+// @version      0.6.8
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -195,6 +195,15 @@
     if (total >= 100)  return "100";
     return null;
   }
+  // Autodarts' OWN suggested checkout, read from the on-screen route (autodarts-tools renders
+  // each dart as <p class="ad-ext-turn-checkout-value"> inside div.suggestion). Verbatim mirror —
+  // it belongs to the player currently at the oche. "" when not on a finish → board computes its own.
+  function readCheckout() {
+    let els = document.querySelectorAll(".ad-ext-turn-checkout-value");
+    if (!els.length) els = document.querySelectorAll(".suggestion");   // fallback if the value class is renamed
+    if (!els.length) return "";
+    return Array.from(els).slice(0, 3).map((e) => e.textContent.trim()).filter(Boolean).join(" ");
+  }
   // "game shot" anticipation: is this remaining score a ONE-DART finish? → the double/bull to win on.
   function oneDartFinish(n) {
     if (n === 50) return "BULL";
@@ -207,6 +216,7 @@
       score: (m.gameScores && m.gameScores[i]) ?? p.score ?? 0,
       legs:  m.scores?.[i]?.legs ?? p.legs ?? 0,          // autodarts: legs live in scores[i].legs
       avg:   Math.round((m.stats?.[i]?.matchStats?.average ?? p.average ?? p.avg ?? 0) * 10) / 10,
+      co:    "",                                          // autodarts' own checkout (active player only, filled below)
     }));
     const turns  = m.turns || (m.turn ? [m.turn] : []);
     const cur    = turns.length ? turns[turns.length - 1] : (m.turn || {});
@@ -234,6 +244,9 @@
     if (DEBUG) log("match state", m);
     const s = readMatch(m);
     if (!s.players.length) return;
+
+    // mirror autodarts' own suggested checkout onto the active player (the thrower)
+    if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout();
 
     // push scoreboard (deduped) — include the active turn's individual dart scores
     const throwPoints = s.throws.map(dartPoints);

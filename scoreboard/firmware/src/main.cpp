@@ -76,7 +76,7 @@ AnimatedGIF gif;
 JsonDocument cfg;
 uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
 
-struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; };
+struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours
 Player players[4];
 int numPlayers = 2, activePlayer = 0;
 int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
@@ -122,6 +122,11 @@ String checkoutFor(int score) {
   for (int a = 0; a < nSeg; a++) for (int b = 0; b < nSeg; b++) for (int d = 0; d < nDbl; d++)
     if (segV[a] + segV[b] + dblV[d] == score) return done(String(segN[a]) + " " + segN[b] + " " + D(d));
   return done("");
+}
+// Prefer autodarts' own suggestion (sent per-player as "co"); else fall back to our computed route.
+String checkoutStr(const Player &pl) {
+  if (pl.co.length()) return pl.co;
+  return (pl.score >= 2 && pl.score <= 170) ? checkoutFor(pl.score) : "";
 }
 
 // ===================== GIF =====================
@@ -175,7 +180,7 @@ void drawPlayer(int i, int yTop, int rowH) {
   dma->setTextSize(2); dma->setTextColor(pc);
   dma->setCursor(1, yTop + 8); dma->print(p.score);
   dma->setTextSize(1); dma->setCursor(1, yTop + 24);
-  String co = (a && showCk && p.score >= 2 && p.score <= 170) ? checkoutFor(p.score) : "";
+  String co = (a && showCk) ? checkoutStr(p) : "";
   if (a && showThrows && turnThrowCount > 0) {                 // priority 1: this turn's darts
     dma->setTextColor(C_YELLOW);
     for (int k = 0; k < turnThrowCount; k++) { if (k) dma->print(" "); dma->print(turnThrows[k]); }
@@ -200,7 +205,7 @@ String fieldValue(const String &t, int p, JsonObject f) {
   if (t == "legs")     return String(pl.legs);
   if (t == "180s")     return String(pl.c180);
   if (t == "high")     return String(pl.high);
-  if (t == "checkout") return (pl.score >= 2 && pl.score <= 170) ? checkoutFor(pl.score) : "";
+  if (t == "checkout") return checkoutStr(pl);
   if (!act) return "";                                   // turn fields: active player only
   if (t == "darts")    return String(turnThrowCount);
   if (t == "last")     return turnThrowCount ? String(turnThrows[turnThrowCount - 1]) : "";
@@ -477,6 +482,7 @@ void handleScore() {
       players[i].score = a[i]["score"] | players[i].score;
       players[i].legs = a[i]["legs"] | players[i].legs;
       players[i].avg = a[i]["avg"] | players[i].avg;
+      players[i].co = (const char *)(a[i]["co"] | "");   // autodarts' suggestion; absent/"" → firmware computes its own
     }
   }
   JsonArray th = d["throws"].as<JsonArray>(); turnThrowCount = 0;
