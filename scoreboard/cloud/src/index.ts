@@ -129,7 +129,7 @@ const DASH = `<!doctype html><meta charset=utf-8><meta name=viewport content="wi
 <style>*{box-sizing:border-box}body{font-family:sans-serif;background:#111;color:#eee;margin:0;padding:1em}
 h1{color:#fc6}.board{display:flex;align-items:center;gap:.6em;padding:.6em .8em;background:#1a1a1a;border:1px solid #333;border-radius:8px;margin:.4em 0}
 .dot{font-size:.9em}button{padding:.45em .8em;background:#2a2a2a;color:#eee;border:1px solid #444;border-radius:5px;cursor:pointer}
-button:disabled{opacity:.4;cursor:not-allowed}.name{color:#8cf}.sp{flex:1}
+button:disabled{opacity:.4;cursor:not-allowed}.name{color:#8cf}.meta{color:#888;font-size:.85em}.sp{flex:1}
 iframe{width:100%;height:82vh;border:1px solid #333;border-radius:8px;margin-top:.6em;background:#000;display:none}
 .close{background:#422}</style>
 <h1>🎯 Darts Boards</h1>
@@ -143,7 +143,10 @@ async function load(){
   if(!bs.length){list.textContent='No boards configured.';return}
   for(const b of bs){
    const d=document.createElement('div');d.className='board';
-   d.innerHTML='<span class=dot>'+(b.online?'🟢':'🔴')+'</span> <b>'+b.id+'</b>'+((b.meta&&b.meta.name)?' <span class=name>'+b.meta.name+'</span>':'')+'<span class=sp></span>';
+   const meta=b.meta||{};
+   const seen=b.lastSeen?new Date(b.lastSeen).toLocaleTimeString():'';
+   const info=[meta.ver?'v'+meta.ver:'',meta.ip||'',b.online?'':(seen?'seen '+seen:'')].filter(Boolean).join(' · ');
+   d.innerHTML='<span class=dot>'+(b.online?'🟢':'🔴')+'</span> <b>'+b.id+'</b>'+(meta.name?' <span class=name>'+meta.name+'</span>':'')+(info?' <span class=meta>'+info+'</span>':'')+'<span class=sp></span>';
    const btn=document.createElement('button');btn.textContent='Open control panel';btn.disabled=!b.online;btn.onclick=()=>opn(b.id);
    const fw=document.createElement('button');fw.textContent='⬆ Update firmware';fw.disabled=!b.online;fw.onclick=()=>fwPick(b.id);
    const st=document.createElement('span');st.id='fwst-'+b.id;st.className='name';
@@ -167,8 +170,21 @@ async function fwSend(id,f){
   set('uploaded '+(j.size/1024|0)+' KB — triggering…');
   const tr=await fetch('/board/'+id+'/ota_pull',{method:'POST'});
   if(!tr.ok){set('trigger failed ('+tr.status+')');return}
-  set('⚡ flashing — board reboots in ~30 s, then reconnects');
+  await confirmOta(id,set);
  }catch(e){set('error: '+e)}
+}
+// Watch the board go offline (flashing) then come back, and report the firmware it booted.
+async function confirmOta(id,set){
+ set('⚡ flashing — waiting for reboot…');
+ let down=false;
+ for(let i=0;i<45;i++){                       // ~45 × 3s ≈ 135s window
+  await new Promise(r=>setTimeout(r,3000));
+  let b;try{const bs=await (await fetch('/api/boards',{cache:'no-store'})).json();b=bs.find(x=>x.id===id)}catch(e){continue}
+  if(!b)continue;
+  if(!b.online){down=true;set('⚡ flashing — board rebooting…');continue}
+  if(down){set('✓ updated — now on v'+((b.meta&&b.meta.ver)||'?'));load();return}
+ }
+ set('⚠ no reboot seen — check the board manually');
 }
 function opn(id){
  view.innerHTML='';

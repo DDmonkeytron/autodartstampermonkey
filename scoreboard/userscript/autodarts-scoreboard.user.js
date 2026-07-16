@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.8
+// @version      0.6.9
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -211,13 +211,19 @@
     return null;
   }
   function readMatch(m) {
-    const players = (m.players || []).map((p, i) => ({
-      name: String(p.name || p.playerName || `P${i + 1}`).toUpperCase().slice(0, 10),
-      score: (m.gameScores && m.gameScores[i]) ?? p.score ?? 0,
-      legs:  m.scores?.[i]?.legs ?? p.legs ?? 0,          // autodarts: legs live in scores[i].legs
-      avg:   Math.round((m.stats?.[i]?.matchStats?.average ?? p.average ?? p.avg ?? 0) * 10) / 10,
-      co:    "",                                          // autodarts' own checkout (active player only, filled below)
-    }));
+    const players = (m.players || []).map((p, i) => {
+      const ms = m.stats?.[i]?.matchStats ?? {};
+      const cp = ms.checkoutPercent ?? 0;                 // autodarts may report a 0-1 ratio or a 0-100 percent
+      return {
+        name: String(p.name || p.playerName || `P${i + 1}`).toUpperCase().slice(0, 10),
+        score: (m.gameScores && m.gameScores[i]) ?? p.score ?? 0,
+        legs:  m.scores?.[i]?.legs ?? p.legs ?? 0,        // autodarts: legs live in scores[i].legs
+        avg:   Math.round((ms.average ?? p.average ?? p.avg ?? 0) * 10) / 10,
+        f9:    Math.round((ms.first9Average ?? 0) * 10) / 10,   // first-9 average
+        coPct: Math.round(cp <= 1 ? cp * 100 : cp),       // checkout %
+        co:    "",                                        // autodarts' own checkout (active player only, filled below)
+      };
+    });
     const turns  = m.turns || (m.turn ? [m.turn] : []);
     const cur    = turns.length ? turns[turns.length - 1] : (m.turn || {});
     return {

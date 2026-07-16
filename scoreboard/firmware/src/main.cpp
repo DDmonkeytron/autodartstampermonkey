@@ -70,7 +70,7 @@ int panelW = PANEL_RES_X;       // live canvas width = PANEL_RES_X * chain, set 
 #define DEF_EVENT_MS 5000
 #define AP_NAME "DartsScoreboard-Setup"
 #define MDNS_NAME "darts"
-#define FW_VERSION "2026.07.15-ota2"   // bumped to prove remote OTA delivered a new image
+#define FW_VERSION "2026.07.16-stats2"   // stats persistence, auto-DST, richer stats, OTA confirm, config backfill
 
 // ===================== GLOBALS =====================
 MatrixPanel_I2S_DMA *dma = nullptr;
@@ -84,7 +84,7 @@ uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
 bool cloudUp = false;                // cloud tunnel connected? (reported by /status; set by the cloud task)
 volatile bool otaPullPending = false; // remote OTA: /ota_pull sets this; loop() runs the download
 
-struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours
+struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; float f9 = 0; int coPct = 0; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours; f9 = first-9 avg; coPct = checkout %
 Player players[4];
 int numPlayers = 2, activePlayer = 0;
 int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
@@ -213,6 +213,8 @@ String fieldValue(const String &t, int p, JsonObject f) {
   if (t == "legs")     return String(pl.legs);
   if (t == "180s")     return String(pl.c180);
   if (t == "high")     return String(pl.high);
+  if (t == "f9")       return String(pl.f9, 1);          // first-9 average
+  if (t == "co%")      return String(pl.coPct) + "%";    // checkout percentage
   if (t == "checkout") return checkoutStr(pl);
   if (!act) return "";                                   // turn fields: active player only
   if (t == "darts")    return String(turnThrowCount);
@@ -286,7 +288,11 @@ void drawIdle() {
     dma->setTextSize(2); dma->setTextColor(C_CYAN); dma->setCursor(8, 18); dma->print(buf);
   } else { dma->setTextSize(1); dma->setTextColor(C_DIM); dma->setCursor(3, 22); dma->print("AUTODARTS"); }
   // session stats under the clock
-  dma->setTextSize(1); dma->setTextColor(C_DIM);
+  dma->setTextSize(1);
+  if (players[0].legs || players[1].legs) {              // live match standings (this session)
+    dma->setTextColor(C_CYAN); dma->setCursor(2, 34); dma->printf("LEGS %d-%d", players[0].legs, players[1].legs);
+  }
+  dma->setTextColor(C_DIM);
   dma->setCursor(2, 44); dma->printf("180s %d-%d", players[0].c180, players[1].c180);
   dma->setCursor(2, 54); dma->printf("HI %d", max(players[0].high, players[1].high));
 }
@@ -434,13 +440,22 @@ void loadConfig() {
   if (LittleFS.exists("/config.json")) {
     File f = LittleFS.open("/config.json", "r");
     DeserializationError e = deserializeJson(cfg, f); f.close();
-    if (!e) return;
+    if (!e) {
+      // Backfill keys added by firmware upgrades so new features get their defaults
+      // without wiping the user's existing settings. Only fills what's absent; persists once.
+      JsonObject L = cfg["layout"]; bool changed = false;
+      if (!L["tz"].is<const char *>()) { L["tz"] = "GMT0BST,M3.5.0/1,M10.5.0"; changed = true; }
+      if (!L["cloudHost"].is<const char *>()) { L["cloudHost"] = "darts-scoreboard-relay.ddmonkeytron.workers.dev"; changed = true; }
+      if (changed) saveConfig();
+      return;
+    }
   }
   cfg.clear();
   JsonObject L = cfg["layout"].to<JsonObject>();
   L["players"] = 2; L["showAvg"] = true; L["showLegs"] = true; L["showThrows"] = false;
   L["showCheckout"] = true; L["brightness"] = DEF_PANEL_BRI; L["stripBrightness"] = DEF_STRIP_BRI;
   L["rotation"] = 0; L["maxMilliamps"] = DEF_MAX_MA; L["idleMs"] = DEF_IDLE_MS; L["tzOffset"] = 0; L["panelChain"] = 1;
+  L["tz"] = "GMT0BST,M3.5.0/1,M10.5.0";           // POSIX TZ for the idle clock — auto BST/GMT (UK). "" = use tzOffset instead
   L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle
   L["strip1Pin"] = 17; L["strip2Pin"] = 21;       // strip data GPIOs (reboot to apply)
   L["strip1Count"] = 60; L["strip2Count"] = 60;   // LED counts (reboot to apply)
@@ -479,6 +494,22 @@ void loadConfig() {
   saveConfig();
 }
 
+// ---- session stats persistence (180 count + high score survive reboots / remote OTA) ----
+bool statsDirty = false; uint32_t statsSaveAt = 0;
+void saveStats() {
+  JsonDocument s;
+  for (int i = 0; i < 4; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
+  File f = LittleFS.open("/stats.json", "w"); if (f) { serializeJson(s, f); f.close(); }
+}
+void loadStats() {
+  if (!LittleFS.exists("/stats.json")) return;
+  File f = LittleFS.open("/stats.json", "r"); if (!f) return;
+  JsonDocument s; DeserializationError e = deserializeJson(s, f); f.close();
+  if (e) return;
+  for (int i = 0; i < 4; i++) { players[i].c180 = s["c180"][i] | 0; players[i].high = s["high"][i] | 0; }
+}
+void markStatsDirty() { statsDirty = true; statsSaveAt = millis() + 3000; }   // debounce writes (flash wear)
+
 // ===================== HTTP HANDLERS =====================
 void handleScore() {
   if (!server.hasArg("plain")) { server.send(400, "text/plain", "no body"); return; }
@@ -494,6 +525,8 @@ void handleScore() {
       players[i].legs = a[i]["legs"] | players[i].legs;
       players[i].avg = a[i]["avg"] | players[i].avg;
       players[i].co = (const char *)(a[i]["co"] | "");   // autodarts' suggestion; absent/"" → firmware computes its own
+      players[i].f9 = a[i]["f9"] | players[i].f9;         // first-9 average (from autodarts stats)
+      players[i].coPct = a[i]["coPct"] | players[i].coPct; // checkout %
     }
   }
   JsonArray th = d["throws"].as<JsonArray>(); turnThrowCount = 0;
@@ -504,8 +537,8 @@ void handleScore() {
     if (sig != lastTurnSig) {
       lastTurnSig = sig;
       int sum = turnThrows[0] + turnThrows[1] + turnThrows[2];
-      if (sum > players[activePlayer].high) players[activePlayer].high = sum;
-      if (sum == 180) players[activePlayer].c180++;
+      if (sum > players[activePlayer].high) { players[activePlayer].high = sum; markStatsDirty(); }
+      if (sum == 180) { players[activePlayer].c180++; markStatsDirty(); }
     }
   }
   lastActivity = millis();
@@ -581,7 +614,7 @@ void handleLog() {
   String o; for (int i = 0; i < LOGN; i++) { String &l = logBuf[(logHead + i) % LOGN]; if (l.length()) o += l + "\n"; }
   server.send(200, "text/plain", o);
 }
-void handleReset() { for (int i = 0; i < 4; i++) { players[i].c180 = 0; players[i].high = 0; } LOG("stats reset"); server.send(200, "application/json", "{\"ok\":true}"); }
+void handleReset() { for (int i = 0; i < 4; i++) { players[i].c180 = 0; players[i].high = 0; } saveStats(); LOG("stats reset"); server.send(200, "application/json", "{\"ok\":true}"); }
 void handleIdentify() {                          // light each output so you can see which is which
   identifyUntil = millis() + 8000;
   eventUntil = 0; evCount = 0;
@@ -716,10 +749,12 @@ function renderLayout(){const L=C.layout||(C.layout={});
  const chk=k=>`<label><input type=checkbox ${L[k]?'checked':''} onchange="lset('${k}',this.checked)"> ${k}</label>`;
  const num=k=>`<label>${k} <input type=number style="width:72px" value="${L[k]??''}" onchange="lset('${k}',+this.value)"></label>`;
  const sl=(k,a)=>`<label>${k} <select onchange="lset('${k}',this.value)">${opt(a,L[k]??a[0])}</select></label>`;
+ const txt=(k,w)=>`<label>${k} <input style="width:${w||140}px" value="${esc(L[k]??'')}" onchange="lset('${k}',this.value)"></label>`;
  const p=L.playerColors||[];
  lo.innerHTML=[num('players'),chk('showAvg'),chk('showLegs'),chk('showThrows'),chk('showCheckout'),num('brightness'),
   num('stripBrightness'),num('maxMilliamps'),num('rotation'),num('idleMs'),sl('idleFx',PFX),sl('idlePalette',PAL),
-  num('tzOffset'),sl('panelDriver',DRV)].join(' ')
+  num('tzOffset'),txt('tz',150),sl('panelDriver',DRV)].join(' ')
+  +'<div class=hint>tz = POSIX timezone for the idle clock (auto-DST). UK = <code>GMT0BST,M3.5.0/1,M10.5.0</code>. Blank = use the fixed tzOffset seconds instead. Reboot to apply.</div>'
   +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
   +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
   +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
@@ -764,13 +799,13 @@ function renderEvents(){evl.innerHTML=Object.keys(C.events||{}).map(k=>{
  </fieldset>`}).join('');
 }
 // ---- layout editor ----
-const SCALE=5, FT=['name','score','avg','legs','darts','last','turn','total','checkout','180s','high','label','amark','hline','vline'];
+const SCALE=5, FT=['name','score','avg','f9','co%','legs','darts','last','turn','total','checkout','180s','high','label','amark','hline','vline'];
 function EW(){return 64*((C.layout&&C.layout.panelChain)||1)}   // editor canvas width in panel px (64 or 128)
 let selF=-1;
 function lfields(){if(!C.layout)C.layout={};if(!C.layout.fields)C.layout.fields=[];return C.layout.fields}
 function renderAddBtns(){addbtns.innerHTML=FT.map(t=>`<button onclick="addF('${t}')">+${t}</button>`).join(' ')}
 function addF(t){lfields().push({t,p:+lp.value,x:1,y:1,s:1,a:'l'});selF=lfields().length-1;renderLED()}
-function fprev(f){return {name:'NAME',score:'501',avg:'0.0',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────',vline:'│'}[f.t]||f.t}
+function fprev(f){return {name:'NAME',score:'501',avg:'0.0',f9:'0.0','co%':'40%',legs:'0',darts:'3',last:'20',turn:'20 20',total:'60',checkout:'D20','180s':'1',high:'140',label:(f.v||'TEXT'),amark:'▮',hline:'──────────',vline:'│'}[f.t]||f.t}
 function renderLED(){led.style.width=(EW()*SCALE)+'px';led.innerHTML='';lfields().forEach((f,i)=>{const d=document.createElement('div');
  const sz=f.s??1, cw=(sz<=0?4:6*sz), ch=(sz<=0?6:8*sz), t=fprev(f);        // panel char cell = cw x ch pixels (matches firmware)
  const a=f.a||'l', w=t.length*cw, off=a=='r'?w:a=='c'?w/2:0;
@@ -839,7 +874,12 @@ function BUILTINS(){return {
   {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'hline',x:0,y:31},
   {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'vline',x:63,y:0},
   {t:'label',v:'AVG',x:66,y:0,s:1,a:'l',c:_CY},{t:'avg',p:0,x:127,y:0,s:1,a:'r',c:_CY},{t:'label',v:'LEG',x:66,y:8,s:1,a:'l',c:_CY},{t:'legs',p:0,x:127,y:8,s:1,a:'r',c:_CY},{t:'label',v:'180',x:66,y:16,s:1,a:'l',c:_MG},{t:'180s',p:0,x:127,y:16,s:1,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:24,s:1,a:'l',c:_OR},{t:'high',p:0,x:127,y:24,s:1,a:'r',c:_OR},
-  {t:'label',v:'AVG',x:66,y:34,s:1,a:'l',c:_CY},{t:'avg',p:1,x:127,y:34,s:1,a:'r',c:_CY},{t:'label',v:'LEG',x:66,y:42,s:1,a:'l',c:_CY},{t:'legs',p:1,x:127,y:42,s:1,a:'r',c:_CY},{t:'label',v:'180',x:66,y:50,s:1,a:'l',c:_MG},{t:'180s',p:1,x:127,y:50,s:1,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:58,s:1,a:'l',c:_OR},{t:'high',p:1,x:127,y:58,s:1,a:'r',c:_OR}]
+  {t:'label',v:'AVG',x:66,y:34,s:1,a:'l',c:_CY},{t:'avg',p:1,x:127,y:34,s:1,a:'r',c:_CY},{t:'label',v:'LEG',x:66,y:42,s:1,a:'l',c:_CY},{t:'legs',p:1,x:127,y:42,s:1,a:'r',c:_CY},{t:'label',v:'180',x:66,y:50,s:1,a:'l',c:_MG},{t:'180s',p:1,x:127,y:50,s:1,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:58,s:1,a:'l',c:_OR},{t:'high',p:1,x:127,y:58,s:1,a:'r',c:_OR}],
+ 'Stats+ (2P wide, small)':[
+  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:9,s:2,a:'l'},{t:'checkout',p:0,x:1,y:26,s:0,a:'l',c:_GR},{t:'hline',x:0,y:31},
+  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:41,s:2,a:'l'},{t:'checkout',p:1,x:1,y:58,s:0,a:'l',c:_GR},{t:'vline',x:63,y:0},
+  {t:'label',v:'AVG',x:66,y:0,s:0,a:'l',c:_CY},{t:'avg',p:0,x:127,y:0,s:0,a:'r',c:_CY},{t:'label',v:'F9',x:66,y:6,s:0,a:'l',c:_CY},{t:'f9',p:0,x:127,y:6,s:0,a:'r',c:_CY},{t:'label',v:'CO%',x:66,y:12,s:0,a:'l',c:_GR},{t:'co%',p:0,x:127,y:12,s:0,a:'r',c:_GR},{t:'label',v:'180',x:66,y:18,s:0,a:'l',c:_MG},{t:'180s',p:0,x:127,y:18,s:0,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:24,s:0,a:'l',c:_OR},{t:'high',p:0,x:127,y:24,s:0,a:'r',c:_OR},
+  {t:'label',v:'AVG',x:66,y:34,s:0,a:'l',c:_CY},{t:'avg',p:1,x:127,y:34,s:0,a:'r',c:_CY},{t:'label',v:'F9',x:66,y:40,s:0,a:'l',c:_CY},{t:'f9',p:1,x:127,y:40,s:0,a:'r',c:_CY},{t:'label',v:'CO%',x:66,y:46,s:0,a:'l',c:_GR},{t:'co%',p:1,x:127,y:46,s:0,a:'r',c:_GR},{t:'label',v:'180',x:66,y:52,s:0,a:'l',c:_MG},{t:'180s',p:1,x:127,y:52,s:0,a:'r',c:_MG},{t:'label',v:'HI',x:66,y:58,s:0,a:'l',c:_OR},{t:'high',p:1,x:127,y:58,s:0,a:'r',c:_OR}]
 }}
 function renderPresets(){const b=Object.keys(BUILTINS()),u=Object.keys(presets());
  preset.innerHTML=b.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')+(u.length?`<option disabled>── my presets ──</option>`+u.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join(''):'')}
@@ -852,7 +892,7 @@ async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{me
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
- s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n)}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
+ s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n).replace(/^\//,'')}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
  tgif.innerHTML=gifopt('');
  if(C){renderEvents();renderCats()}}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
@@ -910,7 +950,7 @@ void sendHello() {
   String name = (const char *)(cfg["layout"]["cloudName"] | "");
   if (!name.length()) name = (const char *)(cfg["layout"]["cloudId"] | "darts");
   name.replace("\"", "");
-  String msg = "{\"t\":\"hello\",\"meta\":{\"name\":\"" + name + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"fw\":\"scoreboard\"}}";
+  String msg = "{\"t\":\"hello\",\"meta\":{\"name\":\"" + name + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"fw\":\"scoreboard\",\"ver\":\"" FW_VERSION "\"}}";
   cloudWS.sendTXT(msg);
 }
 
@@ -1052,10 +1092,15 @@ void setup() {
   dma->setTextSize(1); dma->setCursor(1, 1); dma->print("WiFi setup.."); dma->setCursor(1, 12); dma->print(AP_NAME);
   WiFiManager wm; wm.setConfigPortalTimeout(180);
   if (!wm.autoConnect(AP_NAME)) ESP.restart();
-  configTime((long)(cfg["layout"]["tzOffset"] | 0), 0, "pool.ntp.org");   // for the idle clock
+  {                                               // idle clock time: prefer a POSIX TZ (auto-DST) over the manual offset
+    String tz = (const char *)(cfg["layout"]["tz"] | "");
+    if (tz.length()) configTzTime(tz.c_str(), "pool.ntp.org");                       // e.g. UK "GMT0BST,M3.5.0/1,M10.5.0" flips BST/GMT itself
+    else configTime((long)(cfg["layout"]["tzOffset"] | 0), 0, "pool.ntp.org");       // legacy fixed offset
+  }
   if (MDNS.begin(MDNS_NAME)) MDNS.addService("http", "tcp", 80);
   gif.begin(GIF_PALETTE_RGB565_LE);               // LE matches HUB75 drawPixel byte order (BE swaps colours: yellow->purple)
   players[0].name = "PLAYER 1"; players[1].name = "PLAYER 2";   // other fields use struct defaults
+  loadStats();                                    // restore 180 count + high score from before the last reboot
 
   server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", PAGE); });
   server.on("/ping", HTTP_GET, [](){ server.send(200,"application/json","{\"device\":\"darts-scoreboard\",\"ip\":\""+WiFi.localIP().toString()+"\"}"); });
@@ -1087,6 +1132,7 @@ void setup() {
 void loop() {
   server.handleClient();
   if (otaPullPending) { doOtaPull(); return; }    // remote firmware update (tears down the tunnel, then reboots)
+  if (statsDirty && millis() > statsSaveAt) { statsDirty = false; saveStats(); }   // debounced stats persist
   uint32_t now = millis();
   if (identifyUntil) {                              // identify mode holds red/blue until it expires
     if (now >= identifyUntil) { identifyUntil = 0; stopEffect(); drawScoreboard(); }
