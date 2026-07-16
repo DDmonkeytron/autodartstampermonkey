@@ -46,6 +46,19 @@ export default {
       return env.BOARD.getByName(id).fetch(request);
     }
 
+    // 1b) Board pulls its firmware image for remote OTA (token-authed, NOT behind the login gate —
+    //     the board can't hold a dashboard cookie). It streams this straight into flash.
+    const fwGet = url.pathname.match(/^\/fw\/([^/]+)\.bin$/);
+    if (fwGet && request.method === "GET") {
+      const id = fwGet[1];
+      if (!tokens[id] || tokens[id] !== (url.searchParams.get("token") || "")) return new Response("unauthorized", { status: 401 });
+      const obj = await env.FW.get(id);
+      if (!obj) return new Response("no firmware uploaded", { status: 404 });
+      return new Response(obj.body, {
+        headers: { "content-type": "application/octet-stream", "content-length": String(obj.size), "cache-control": "no-store" },
+      });
+    }
+
     // --- login gate: everything below requires the dashboard password (/connect stays open above) ---
     if (url.pathname === "/login") {
       if (request.method === "POST") {
@@ -60,6 +73,17 @@ export default {
       return new Response(loginHtml(""), { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     if (!(await isAuthed(request, env))) return Response.redirect(new URL("/login", url).toString(), 302);
+
+    // 1c) Dashboard uploads a firmware image for a board (behind login). The board pulls it via 1b.
+    const fwPut = url.pathname.match(/^\/fw\/([^/]+)$/);
+    if (fwPut && request.method === "POST") {
+      const id = fwPut[1];
+      if (!tokens[id]) return new Response("unknown board", { status: 404 });
+      const buf = await request.arrayBuffer();
+      if (!buf.byteLength) return new Response("empty upload", { status: 400 });
+      await env.FW.put(id, buf, { httpMetadata: { contentType: "application/octet-stream" } });
+      return Response.json({ ok: true, size: buf.byteLength });
+    }
 
     // 2) Board list + live status for the dashboard.
     if (url.pathname === "/api/boards") {
@@ -121,9 +145,30 @@ async function load(){
    const d=document.createElement('div');d.className='board';
    d.innerHTML='<span class=dot>'+(b.online?'🟢':'🔴')+'</span> <b>'+b.id+'</b>'+((b.meta&&b.meta.name)?' <span class=name>'+b.meta.name+'</span>':'')+'<span class=sp></span>';
    const btn=document.createElement('button');btn.textContent='Open control panel';btn.disabled=!b.online;btn.onclick=()=>opn(b.id);
-   d.appendChild(btn);list.appendChild(d);
+   const fw=document.createElement('button');fw.textContent='⬆ Update firmware';fw.disabled=!b.online;fw.onclick=()=>fwPick(b.id);
+   const st=document.createElement('span');st.id='fwst-'+b.id;st.className='name';
+   d.appendChild(btn);d.appendChild(fw);d.appendChild(st);list.appendChild(d);
   }
  }catch(e){list.textContent='Error loading boards: '+e}
+}
+function fwPick(id){
+ const inp=document.createElement('input');inp.type='file';inp.accept='.bin';
+ inp.onchange=()=>{if(inp.files[0])fwSend(id,inp.files[0])};
+ inp.click();
+}
+async function fwSend(id,f){
+ const st=document.getElementById('fwst-'+id),set=m=>{if(st)st.textContent=' '+m};
+ if(!/\\.bin$/i.test(f.name)||f.size<200000){if(!confirm(f.name+' ('+(f.size/1024|0)+'KB) doesn\\'t look like a firmware .bin. Send anyway?'))return}
+ try{
+  set('uploading '+(f.size/1024|0)+' KB…');
+  const up=await fetch('/fw/'+id,{method:'POST',body:f});
+  if(!up.ok){set('upload failed ('+up.status+')');return}
+  const j=await up.json();
+  set('uploaded '+(j.size/1024|0)+' KB — triggering…');
+  const tr=await fetch('/board/'+id+'/ota_pull',{method:'POST'});
+  if(!tr.ok){set('trigger failed ('+tr.status+')');return}
+  set('⚡ flashing — board reboots in ~30 s, then reconnects');
+ }catch(e){set('error: '+e)}
 }
 function opn(id){
  view.innerHTML='';

@@ -11,6 +11,10 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["BoardDO"] }
   ],
+  // Firmware images for remote OTA: dashboard uploads the .bin here; the board pulls it directly.
+  "r2_buckets": [
+    { "binding": "FW", "bucket_name": "darts-firmware" }
+  ],
   "observability": { "enabled": true }
   // BOARD_TOKENS is a secret set via:  wrangler secret put BOARD_TOKENS
   //   value = JSON like {"garage":"long-random-1","daves":"long-random-2"}

@@ -32,6 +32,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h> // cloud remote: outbound WSS tunnel to the relay
 #include <mbedtls/base64.h>   // base64 for tunnelled request/response bodies
+#include <WiFiClientSecure.h> // remote OTA: HTTPS pull of the firmware image
+#include <HTTPUpdate.h>       // remote OTA: stream the image straight into flash
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <FastLED.h>
 #include <AnimatedGIF.h>
@@ -68,6 +70,7 @@ int panelW = PANEL_RES_X;       // live canvas width = PANEL_RES_X * chain, set 
 #define DEF_EVENT_MS 5000
 #define AP_NAME "DartsScoreboard-Setup"
 #define MDNS_NAME "darts"
+#define FW_VERSION "2026.07.15-ota2"   // bumped to prove remote OTA delivered a new image
 
 // ===================== GLOBALS =====================
 MatrixPanel_I2S_DMA *dma = nullptr;
@@ -79,6 +82,7 @@ AnimatedGIF gif;
 JsonDocument cfg;
 uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
 bool cloudUp = false;                // cloud tunnel connected? (reported by /status; set by the cloud task)
+volatile bool otaPullPending = false; // remote OTA: /ota_pull sets this; loop() runs the download
 
 struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours
 Player players[4];
@@ -546,6 +550,7 @@ void handleStatus() {
   s["ip"] = WiFi.localIP().toString(); s["gif"] = gifPath; s["uptime"] = millis() / 1000; s["queue"] = evCount;
   for (int i = 0; i < numPlayers; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
   s["cloud"]["enabled"] = (bool)(cfg["layout"]["cloudEnabled"] | false); s["cloud"]["up"] = cloudUp;
+  s["ver"] = FW_VERSION;
   String o; serializeJson(s, o); server.send(200, "application/json", o);
 }
 void handleOTAUpload() {
@@ -984,6 +989,42 @@ void startCloud() {
   LOG("cloud: connecting " + String((const char *)(cfg["layout"]["cloudHost"] | "")));
 }
 
+// Remote OTA (pull model): download our own firmware image from the relay's R2-backed
+// /fw/<id>.bin endpoint and stream it straight into flash. The 1.2 MB image can't fit
+// through the WS tunnel (1 MB msg cap) or RAM, so the board fetches it directly over HTTPS.
+// Runs from loop() (core 1), NOT the cloud task, so we can cleanly tear the tunnel down first.
+void doOtaPull() {
+  otaPullPending = false;
+  String host = (const char *)(cfg["layout"]["cloudHost"] | "");
+  String id   = (const char *)(cfg["layout"]["cloudId"] | "");
+  String tok  = (const char *)(cfg["layout"]["cloudToken"] | "");
+  if (!host.length() || !id.length()) { LOG("ota-pull: cloud not configured"); return; }
+  String url = "https://" + host + "/fw/" + id + ".bin?token=" + tok;
+  LOG("ota-pull: starting from " + host);
+
+  // Free the tunnel's TLS context first (frees ~50 KB) so the download's TLS + flash have room.
+  // Signal the cloud task to stop and wait for IT to disconnect (never touch cloudWS cross-core).
+  cloudRun = false;
+  for (int i = 0; i < 150 && cloudTaskH; i++) delay(20);   // up to ~3 s for the task to exit
+  cloudUp = false;
+
+  if (dma) { dma->clearScreen(); dma->setTextColor(C_YELLOW); dma->setTextSize(1); dma->setCursor(2, 24); dma->print("UPDATING..."); }
+  LOG("ota-pull: free heap " + String(ESP.getFreeHeap()));
+
+  WiFiClientSecure sc; sc.setInsecure();                    // workers.dev; token in the URL is the auth
+  httpUpdate.rebootOnUpdate(true);                          // reboots itself on success
+  httpUpdate.setLedPin(-1);
+  t_httpUpdate_return r = httpUpdate.update(sc, url);
+  if (r == HTTP_UPDATE_FAILED) {
+    LOG("ota-pull FAILED (" + String(httpUpdate.getLastError()) + ") " + httpUpdate.getLastErrorString());
+    if (dma) { dma->setTextColor(C_RED); dma->setCursor(2, 44); dma->print("FAILED"); }
+    delay(1800);
+  } else if (r == HTTP_UPDATE_NO_UPDATES) {
+    LOG("ota-pull: no update");
+  }
+  ESP.restart();                                            // clean recovery: reboot reconnects the tunnel (or boots new fw)
+}
+
 // ===================== SETUP / LOOP =====================
 void setup() {
   Serial.begin(115200);
@@ -1033,6 +1074,7 @@ void setup() {
   server.on("/reboot", HTTP_POST, [](){ server.send(200, "text/plain", "rebooting"); delay(300); ESP.restart(); });
   server.on("/wifi/reset", HTTP_POST, handleWifiReset);
   server.on("/update", HTTP_POST, [](){ server.send(200,"text/plain",Update.hasError()?"FAIL":"OK"); delay(400); ESP.restart(); }, handleOTAUpload);
+  server.on("/ota_pull", HTTP_POST, [](){ otaPullPending = true; server.send(200, "application/json", "{\"ok\":true}"); });   // remote OTA trigger (loop() does the download)
   server.serveStatic("/gifs", LittleFS, "/gifs");   // serve GIFs so the web UI can preview them
   server.enableCORS(true); server.begin();
 
@@ -1044,6 +1086,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  if (otaPullPending) { doOtaPull(); return; }    // remote firmware update (tears down the tunnel, then reboots)
   uint32_t now = millis();
   if (identifyUntil) {                              // identify mode holds red/blue until it expires
     if (now >= identifyUntil) { identifyUntil = 0; stopEffect(); drawScoreboard(); }

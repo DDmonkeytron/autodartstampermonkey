@@ -4,6 +4,7 @@ export interface Env {
   BOARD: DurableObjectNamespace<BoardDO>;
   BOARD_TOKENS: string; // JSON: { "<boardId>": "<token>" }
   DASH_PASSWORD: string; // dashboard login password (secret)
+  FW: R2Bucket; // firmware images for remote OTA (one object per board id)
 }
 
 // One Durable Object per board. Holds the board's outbound WebSocket (the
