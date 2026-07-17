@@ -67,6 +67,10 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <div id=s></div>
 <div style="margin-top:.6em"><input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button></div>
 <div class=hint>A <b>128&times;64</b> GIF fills both panels; a 64&times;64 fills one (centred). Resize at ezgif.com.</div>
+<h3>Images</h3>
+<input type=file id=imgf accept="image/*"> size <select id=imgsz><option value=full>full panel</option><option value=64>64&times;64 (one panel)</option></select>
+<button onclick=imgUp()>Convert &amp; upload</button>
+<div class=hint>Any image (PNG/JPG/&hellip;) is resized + letterboxed <b>in the browser</b> and stored as a panel-native <code>.img</code>. Use it as the screensaver or as a celebration backdrop &mdash; anywhere a GIF goes.</div>
 <h3>Categories</h3>
 <div class=hint>Group GIFs into named categories. An event set to a category plays a <b>random</b> GIF from it. Deleting a category keeps the GIFs.</div>
 <div id=catlist></div>
@@ -130,6 +134,10 @@ function renderLayout(){const L=C.layout||(C.layout={});
   +'<div class=hint>tz = POSIX timezone for the idle clock (auto-DST). UK = <code>GMT0BST,M3.5.0/1,M10.5.0</code>. Blank = use the fixed tzOffset seconds instead. Reboot to apply.<br>idleFx <b>gifs</b> = GIF screensaver: cycles a random GIF from category <b>idleGifCat</b> (blank = all uploads) every idleGifMs. autoResetStats = fresh 180s/high each new match.</div>'
   +'<br><b>Night dimming:</b> '+[chk('nightDim'),num('nightFrom'),num('nightTo'),num('nightPanelBri'),num('nightStripBri')].join(' ')
   +'<div class=hint>Auto-dim between nightFrom and nightTo (24h hours, may span midnight). Needs the clock (tz) to be right.</div>'
+  +'<br><b>Screensaver</b> (idleFx = gifs): show <select onchange="lset(\'idleGif\',this.value)">'
+  +['',...gifs.map(norm)].map(o=>`<option value="${o}" ${o==(L.idleGif||'')?'selected':''}>${o?o.split('/').pop():'(random cycle)'}</option>`).join('')
+  +'</select> '+sl('idleRegion',['full','left','right'])+' '+chk('idleClock')
+  +'<div class=hint>Pick one GIF/image or cycle randomly. On a 128 board, region <b>left/right</b> puts the art on one panel and a big clock + date on the other; <b>idleClock</b> overlays HH:MM in full mode.</div>'
   +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
   +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
   +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
@@ -267,9 +275,16 @@ async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{me
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
- s.innerHTML=gifs.map(n=>`<span class=gif><img src="${norm(n).replace(/^\//,'')}" height=32 onerror="this.remove()">${n.split('/').pop()} <button onclick="del('${n}')">x</button></span>`).join('')||'(none)';
+ s.innerHTML=gifs.map(n=>{const b=n.split('/').pop(),r=norm(n).replace(/^\//,'');
+  const pv=b.endsWith('.img')?`<canvas class=ipv data-s="${r}" style="height:32px"></canvas>`:`<img src="${r}" height=32 onerror="this.remove()">`;
+  return `<span class=gif>${pv}${b} <button onclick="del('${n}')">x</button></span>`}).join('')||'(none)';
+ document.querySelectorAll('.ipv').forEach(async c=>{try{const a=new Uint8Array(await (await fetch(c.dataset.s)).arrayBuffer());
+  if(a[0]!=73||a[1]!=77)return;const w=a[2],h=a[3];c.width=w;c.height=h;
+  const g=c.getContext('2d'),id=g.createImageData(w,h);
+  for(let i=0,o=4;i<w*h;i++,o+=2){const v=a[o]|(a[o+1]<<8);id.data[i*4]=v>>8&248;id.data[i*4+1]=v>>3&252;id.data[i*4+2]=v<<3&248;id.data[i*4+3]=255}
+  g.putImageData(id,0,0)}catch(e){}});
  tgif.innerHTML=gifopt('');
- if(C){renderEvents();renderCats()}}
+ if(C){renderEvents();renderCats();renderLayout()}}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
 function catg(){if(!C.layout.gifCategories)C.layout.gifCategories={};return C.layout.gifCategories}
 function renderCats(){if(!C)return;const g=catg(),ks=Object.keys(g);
@@ -283,6 +298,18 @@ async function delcat(n){if(!confirm('Delete category "'+n+'"? (the GIFs are kep
 async function addgif(btn,n){const v=btn.previousElementSibling.value;if(!v)return;const a=catg()[n]||(catg()[n]=[]);if(!a.includes(v))a.push(v);await save();renderCats()}
 async function rmgif(n,i){catg()[n].splice(i,1);await save();renderCats()}
 async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
+async function imgUp(){const x=imgf.files[0];if(!x)return;
+ const W=imgsz.value=='64'?64:(((C&&C.layout&&C.layout.panelChain)||1)==2?128:64),H=64;
+ const im=new Image();im.src=URL.createObjectURL(x);await im.decode();
+ const cv=document.createElement('canvas');cv.width=W;cv.height=H;const g=cv.getContext('2d');
+ g.fillStyle='#000';g.fillRect(0,0,W,H);g.imageSmoothingQuality='high';
+ const s=Math.min(W/im.width,H/im.height),w=im.width*s|0,h=im.height*s|0;
+ g.drawImage(im,(W-w)/2|0,(H-h)/2|0,w,h);
+ const d=g.getImageData(0,0,W,H).data,buf=new Uint8Array(4+W*H*2);
+ buf[0]=73;buf[1]=77;buf[2]=W;buf[3]=H;   // 'I','M',w,h then RGB565 LE
+ for(let i=0,o=4;i<d.length;i+=4,o+=2){const c=((d[i]&248)<<8)|((d[i+1]&252)<<3)|(d[i+2]>>3);buf[o]=c&255;buf[o+1]=c>>8}
+ const fd=new FormData();fd.append('file',new Blob([buf]),x.name.replace(/\.[^.]+$/,'')+'.img');
+ await fetch('/sprite',{method:'POST',body:fd});URL.revokeObjectURL(im.src);imgf.value='';sp()}
 async function say(){await fetch('/text',{method:'POST',body:JSON.stringify({text:tx.value,ms:+tms.value||5000,effect:'pulse',color:[0,180,255]})})}
 async function sendgif(){await fetch('/text',{method:'POST',body:JSON.stringify({gif:tgif.value,text:tx.value,ms:+tms.value||6000,region:treg.value})})}
 async function rst(){await fetch('/reset',{method:'POST'});alert('stats reset')}

@@ -168,6 +168,20 @@ bool openGif(const char *path) {
   }
   return false;
 }
+// Static images: browser-converted ".img" raw format — 4-byte header 'I','M',w,h then
+// w*h RGB565 little-endian. No decoder library needed; the web UI does the resizing.
+bool drawImg(const char *path, int x0, int w0) {
+  File f = LittleFS.open(path, "r"); if (!f) return false;
+  uint8_t hd[4];
+  if (f.read(hd, 4) != 4 || hd[0] != 'I' || hd[1] != 'M') { f.close(); return false; }
+  int w = hd[2], h = hd[3];
+  int ox = x0 + (w0 - w) / 2, oy = (PANEL_H - h) / 2;
+  static uint8_t row[PW_MAX * 2];
+  for (int y = 0; y < h && f.read(row, w * 2) == w * 2; y++)
+    for (int x = 0; x < w; x++) dma->drawPixel(ox + x, oy + y, row[x * 2] | (row[x * 2 + 1] << 8));
+  f.close(); return true;
+}
+bool isImgFile(const String &p) { return p.endsWith(".img"); }
 
 // ===================== SCOREBOARD =====================
 void drawPlayer(int i, int yTop, int rowH) {
@@ -341,31 +355,70 @@ void drawSummary() {
   LOG("summary shown");
 }
 
-// ---- idle GIF screensaver (idleFx = "gifs"): cycle random GIFs from a category, or all uploads ----
+// ---- idle screensaver (idleFx = "gifs"): a specific GIF/image, or random cycling ----
+// layout.idleGif   = one file to show ("" = cycle random from idleGifCat / all uploads)
+// layout.idleRegion= full | left | right — left/right (128 board) puts a BIG clock on the other panel
+// layout.idleClock = overlay HH:MM on the art in full mode
 void drawIdleGifs(uint32_t now) {
-  static uint32_t switchAt = 0; static bool lastFail = false;
-  if (now >= switchAt || (!gifPlaying && !lastFail)) {   // time's up, or gif got closed (event ran) — but don't spam retries on failure
-    lastFail = false;
-    String pick;
-    const char *cat = cfg["layout"]["idleGifCat"] | "";
-    JsonArray ca = cfg["layout"]["gifCategories"][cat].as<JsonArray>();
-    if (strlen(cat) && !ca.isNull() && ca.size()) pick = (const char *)ca[random(ca.size())];
-    else {                                          // no category set → any uploaded GIF
-      int count = 0; File dir = LittleFS.open("/gifs");
-      if (dir) for (File f = dir.openNextFile(); f; f = dir.openNextFile()) count++;
-      if (count) {
-        int idx = random(count); dir = LittleFS.open("/gifs");
-        for (File f = dir.openNextFile(); f; f = dir.openNextFile()) if (!idx--) { pick = "/gifs/" + String(f.name()); break; }
+  static uint32_t switchAt = 0, clockChk = 0; static bool lastFail = false, isImg = false;
+  static String curPick = ""; static char clk[6] = "";
+  JsonObject L = cfg["layout"];
+  const char *reg = L["idleRegion"] | "full";
+  bool split = panelW >= 128 && strcmp(reg, "full") != 0;
+  if (now >= switchAt || (!gifPlaying && !isImg && !lastFail)) {   // time's up / gif was closed by an event — no retry spam on failure
+    lastFail = false; isImg = false;
+    String pick = (const char *)(L["idleGif"] | "");               // specific file wins
+    if (pick.length() && !LittleFS.exists(pick)) pick = "";
+    if (!pick.length()) {                                          // random: category, else any upload
+      const char *cat = L["idleGifCat"] | "";
+      JsonArray ca = L["gifCategories"][cat].as<JsonArray>();
+      if (strlen(cat) && !ca.isNull() && ca.size()) pick = (const char *)ca[random(ca.size())];
+      else {
+        int count = 0; File dir = LittleFS.open("/gifs");
+        if (dir) for (File f = dir.openNextFile(); f; f = dir.openNextFile()) count++;
+        if (count) {
+          int idx = random(count); dir = LittleFS.open("/gifs");
+          for (File f = dir.openNextFile(); f; f = dir.openNextFile()) if (!idx--) { pick = "/gifs/" + String(f.name()); break; }
+        }
       }
     }
-    setRegion("full");
-    if (pick.length() && (dma->clearScreen(), openGif(pick.c_str())))
-      switchAt = now + (uint32_t)(cfg["layout"]["idleGifMs"] | 20000);
-    else { lastFail = true; switchAt = now + 3000; drawIdle(); return; }   // nothing playable → clock; retry soon
+    setRegion(reg);
+    bool ok = false;
+    if (pick.length()) {
+      dma->clearScreen();
+      if (isImgFile(pick)) { if (gifPlaying) { gif.close(); gifPlaying = false; } isImg = ok = drawImg(pick.c_str(), evX0, evW); }
+      else ok = openGif(pick.c_str());
+    }
+    if (ok) { curPick = pick; switchAt = now + (uint32_t)(L["idleGifMs"] | 20000); clk[0] = 0; }   // clk reset forces clock repaint
+    else { lastFail = true; switchAt = now + 3000; drawIdle(); return; }   // nothing playable → plain clock; retry soon
   }
+  bool redrew = false;
   if (gifPlaying && now >= gifNextFrame) {
     int d = 0; if (gif.playFrame(false, &d, nullptr) == 0) gif.reset();
-    gifNextFrame = now + (d > 0 ? d : 80);
+    gifNextFrame = now + (d > 0 ? d : 80); redrew = true;
+  }
+  // ---- clock ----
+  char nc[6] = "";
+  if (now - clockChk > 1000) { clockChk = now; struct tm t; if (getLocalTime(&t, 5)) strftime(nc, 6, "%H:%M", &t); }
+  bool newMin = nc[0] && strcmp(nc, clk); if (newMin) strcpy(clk, nc);
+  if (!clk[0]) return;
+  if (split) {                                       // big clock + date on the OTHER panel
+    if (newMin) {
+      int cx0 = (evX0 == 0) ? 64 : 0;
+      dma->fillRect(cx0, 0, 64, PANEL_H, 0);
+      dma->setTextSize(2); dma->setTextColor(C_WHITE); dma->setCursor(cx0 + 2, 20); dma->print(clk);
+      struct tm t;
+      if (getLocalTime(&t, 5)) {
+        char db[12]; strftime(db, sizeof(db), "%a %d %b", &t);
+        dma->setTextSize(1); dma->setTextColor(C_DIM); dma->setCursor(cx0 + (64 - (int)strlen(db) * 6) / 2, 42); dma->print(db);
+      }
+    }
+  } else if (L["idleClock"] | true) {                // overlay on the art (small, top-left of the region)
+    if (isImg && newMin) { drawImg(curPick.c_str(), evX0, evW); redrew = true; }   // repaint image under the old digits
+    if (redrew || newMin) {
+      dma->fillRect(evX0 + 1, 1, 32, 9, 0);
+      dma->setTextSize(1); dma->setTextColor(C_WHITE); dma->setCursor(evX0 + 2, 2); dma->print(clk);
+    }
   }
 }
 
@@ -499,7 +552,10 @@ void playEvent(const String &name, int value, const String &ovText) {
   if (!strncmp(g, "cat:", 4)) { JsonArray cat = cfg["layout"]["gifCategories"][g + 4].as<JsonArray>();
     if (!cat.isNull() && cat.size()) gp = (const char *)cat[random(cat.size())]; }
   else gp = g;
-  if (gp.length() && openGif(gp.c_str())) panelFx = "";     // a GIF takes precedence over a 2D effect
+  if (gp.length()) {                                        // art takes precedence over a 2D effect
+    if (isImgFile(gp)) { if (drawImg(gp.c_str(), evX0, evW)) panelFx = ""; }   // static image backdrop
+    else if (openGif(gp.c_str())) panelFx = "";
+  }
 }
 void enqueueEvent(const String &name, int value, const String &ovText) {
   JsonObject o = cfg["events"][name];
@@ -561,6 +617,7 @@ void loadConfig() {
       if (L["autoResetStats"].isNull()) { L["autoResetStats"] = true; changed = true; }
       if (L["nightDim"].isNull()) { L["nightDim"] = false; L["nightFrom"] = 23; L["nightTo"] = 8; L["nightPanelBri"] = 25; L["nightStripBri"] = 20; changed = true; }
       if (L["idleGifMs"].isNull()) { L["idleGifCat"] = ""; L["idleGifMs"] = 20000; changed = true; }
+      if (L["idleClock"].isNull()) { L["idleGif"] = ""; L["idleClock"] = true; L["idleRegion"] = "full"; changed = true; }
       if (cfg["events"]["nineDarter"].isNull()) {   // new default celebration
         JsonObject nd = cfg["events"]["nineDarter"].to<JsonObject>();
         nd["gif"] = ""; nd["text"] = "9 DARTER!!!"; nd["effect"] = "strobe"; nd["palette"] = "party"; nd["panelFx"] = "plasma";
@@ -578,6 +635,7 @@ void loadConfig() {
   L["tz"] = "GMT0BST,M3.5.0/1,M10.5.0";           // POSIX TZ for the idle clock — auto BST/GMT (UK). "" = use tzOffset instead
   L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle|gifs
   L["idleGifCat"] = ""; L["idleGifMs"] = 20000;   // idleFx "gifs": category to cycle ("" = all uploads) + per-gif dwell
+  L["idleGif"] = ""; L["idleClock"] = true; L["idleRegion"] = "full";   // specific file, HH:MM overlay, full|left|right (split = big clock on other panel)
   L["autoResetStats"] = true;                     // fresh 180s/high per match (userscript sends matchId)
   L["nightDim"] = false; L["nightFrom"] = 23; L["nightTo"] = 8; L["nightPanelBri"] = 25; L["nightStripBri"] = 20;
   L["strip1Pin"] = 17; L["strip2Pin"] = 21;       // strip data GPIOs (reboot to apply)
@@ -753,9 +811,13 @@ void handleText() {                              // scroll arbitrary text on dem
   marqueeX = panelW; lastMarquee = 0;
   setRegion(d["region"] | "full");
   const char *g = d["gif"] | "";
-  if (strlen(g)) { if (openGif(g)) panelFx = ""; }   // play the requested GIF; text (if any) scrolls off the bottom
+  dma->clearScreen();
+  if (strlen(g)) {                                   // play the requested GIF/image; text (if any) scrolls off the bottom
+    if (isImgFile(g)) { if (gifPlaying) { gif.close(); gifPlaying = false; } if (drawImg(g, evX0, evW)) panelFx = ""; }
+    else if (openGif(g)) panelFx = "";
+  }
   else if (gifPlaying) { gif.close(); gifPlaying = false; }
-  dma->clearScreen(); lastActivity = millis();
+  lastActivity = millis();
   LOG("text: " + eventText);
   server.send(200, "application/json", "{\"ok\":true}");
 }
