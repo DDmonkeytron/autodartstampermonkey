@@ -46,6 +46,16 @@ export default {
       return env.BOARD.getByName(id).fetch(request);
     }
 
+    // 1b') Board pulls a pushed GIF (token-authed, outside the login gate). Streamed to LittleFS.
+    const gifGet = url.pathname.match(/^\/gif\/([^/]+)\/([^/]+)$/);
+    if (gifGet && request.method === "GET") {
+      const id = gifGet[1];
+      if (!tokens[id] || tokens[id] !== (url.searchParams.get("token") || "")) return new Response("unauthorized", { status: 401 });
+      const obj = await env.FW.get(`gif/${id}/${decodeURIComponent(gifGet[2])}`);
+      if (!obj) return new Response("no such gif", { status: 404 });
+      return new Response(obj.body, { headers: { "content-type": "image/gif", "content-length": String(obj.size), "cache-control": "no-store" } });
+    }
+
     // 1b) Board pulls its firmware image for remote OTA (token-authed, NOT behind the login gate —
     //     the board can't hold a dashboard cookie). It streams this straight into flash.
     const fwGet = url.pathname.match(/^\/fw\/([^/]+)\.bin$/);
@@ -83,6 +93,19 @@ export default {
       if (!buf.byteLength) return new Response("empty upload", { status: 400 });
       await env.FW.put(id, buf, { httpMetadata: { contentType: "application/octet-stream" } });
       return Response.json({ ok: true, size: buf.byteLength });
+    }
+
+    // 1d) Dashboard pushes a GIF for a board (behind login); the board pulls it via 1b'.
+    const gifPut = url.pathname.match(/^\/gif\/([^/]+)$/);
+    if (gifPut && request.method === "POST") {
+      const id = gifPut[1];
+      if (!tokens[id]) return new Response("unknown board", { status: 404 });
+      const name = (url.searchParams.get("name") || "").replace(/[^\w.\- ]/g, "");
+      if (!name.toLowerCase().endsWith(".gif")) return new Response("name must end .gif", { status: 400 });
+      const buf = await request.arrayBuffer();
+      if (!buf.byteLength) return new Response("empty upload", { status: 400 });
+      await env.FW.put(`gif/${id}/${name}`, buf, { httpMetadata: { contentType: "image/gif" } });
+      return Response.json({ ok: true, name, size: buf.byteLength });
     }
 
     // 2) Board list + live status for the dashboard.
@@ -147,12 +170,39 @@ async function load(){
    const seen=b.lastSeen?new Date(b.lastSeen).toLocaleTimeString():'';
    const info=[meta.ver?'v'+meta.ver:'',meta.ip||'',b.online?'':(seen?'seen '+seen:'')].filter(Boolean).join(' · ');
    d.innerHTML='<span class=dot>'+(b.online?'🟢':'🔴')+'</span> <b>'+b.id+'</b>'+(meta.name?' <span class=name>'+meta.name+'</span>':'')+(info?' <span class=meta>'+info+'</span>':'')+'<span class=sp></span>';
-   const btn=document.createElement('button');btn.textContent='Open control panel';btn.disabled=!b.online;btn.onclick=()=>opn(b.id);
-   const fw=document.createElement('button');fw.textContent='⬆ Update firmware';fw.disabled=!b.online;fw.onclick=()=>fwPick(b.id);
+   const mk=(t,fn)=>{const x=document.createElement('button');x.textContent=t;x.disabled=!b.online;x.onclick=fn;d.appendChild(x)};
+   mk('Open control panel',()=>opn(b.id));
+   mk('⬆ Firmware',()=>fwPick(b.id));
+   mk('🖼 Send GIF',()=>gifPick(b.id));
+   mk('🔦',()=>fetch('/board/'+b.id+'/identify',{method:'POST'}));
+   mk('↻',()=>{if(confirm('Reboot '+b.id+'?'))fetch('/board/'+b.id+'/reboot',{method:'POST'})});
    const st=document.createElement('span');st.id='fwst-'+b.id;st.className='name';
-   d.appendChild(btn);d.appendChild(fw);d.appendChild(st);list.appendChild(d);
+   d.appendChild(st);list.appendChild(d);
   }
  }catch(e){list.textContent='Error loading boards: '+e}
+}
+function gifPick(id){
+ const inp=document.createElement('input');inp.type='file';inp.accept='.gif';
+ inp.onchange=()=>{if(inp.files[0])gifSend(id,inp.files[0])};
+ inp.click();
+}
+async function gifSend(id,f){
+ const st=document.getElementById('fwst-'+id),set=m=>{if(st)st.textContent=' '+m};
+ try{
+  set('uploading '+(f.size/1024|0)+' KB…');
+  const up=await fetch('/gif/'+id+'?name='+encodeURIComponent(f.name),{method:'POST',body:f});
+  if(!up.ok){set('upload failed: '+await up.text());return}
+  const j=await up.json();
+  set('sent — board downloading…');
+  const tr=await fetch('/board/'+id+'/gif_pull',{method:'POST',body:JSON.stringify({name:j.name})});
+  if(!tr.ok){set('trigger failed ('+tr.status+')');return}
+  for(let i=0;i<10;i++){                     // confirm it landed in the board's GIF list
+   await new Promise(r=>setTimeout(r,2000));
+   try{const gs=await (await fetch('/board/'+id+'/sprites')).json();
+    if(gs.some(g=>g.split('/').pop()===j.name)){set('✓ '+j.name+' on board');return}}catch(e){}
+  }
+  set('⚠ not confirmed — check the board\\'s GIF page');
+ }catch(e){set('error: '+e)}
 }
 function fwPick(id){
  const inp=document.createElement('input');inp.type='file';inp.accept='.bin';

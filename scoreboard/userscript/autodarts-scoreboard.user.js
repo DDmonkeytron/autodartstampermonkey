@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.6.9
+// @version      0.7.0
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -156,7 +156,9 @@
     if (typeof data !== "string") return;              // autodarts streams JSON text
     let obj; try { obj = JSON.parse(data); } catch (_) { return; }
     const m = findMatch(obj);
-    if (m) { lastRaw = data; onMatchState(m); }
+    // match id: from the frame topic "<id>.state" (or the match object's own id) — the board
+    // uses it to auto-reset session stats when a NEW match starts
+    if (m) { lastRaw = data; onMatchState(m, m.id || String(obj.topic || "").split(".")[0] || ""); }
   }
 
   // Heuristic: find the object that looks like an X01 match state.
@@ -238,6 +240,10 @@
 
   // ---- state machine ----
   let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotSig = "", coFired = false, shFired = false, prevLegNo = null;
+  let legDarts = [0, 0, 0, 0], nineWarned = [false, false, false, false], curMatchId = "";   // nine-darter watch (per leg, per player)
+
+  // is n finishable in 3 darts? (≤170, excluding the classic bogey numbers)
+  const canFinish3 = (n) => n >= 2 && n <= 170 && ![159, 162, 163, 165, 166, 168, 169].includes(n);
 
   function finishTurn(throws) {
     if (!throws.length || bustedThisTurn || turnCelebrated) return;
@@ -246,20 +252,23 @@
     if (ev) postEvent(ev, undefined, total);
   }
 
-  function onMatchState(m) {
+  function onMatchState(m, matchId) {
     if (DEBUG) log("match state", m);
     const s = readMatch(m);
     if (!s.players.length) return;
+
+    // new match → reset the leg/nine-darter trackers (the board resets its stats via matchId)
+    if (matchId && matchId !== curMatchId) { curMatchId = matchId; legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false]; }
 
     // mirror autodarts' own suggested checkout onto the active player (the thrower)
     if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout();
 
     // push scoreboard (deduped) — include the active turn's individual dart scores
     const throwPoints = s.throws.map(dartPoints);
-    const sig = JSON.stringify([s.active, s.players, throwPoints]);
+    const sig = JSON.stringify([s.active, s.players, throwPoints, curMatchId]);
     if (sig !== scoreSig) {
       scoreSig = sig;
-      postScore({ activePlayer: s.active, players: s.players, throws: throwPoints });
+      postScore({ activePlayer: s.active, players: s.players, throws: throwPoints, matchId: curMatchId });
     }
 
     // turn boundary → evaluate the turn that just ended (safety net if the
@@ -281,17 +290,25 @@
     }
     // new darts this update → per-dart events (with segment value for thresholds)
     for (let i = curThrows.length; i < s.throws.length; i++) {
+      legDarts[s.active] = (legDarts[s.active] || 0) + 1;   // per-leg dart count (nine-darter watch)
       const d = classifyDart(s.throws[i]);
       if (d) postEvent(d.ev, undefined, d.val);
     }
     curThrows = s.throws.slice();
 
-    // high checkout — active player just went out (score 0). Fire once; the event's "min" gates it (default 100).
+    // nine-darter ON — 6 perfect-pace darts and the rest is a 3-dart finish
+    if (!s.busted && legDarts[s.active] === 6 && !nineWarned[s.active]) {
+      const rem = s.players[s.active] ? s.players[s.active].score : -1;
+      if (canFinish3(rem)) { nineWarned[s.active] = true; postText("9 DARTER ON!", { effect: "strobe", palette: "party", color: [255, 215, 0], ms: 4000 }); }
+    }
+
+    // checkout — active player just went out (score 0). Nine darts = the big one; else highFinish ("min" gates it, default 100).
     const cop = s.players[s.active];
     if (cop && cop.score === 0 && throwPoints.length && !coFired) {
       coFired = true;
       const co = throwPoints.reduce((a, b) => a + b, 0);
-      postEvent("highFinish", `${cop.name} ${co} CHECKOUT`, co);
+      if (legDarts[s.active] === 9) postEvent("nineDarter", `${cop.name} NINE DARTER!!!`, 9);
+      else postEvent("highFinish", `${cop.name} ${co} CHECKOUT`, co);
     }
 
     // bust (once per turn)
@@ -321,9 +338,12 @@
     });
     prevLegs = s.players.map((p) => p.legs);
 
-    // new leg started (leg/set counter advanced) → "game on"
+    // new leg started (leg/set counter advanced) → "game on" + fresh nine-darter trackers
     const legNo = s.set * 100 + s.leg;
-    if (prevLegNo != null && legNo !== prevLegNo) postEvent("legStart", undefined, 0);
+    if (prevLegNo != null && legNo !== prevLegNo) {
+      postEvent("legStart", undefined, 0);
+      legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false];
+    }
     prevLegNo = legNo;
 
     // game win
