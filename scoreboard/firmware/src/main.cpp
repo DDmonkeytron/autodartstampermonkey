@@ -100,7 +100,7 @@ StripFx sfx[2]; bool mirror2 = true;
 String panelFx = ""; CRGBPalette16 panelPal = RainbowColors_p;
 File gifFile, uploadFile;
 uint32_t lastActivity = 0; bool idle = false;
-String evQueue[6]; int evVal[6]; String evText[6]; int evCount = 0;   // evText = optional dynamic text per queued event
+String evQueue[6]; int evVal[6]; String evText[6]; int evPlayer[6]; int evCount = 0;   // evText = dynamic text; evPlayer = who triggered it (for per-player GIFs)
 bool summaryPending = false; int summaryWinner = 0;  // gameWon played → show the match-summary card after it
 bool summaryShowing = false;                         // card on screen (guards marker animation / idle)
 
@@ -521,9 +521,38 @@ int evPrio(const String &n) {
   return 1;
 }
 int curEvPrio = 0;                                   // priority of the event on screen (0 = none)
-void playEvent(const String &name, int value, const String &ovText) {
-  JsonObject o = cfg["events"][name];
-  if (o.isNull()) return;
+
+// Per-player celebrations: layout.playerRules[] = [{match,gif,events:{...}}]. The FIRST rule
+// whose (lowercased) "match" substring is in player[who]'s name wins ("" or "*" = anyone).
+// Guests and signed-in players both arrive as plain name strings, so matching is identical.
+String asOverride = "";                              // test-button: match against this name instead of a real player
+JsonObjectConst matchedRule(int who) {
+  JsonArray rules = cfg["layout"]["playerRules"].as<JsonArray>();
+  if (rules.isNull()) return JsonObjectConst();
+  String nm;
+  if (asOverride.length()) nm = asOverride;
+  else if (who >= 0 && who < numPlayers) nm = players[who].name;
+  else return JsonObjectConst();
+  nm.toLowerCase();
+  for (JsonObject r : rules) {
+    String m = (const char *)(r["match"] | ""); m.toLowerCase(); m.trim();
+    if (m.length() == 0 || m == "*" || nm.indexOf(m) >= 0) return r;
+  }
+  return JsonObjectConst();
+}
+
+void playEvent(const String &name, int value, const String &ovText, int who) {
+  JsonObject base = cfg["events"][name];
+  if (base.isNull()) return;
+  // Overlay this player's rule: default gif, then a per-event override (which can re-set gif/text/fx).
+  JsonDocument evd; evd.set(base);                    // working copy — safe to mutate + goes out of scope after
+  JsonObjectConst rule = matchedRule(who);
+  if (!rule.isNull()) {
+    if (!rule["gif"].isNull()) evd["gif"] = rule["gif"];
+    JsonObjectConst evov = rule["events"][name];
+    if (!evov.isNull()) for (JsonPairConst kv : evov) evd[kv.key()] = kv.value();
+  }
+  JsonObject o = evd.as<JsonObject>();
   if (gifPlaying) { gif.close(); gifPlaying = false; }  // never inherit a stale GIF (idle screensaver / preempted event)
   curEvPrio = evPrio(name);
   if (name == "gameWon") { summaryPending = true; summaryWinner = value; }
@@ -563,13 +592,14 @@ void enqueueEvent(const String &name, int value, const String &ovText) {
   if (!(o["enabled"] | true)) { LOG("disabled: " + name); return; }
   int mn = o["min"] | 0;                          // celebration threshold, e.g. treble min 15 = T15+
   if (mn && value && value < mn) { LOG(name + " " + value + " < min " + mn + ", skipped"); return; }
-  if (!eventUntil) playEvent(name, value, ovText);
+  int who = activePlayer;                          // capture NOW — a queued event may play after the turn moves on
+  if (!eventUntil) playEvent(name, value, ovText, who);
   else if (evPrio(name) > curEvPrio) {            // big moment: cut the current celebration + drop the queued small stuff
     LOG("preempt: " + name);
     evCount = 0;
-    playEvent(name, value, ovText);
+    playEvent(name, value, ovText, who);
   }
-  else if (evCount < 6) { evQueue[evCount] = name; evVal[evCount] = value; evText[evCount] = ovText; evCount++; }
+  else if (evCount < 6) { evQueue[evCount] = name; evVal[evCount] = value; evText[evCount] = ovText; evPlayer[evCount] = who; evCount++; }
   else LOG("queue full, dropped: " + name);
 }
 
@@ -749,7 +779,9 @@ void handleEvent() {
   int value = d["value"] | 0;                     // dart number / turn total (for min thresholds)
   String ovText = (const char *)(d["text"] | "");  // optional dynamic text, e.g. "DAVETHEW WINS THE LEG 2-1"
   LOG("event: " + name + (value ? " (" + String(value) + ")" : ""));
+  asOverride = (const char *)(d["as"] | "");       // test button: preview a specific player's rule (best when idle)
   enqueueEvent(name, value, ovText);
+  asOverride = "";
   server.send(200, "application/json", "{\"ok\":true}");
 }
 void handleConfigGet() { File f = LittleFS.open("/config.json", "r"); if (!f) { server.send(200, "application/json", "{}"); return; } server.streamFile(f, "application/json"); f.close(); }
@@ -768,6 +800,7 @@ void handleConfigPost() {
     if (dl["presets"].isNull() && !cl["presets"].isNull()) dl["presets"] = cl["presets"];
     if (dl["gifCategories"].isNull() && !cl["gifCategories"].isNull()) dl["gifCategories"] = cl["gifCategories"];
     if (dl["fields"].isNull() && !cl["fields"].isNull()) dl["fields"] = cl["fields"];   // keep the custom layout too
+    if (dl["playerRules"].isNull() && !cl["playerRules"].isNull()) dl["playerRules"] = cl["playerRules"];   // keep per-player GIFs
   }
   cfg = d; saveConfig(); applyLive();            // (panelDriver / strip pins+counts need a reboot)
   if (!eventUntil && !identifyUntil) drawScoreboard();
@@ -1135,9 +1168,9 @@ void loop() {
       if (gifPlaying) { gif.close(); gifPlaying = false; }
       stopEffect();
       if (evCount > 0) {
-        String n = evQueue[0]; int v = evVal[0]; String t = evText[0];
-        for (int i = 1; i < evCount; i++) { evQueue[i - 1] = evQueue[i]; evVal[i - 1] = evVal[i]; evText[i - 1] = evText[i]; }
-        evCount--; playEvent(n, v, t);
+        String n = evQueue[0]; int v = evVal[0]; String t = evText[0]; int who = evPlayer[0];
+        for (int i = 1; i < evCount; i++) { evQueue[i - 1] = evQueue[i]; evVal[i - 1] = evVal[i]; evText[i - 1] = evText[i]; evPlayer[i - 1] = evPlayer[i]; }
+        evCount--; playEvent(n, v, t, who);
       } else if (summaryPending) { summaryPending = false; drawSummary(); }   // match over → stats card
       else drawScoreboard();
     }

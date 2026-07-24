@@ -32,6 +32,7 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <div class=brand>🎯 Scoreboard</div>
 <button class=nav data-p=layout onclick="nav('layout')">Layout</button>
 <button class=nav data-p=events onclick="nav('events')">Celebrations</button>
+<button class=nav data-p=players onclick="nav('players')">Players</button>
 <button class=nav data-p=gifs onclick="nav('gifs')">GIFs</button>
 <button class=nav data-p=test onclick="nav('test')">Test</button>
 <button class=nav data-p=system onclick="nav('system')">System</button>
@@ -59,6 +60,13 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <div class=hint>min = only celebrate when the dart/turn value &ge; min (0 = always). Strip 2: mirror = replicate strip 1.</div>
 <div id=evl></div>
 <input id=ne placeholder="new event name"><button onclick=addev()>+ add event</button>
+</section>
+
+<section id=p-players class=panel>
+<h2>Players &mdash; personalised celebrations</h2>
+<div class=hint>Match a player by a piece of their name (case-insensitive substring &mdash; <b>jason</b> matches &ldquo;BigJason99&rdquo;, guest or signed-in). Set a default GIF for all their celebrations, and/or override specific events. First matching rule wins; use <code>*</code> to match anyone (put it last as a catch-all).</div>
+<div id=prl></div>
+<input id=pnm placeholder="name contains&hellip; (e.g. jason)"><button onclick=addrule()>+ add player rule</button>
 </section>
 
 <section id=p-gifs class=panel>
@@ -284,7 +292,7 @@ async function sp(){gifs=JSON.parse(await t('/sprites'));
   for(let i=0,o=4;i<w*h;i++,o+=2){const v=a[o]|(a[o+1]<<8);id.data[i*4]=v>>8&248;id.data[i*4+1]=v>>3&252;id.data[i*4+2]=v<<3&248;id.data[i*4+3]=255}
   g.putImageData(id,0,0)}catch(e){}});
  tgif.innerHTML=gifopt('');
- if(C){renderEvents();renderCats();renderLayout()}}
+ if(C){renderEvents();renderCats();renderLayout();renderPlayers()}}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
 function catg(){if(!C.layout.gifCategories)C.layout.gifCategories={};return C.layout.gifCategories}
 function renderCats(){if(!C)return;const g=catg(),ks=Object.keys(g);
@@ -297,6 +305,34 @@ async function addcat(){const n=cname.value.trim();if(!n){alert('Enter a categor
 async function delcat(n){if(!confirm('Delete category "'+n+'"? (the GIFs are kept)'))return;delete catg()[n];await save();renderCats();renderEvents()}
 async function addgif(btn,n){const v=btn.previousElementSibling.value;if(!v)return;const a=catg()[n]||(catg()[n]=[]);if(!a.includes(v))a.push(v);await save();renderCats()}
 async function rmgif(n,i){catg()[n].splice(i,1);await save();renderCats()}
+
+// ---- per-player celebrations ----
+function prules(){if(!C.layout.playerRules)C.layout.playerRules=[];return C.layout.playerRules}
+const artopt=v=>['',...gifs.map(norm),...Object.keys((C&&C.layout&&C.layout.gifCategories)||{}).map(n=>'cat:'+n)]
+ .map(o=>`<option value="${o}" ${o==v?'selected':''}>${o?(o.slice(0,4)=='cat:'?'🎲 '+o.slice(4):o.split('/').pop()):'(default / none)'}</option>`).join('');
+function renderPlayers(){if(!C)return;const R=prules();
+ prl.innerHTML=R.length?R.map((r,i)=>{
+  const evs=r.events||{};
+  const evrows=Object.keys(evs).map(en=>{const o=evs[en];
+   return `<div style="margin:.2em 0 .2em 1em">▸ <b>${esc(en)}</b> gif <select onchange="pev(${i},'${esc(en)}','gif',this.value)">${artopt(o.gif||'')}</select>
+    text <input value="${esc(o.text||'')}" placeholder="(keep default)" style="width:130px" onchange="pev(${i},'${esc(en)}','text',this.value)">
+    <button onclick="pevdel(${i},'${esc(en)}')">✕</button></div>`}).join('');
+  const evsel=Object.keys(C.events||{}).map(en=>`<option value="${en}">${en}</option>`).join('');
+  return `<fieldset><legend>Player rule ${i+1}</legend>
+   name contains <input value="${esc(r.match||'')}" placeholder="* = anyone" style="width:120px" onchange="prule(${i},'match',this.value)">
+   &nbsp;default GIF <select onchange="prule(${i},'gif',this.value)">${artopt(r.gif||'')}</select>
+   <button onclick="ptest(${i})">▶ test</button> <button onclick="pdel(${i})">delete rule</button>
+   ${evrows}
+   <div style="margin:.3em 0 0 1em">override event <select id="pes${i}">${evsel}</select> <button onclick="pevadd(${i})">+ add override</button></div>
+   </fieldset>`;
+ }).join(''):'<i>No player rules yet — every player gets the standard celebrations.</i>'}
+function prule(i,k,v){const r=prules()[i];if(v==='')delete r[k];else r[k]=v}
+function pev(i,en,k,v){const o=prules()[i].events[en];if(v==='')delete o[k];else o[k]=v}
+function pevadd(i){const en=document.getElementById('pes'+i).value;const r=prules()[i];if(!r.events)r.events={};if(!r.events[en])r.events[en]={};renderPlayers()}
+function pevdel(i,en){delete prules()[i].events[en];renderPlayers()}
+async function addrule(){const n=pnm.value.trim();prules().push({match:n||'*'});pnm.value='';await save();renderPlayers()}
+async function pdel(i){if(!confirm('Delete this player rule?'))return;prules().splice(i,1);await save();renderPlayers()}
+function ptest(i){const r=prules()[i];const en=Object.keys(r.events||{})[0]||'180';fetch('/event',{method:'POST',body:JSON.stringify({event:en,value:999,as:r.match||'*'})})}
 async function up(){let x=f.files[0];if(!x)return;let d=new FormData();d.append('file',x,x.name);await fetch('/sprite',{method:'POST',body:d});sp()}
 async function imgUp(){const x=imgf.files[0];if(!x)return;
  const W=imgsz.value=='64'?64:(((C&&C.layout&&C.layout.panelChain)||1)==2?128:64),H=64;
