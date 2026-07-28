@@ -71,6 +71,7 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 
 <section id=p-gifs class=panel>
 <h2>GIFs</h2>
+<div id=fsbar class=hint></div>
 <h3>Uploaded GIFs</h3>
 <div id=s></div>
 <div style="margin-top:.6em"><input type=file id=f accept=.gif><button onclick=up()>Upload GIF</button></div>
@@ -283,6 +284,8 @@ async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{me
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
+ try{const st=JSON.parse(await t('/status'));if(st.fsTotal){const u=st.fsUsed/1024|0,tt=st.fsTotal/1024|0,fr=tt-u,pc=(st.fsUsed/st.fsTotal*100)|0;
+  fsbar.innerHTML=`Storage: <b>${u} KB</b> used / ${tt} KB &mdash; <b style="color:${fr<200?'#f66':'#8f8'}">${fr} KB free</b> (${pc}%). GIFs for a 128&times;64 panel should be ~30&ndash;80 KB each; shrink big ones at ezgif.com.`}}catch(e){}
  s.innerHTML=gifs.map(n=>{const b=n.split('/').pop(),r=norm(n).replace(/^\//,'');
   const pv=b.endsWith('.img')?`<canvas class=ipv data-s="${r}" style="height:32px"></canvas>`:`<img src="${r}" height=32 onerror="this.remove()">`;
   return `<span class=gif>${pv}${b} <button onclick="del('${n}')">x</button></span>`}).join('')||'(none)';

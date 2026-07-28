@@ -161,6 +161,7 @@ void GIFDraw(GIFDRAW *pDraw) {
     dma->drawPixel(px, y, pal[s[x]]);
   }
 }
+void GIFDrawNull(GIFDRAW *pDraw) {}                       // decode-only (no display) — used by /gifcheck
 int evX0 = 0, evW = PANEL_RES_X; bool evSplit = false;   // event render region (x, width) + split-screen flag
 void setRegion(const char *r) {    // "full" | "left" | "right" (left/right only meaningful on a 128-wide board)
   if (panelW >= 128 && !strcmp(r, "left"))       { evX0 = 0;  evW = 64; }
@@ -816,16 +817,46 @@ void handleConfigPost() {
   if (!eventUntil && !identifyUntil) drawScoreboard();
   server.send(200, "application/json", "{\"ok\":true}");
 }
+void handleGifCheck() {                                  // diagnose why a GIF won't play: open + decode all frames, report the error
+  String name = server.arg("name");
+  if (!name.length()) { server.send(400, "application/json", "{\"err\":\"need ?name=\"}"); return; }
+  String path = name.startsWith("/") ? name : ("/gifs/" + name);
+  if (gifPlaying) { gif.close(); gifPlaying = false; }
+  JsonDocument r; r["file"] = path;
+  bool ex = LittleFS.exists(path); r["exists"] = ex;
+  if (ex) { File f = LittleFS.open(path, "r"); r["bytes"] = f.size(); f.close(); }
+  static const char *ERR[] = { "SUCCESS", "DECODE_ERROR", "TOO_WIDE", "INVALID_PARAMETER", "UNSUPPORTED_FEATURE", "FILE_NOT_OPEN", "EARLY_EOF", "EMPTY_FRAME", "BAD_FILE" };
+  auto errName = [&](int e) -> const char * { return (e >= 0 && e < 9) ? ERR[e] : "?"; };
+  if (ex && gif.open((char *)path.c_str(), GIFOpen, GIFClose, GIFRead, GIFSeek, GIFDrawNull)) {
+    r["opened"] = true; r["w"] = gif.getCanvasWidth(); r["h"] = gif.getCanvasHeight();
+    int frames = 0, rc = 1;
+    while (rc > 0 && frames < 1000) { int d = 0; rc = gif.playFrame(false, &d, nullptr); frames++; }
+    r["frames"] = frames; r["playFrameRc"] = rc; r["err"] = errName(gif.getLastError());
+    gif.close();
+  } else { r["opened"] = false; r["err"] = errName(gif.getLastError()); }
+  drawScoreboard();                                      // we disturbed decode state; repaint
+  String o; serializeJson(r, o); server.send(200, "application/json", o);
+}
 void handleSprites() {
   String out = "["; File dir = LittleFS.open("/gifs");
   if (dir) for (File f = dir.openNextFile(); f; f = dir.openNextFile()) { if (out.length() > 1) out += ","; out += "\"" + String(f.name()) + "\""; }
   server.send(200, "application/json", out + "]");
 }
+bool uploadOk = true;
 void handleSpriteUpload() {
   HTTPUpload &up = server.upload();
-  if (up.status == UPLOAD_FILE_START) { if (!LittleFS.exists("/gifs")) LittleFS.mkdir("/gifs"); uploadFile = LittleFS.open("/gifs/" + up.filename, "w"); }
-  else if (up.status == UPLOAD_FILE_WRITE) { if (uploadFile) uploadFile.write(up.buf, up.currentSize); }
-  else if (up.status == UPLOAD_FILE_END) { if (uploadFile) uploadFile.close(); }
+  if (up.status == UPLOAD_FILE_START) {
+    uploadOk = true;
+    if (!LittleFS.exists("/gifs")) LittleFS.mkdir("/gifs");
+    uploadFile = LittleFS.open("/gifs/" + up.filename, "w");
+    if (!uploadFile) uploadOk = false;
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (uploadFile && uploadOk) { if (uploadFile.write(up.buf, up.currentSize) != up.currentSize) uploadOk = false; }  // short write = flash full
+  } else if (up.status == UPLOAD_FILE_END) {
+    if (uploadFile) uploadFile.close();
+    if (!uploadOk) { LittleFS.remove("/gifs/" + up.filename); LOG("upload FAILED (disk full?): " + up.filename); }   // don't leave a truncated GIF that won't play
+    else LOG("uploaded " + up.filename + " " + String(up.totalSize) + "B");
+  }
 }
 void handleDelete() { if (server.hasArg("name")) LittleFS.remove("/gifs/" + server.arg("name")); server.send(200, "application/json", "{\"ok\":true}"); }
 void handleStatus() {
@@ -834,6 +865,7 @@ void handleStatus() {
   for (int i = 0; i < numPlayers; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
   s["cloud"]["enabled"] = (bool)(cfg["layout"]["cloudEnabled"] | false); s["cloud"]["up"] = cloudUp;
   s["ver"] = FW_VERSION;
+  s["fsUsed"] = LittleFS.usedBytes(); s["fsTotal"] = LittleFS.totalBytes();   // GIF/config storage (bytes)
   String o; serializeJson(s, o); server.send(200, "application/json", o);
 }
 void handleOTAUpload() {
@@ -1118,7 +1150,8 @@ void setup() {
   server.on("/config", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
   server.on("/sprites", HTTP_GET, handleSprites);
-  server.on("/sprite", HTTP_POST, [](){ server.send(200,"application/json","{\"ok\":true}"); }, handleSpriteUpload);
+  server.on("/gifcheck", HTTP_GET, handleGifCheck);   // ?name=x.gif → decode diagnostics
+  server.on("/sprite", HTTP_POST, [](){ server.send(uploadOk?200:507, "application/json", uploadOk?"{\"ok\":true}":"{\"ok\":false,\"err\":\"write failed - flash full\"}"); }, handleSpriteUpload);
   server.on("/delete", HTTP_POST, handleDelete);
   server.on("/text", HTTP_POST, handleText);
   server.on("/log", HTTP_GET, handleLog);
