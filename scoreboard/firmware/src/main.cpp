@@ -91,6 +91,9 @@ int numPlayers = 2, activePlayer = 0;
 int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
 
 bool gifPlaying = false; int gifX = 0, gifY = 0; uint32_t gifNextFrame = 0; char gifPath[64] = {0};
+// Reserved overlay rectangle the GIF must NOT paint into (text / clock sits here). Leaving these
+// pixels untouched stops the GIF and the overlay fighting for them = no flicker. gifSkipX0<0 = off.
+int gifSkipX0 = -1, gifSkipX1 = 0, gifSkipY0 = 0, gifSkipY1 = 0;
 String eventText = ""; uint32_t eventUntil = 0; int marqueeX = panelW; uint32_t lastMarquee = 0;
 
 // per-strip effect state: each strip has its own effect/colour/palette/speed,
@@ -150,7 +153,13 @@ void GIFDraw(GIFDRAW *pDraw) {
   uint16_t *pal = pDraw->pPalette; uint8_t *s = pDraw->pPixels;
   int y = gifY + pDraw->iY + pDraw->y;
   if (pDraw->ucDisposalMethod == 2) for (int x = 0; x < w; x++) if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
-  for (int x = 0; x < w; x++) { if (pDraw->ucHasTransparency && s[x] == pDraw->ucTransparent) continue; dma->drawPixel(gifX + pDraw->iX + x, y, pal[s[x]]); }
+  bool band = (gifSkipX0 >= 0 && y >= gifSkipY0 && y < gifSkipY1);   // this scanline crosses the reserved overlay band
+  for (int x = 0; x < w; x++) {
+    if (pDraw->ucHasTransparency && s[x] == pDraw->ucTransparent) continue;
+    int px = gifX + pDraw->iX + x;
+    if (band && px >= gifSkipX0 && px < gifSkipX1) continue;         // leave the overlay area black so text/clock don't flicker
+    dma->drawPixel(px, y, pal[s[x]]);
+  }
 }
 int evX0 = 0, evW = PANEL_RES_X; bool evSplit = false;   // event render region (x, width) + split-screen flag
 void setRegion(const char *r) {    // "full" | "left" | "right" (left/right only meaningful on a 128-wide board)
@@ -277,7 +286,7 @@ void drawFields(JsonArray fields) {
   }
 }
 void drawScoreboard() {
-  idle = false; summaryShowing = false;
+  idle = false; summaryShowing = false; gifSkipX0 = -1;   // no reserved band on the scoreboard
   if (gifPlaying && !eventUntil) { gif.close(); gifPlaying = false; }   // stale idle-screensaver GIF (events manage their own)
   JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
   if (!fields.isNull() && fields.size() > 0) { drawFields(fields); return; }   // custom layout
@@ -362,6 +371,7 @@ void drawSummary() {
 void drawIdleGifs(uint32_t now) {
   static uint32_t switchAt = 0, clockChk = 0; static bool lastFail = false, isImg = false;
   static String curPick = ""; static char clk[6] = "";
+  gifSkipX0 = -1;                                   // screensaver GIF renders full (clock overlay is small; extend here if it flickers)
   JsonObject L = cfg["layout"];
   const char *reg = L["idleRegion"] | "full";
   bool split = panelW >= 128 && strcmp(reg, "full") != 0;
@@ -1145,6 +1155,9 @@ void loop() {
     if (now < eventUntil) {
       bool redrew = false;                                                    // did the backdrop repaint this pass?
       if (gifPlaying) {                                                       // GIF backdrop
+        // reserve the text band so the GIF doesn't repaint under the overlay (kills flicker)
+        if (eventText.length()) { gifSkipX0 = evX0; gifSkipX1 = evX0 + evW; gifSkipY0 = PANEL_H - 11; gifSkipY1 = PANEL_H - 1; }
+        else gifSkipX0 = -1;
         if (now >= gifNextFrame) {
           int delayMs = 0;
           if (gif.playFrame(false, &delayMs, nullptr) == 0) gif.reset();      // rewind = loop (no reopen)
