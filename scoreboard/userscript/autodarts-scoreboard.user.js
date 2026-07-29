@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.7.0
+// @version      0.8.0
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.io: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -44,6 +44,8 @@
       showThrows: false,      // active player shows this turn's 3 darts
       showCheckout: true,     // active player ≤170 shows a suggested checkout route
       brightness: 120, stripBrightness: 90, rotation: 0,
+      playLight: true,          // hold a solid colour on the strips during a game (bright white base)
+      playLightColor: [255, 255, 255],   // change to recolour the base light, then Push config
       maxMilliamps: 8000,     // strip current cap (protects the 5V PSU)
       idleMs: 90000,          // idle screen after this much inactivity (0 = never)
       idleFx: "",             // "" = clock; or plasma|fire|matrix|sparkle 2D wallpaper

@@ -147,6 +147,9 @@ function renderLayout(){const L=C.layout||(C.layout={});
   +['',...gifs.map(norm)].map(o=>`<option value="${o}" ${o==(L.idleGif||'')?'selected':''}>${o?o.split('/').pop():'(random cycle)'}</option>`).join('')
   +'</select> '+sl('idleRegion',['full','left','right'])+' '+chk('idleClock')
   +'<div class=hint>Pick one GIF/image or cycle randomly. On a 128 board, region <b>left/right</b> puts the art on one panel and a big clock + date on the other; <b>idleClock</b> overlays HH:MM in full mode.</div>'
+  +'<br><b>Play light</b> (solid strip colour held during a game): '+chk('playLight')
+  +' colour <input type=color value="'+hx(L.playLightColor)+'" onchange="lset(\'playLightColor\',rgb(this.value))">'
+  +'<div class=hint>Both LED strips hold this colour the whole time a game is on screen (default bright white). Celebrations flash over it, then it returns. Uncheck to keep the strips dark between events. Brightness follows stripBrightness.</div>'
   +'<br>Player score colours: '+[0,1,2,3].map(i=>`P${i+1} <input type=color value="${hx(p[i])}" onchange="pcol(${i},this.value)">`).join(' ')
   +'<br><b>Outputs</b> (data GPIOs + LED counts — save then reboot to apply): '
   +[num('strip1Pin'),num('strip1Count'),num('strip2Pin'),num('strip2Count')].join(' ')
