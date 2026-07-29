@@ -94,6 +94,10 @@ Every change is applied by **Save & apply** — live, no reflash.
 
 - **Scrolling event text** — the event `text` scrolls along the bottom while the GIF plays.
 - **Checkout suggestions** — `showCheckout`: the active player ≤170 shows a route (e.g. `T20 T20 D25`).
+- **Play light** — `playLight` holds a solid colour on both strips the whole time a game is on screen
+  (`playLightColor`, default bright white `[255,255,255]`). Celebrations flash over it and hand the strips
+  back to it; the strips go dark on the idle screen. Recolour it in the web UI (or `playLightColor`) and
+  **Push config** — no reflash. Its brightness follows `stripBrightness`.
 - **Idle clock** — after `idleMs` of no activity it shows an NTP clock (`tzOffset` sets the zone).
 - **Current cap** — `maxMilliamps` limits strip draw so a full-white celebration can't brown out the PSU.
 - **2–4 players** — `players`; 3–4 use a compact per-row layout.
