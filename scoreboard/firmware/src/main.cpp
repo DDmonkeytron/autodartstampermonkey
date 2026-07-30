@@ -491,7 +491,7 @@ bool playLightVisible(bool idleNow) {
   return !idleNow;                                                 // "playing": on with the scoreboard, off on idle
 }
 void showPlayLight() {
-  auto c = cfg["layout"]["playLightColor"];                        // absent → white (each channel | 255)
+  JsonVariantConst c = cfg["layout"]["playLightColor"];            // absent → white (each channel | 255)
   CRGB col = CRGB(c[0] | 255, c[1] | 255, c[2] | 255);
   if (cfg["layout"]["playLightStrobe"] | false) col.nscale8_video(beatsin8(15, 70, 255));  // gentle breathe 70..255
   fill_solid(strip1, s1n, col);
