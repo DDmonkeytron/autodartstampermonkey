@@ -100,7 +100,9 @@ String eventText = ""; uint32_t eventUntil = 0; int marqueeX = panelW; uint32_t 
 // or strip 2 can "mirror" (replicate) strip 1's buffer exactly.
 struct StripFx { String effect = "off"; CRGB color = CRGB::White; CRGBPalette16 pal = RainbowColors_p; uint8_t speed = 4; };
 StripFx sfx[2]; bool mirror2 = true;
-void showPlayLight();                                // solid base colour held on the strips while a game is on screen
+void showPlayLight();                                // draw the (optionally pulsing) play-light colour on the strips
+bool playLightVisible(bool idleNow);                 // should the play light be lit right now (per playLightMode)?
+void renderPlayLight(bool idleNow);                  // draw the play light if visible, else clear the strips
 String panelFx = ""; CRGBPalette16 panelPal = RainbowColors_p;
 File gifFile, uploadFile;
 uint32_t lastActivity = 0; bool idle = false;
@@ -291,12 +293,12 @@ void drawScoreboard() {
   idle = false; summaryShowing = false; gifSkipX0 = -1;   // no reserved band on the scoreboard
   if (gifPlaying && !eventUntil) { gif.close(); gifPlaying = false; }   // stale idle-screensaver GIF (events manage their own)
   JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
-  if (!fields.isNull() && fields.size() > 0) { drawFields(fields); showPlayLight(); return; }   // custom layout
+  if (!fields.isNull() && fields.size() > 0) { drawFields(fields); renderPlayLight(false); return; }   // custom layout
   dma->clearScreen();
   int n = max(1, min(numPlayers, 4)), rowH = PANEL_H / n;
   // rows start at i*rowH; divider sits on the LAST row of the half above (GFX leaves it blank)
   for (int i = 0; i < n; i++) { drawPlayer(i, i * rowH, rowH); if (i) dma->drawFastHLine(0, i * rowH - 1, panelW, C_DIM); }
-  showPlayLight();                                    // hold the solid base colour on the strips while playing
+  renderPlayLight(false);                             // hold the base colour on the strips while playing (per mode)
 }
 void animateMarkers(uint32_t now) {                   // repaint only the blink/pulse active markers (no full redraw = no flicker)
   JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
@@ -476,17 +478,27 @@ void runEffect(uint32_t now) {
   FastLED.show();
 }
 void stopEffect() { fill_solid(strip1, s1n, CRGB::Black); fill_solid(strip2, s2n, CRGB::Black); FastLED.show(); }
-// "Play light": a solid colour (default bright white) held on both strips the whole time a game is on
-// screen. Celebrations (runEffect) briefly take the strips over and hand them back to this. Brightness
-// still comes from stripBrightness / night-dimming. layout.playLight=false keeps the strips dark instead.
+// "Play light": a solid colour (default bright white) held on both strips, with an optional very gentle
+// pulse. Celebrations (runEffect) briefly take the strips over and hand them back to this. Colour comes
+// from layout.playLightColor; brightness still follows stripBrightness / night-dimming.
+//   layout.playLightMode:   "off" (strips dark) | "playing" (lit only while a game is on screen)
+//                           | "always" (also lit on the idle clock)
+//   layout.playLightStrobe: true = a slow, gentle brightness breathe on the base colour
+bool playLightVisible(bool idleNow) {
+  const char *m = cfg["layout"]["playLightMode"] | "playing";
+  if (!strcmp(m, "off")) return false;
+  if (!strcmp(m, "always")) return true;
+  return !idleNow;                                                 // "playing": on with the scoreboard, off on idle
+}
 void showPlayLight() {
-  if (!(cfg["layout"]["playLight"] | true)) { stopEffect(); return; }
   auto c = cfg["layout"]["playLightColor"];                        // absent → white (each channel | 255)
   CRGB col = CRGB(c[0] | 255, c[1] | 255, c[2] | 255);
+  if (cfg["layout"]["playLightStrobe"] | false) col.nscale8_video(beatsin8(15, 70, 255));  // gentle breathe 70..255
   fill_solid(strip1, s1n, col);
   fill_solid(strip2, s2n, col);
   FastLED.show();
 }
+void renderPlayLight(bool idleNow) { if (playLightVisible(idleNow)) showPlayLight(); else stopEffect(); }
 
 // FastLED pins are template parameters, so runtime pin choice = a switch over the
 // clean spare GPIOs on this board (avoids reserved 26-37 and strapping/USB pins).
@@ -672,7 +684,9 @@ void loadConfig() {
       if (L["nightDim"].isNull()) { L["nightDim"] = false; L["nightFrom"] = 23; L["nightTo"] = 8; L["nightPanelBri"] = 25; L["nightStripBri"] = 20; changed = true; }
       if (L["idleGifMs"].isNull()) { L["idleGifCat"] = ""; L["idleGifMs"] = 20000; changed = true; }
       if (L["idleClock"].isNull()) { L["idleGif"] = ""; L["idleClock"] = true; L["idleRegion"] = "full"; changed = true; }
-      if (L["playLight"].isNull()) { L["playLight"] = true; L["playLightColor"][0] = 255; L["playLightColor"][1] = 255; L["playLightColor"][2] = 255; changed = true; }
+      if (L["playLightColor"].isNull()) { L["playLightColor"][0] = 255; L["playLightColor"][1] = 255; L["playLightColor"][2] = 255; changed = true; }
+      if (L["playLightMode"].isNull()) { L["playLightMode"] = (L["playLight"] | true) ? "playing" : "off"; changed = true; }   // migrate old on/off bool → 3-way mode
+      if (L["playLightStrobe"].isNull()) { L["playLightStrobe"] = false; changed = true; }
       if (cfg["events"]["nineDarter"].isNull()) {   // new default celebration
         JsonObject nd = cfg["events"]["nineDarter"].to<JsonObject>();
         nd["gif"] = ""; nd["text"] = "9 DARTER!!!"; nd["effect"] = "strobe"; nd["palette"] = "party"; nd["panelFx"] = "plasma";
@@ -687,8 +701,9 @@ void loadConfig() {
   L["players"] = 2; L["showAvg"] = true; L["showLegs"] = true; L["showThrows"] = false;
   L["showCheckout"] = true; L["brightness"] = DEF_PANEL_BRI; L["stripBrightness"] = DEF_STRIP_BRI;
   L["rotation"] = 0; L["maxMilliamps"] = DEF_MAX_MA; L["idleMs"] = DEF_IDLE_MS; L["tzOffset"] = 0; L["panelChain"] = 1;
-  L["playLight"] = true;                           // hold a solid colour on the strips during a game (default bright white)
-  L["playLightColor"][0] = 255; L["playLightColor"][1] = 255; L["playLightColor"][2] = 255;
+  L["playLightMode"] = "playing";                  // off | playing (lit while a game is on) | always (also on the idle clock)
+  L["playLightColor"][0] = 255; L["playLightColor"][1] = 255; L["playLightColor"][2] = 255;  // default bright white
+  L["playLightStrobe"] = false;                    // optional very gentle pulse on the base colour
   L["tz"] = "GMT0BST,M3.5.0/1,M10.5.0";           // POSIX TZ for the idle clock — auto BST/GMT (UK). "" = use tzOffset instead
   L["idleFx"] = ""; L["idlePalette"] = "ocean";   // idleFx: ""|plasma|fire|matrix|sparkle|gifs
   L["idleGifCat"] = ""; L["idleGifMs"] = 20000;   // idleFx "gifs": category to cycle ("" = all uploads) + per-gif dwell
@@ -1239,8 +1254,10 @@ void loop() {
   } else {                                          // idle screen after inactivity
     uint32_t idleMs = cfg["layout"]["idleMs"] | DEF_IDLE_MS;
     if (idleMs && now - lastActivity > idleMs) {
-      if (!idle) stopEffect();                       // first idle frame: drop the play light so the strips rest with the clock
+      bool wasIdle = idle;
       idle = true; summaryShowing = false;
+      if (playLightVisible(true)) { static uint32_t lsp = 0; if (now - lsp > 33) { lsp = now; showPlayLight(); } }  // "always" mode: keep strips lit (and pulsing) on idle
+      else if (!wasIdle) stopEffect();               // first idle frame with the light off: rest the strips dark
       String ifx = (const char *)(cfg["layout"]["idleFx"] | "");
       if (ifx == "gifs") drawIdleGifs(now);         // GIF screensaver (random from a category / all uploads)
       else if (ifx.length()) {                      // animated 2D wallpaper + clock overlay
@@ -1249,9 +1266,9 @@ void loop() {
         if (now - lc > 1000) { lc = now; struct tm t; if (getLocalTime(&t, 5)) strftime(clk, 6, "%H:%M", &t); }
         if (redrew && clk[0]) { dma->setTextSize(1); dma->setTextColor(C_WHITE); dma->setCursor(20, 2); dma->print(clk); }
       } else drawIdle();
-    } else if (!summaryShowing) {                     // scoreboard is showing — animate any blink/pulse markers
+    } else if (!summaryShowing) {                     // scoreboard is showing — animate markers + the play-light pulse
       static uint32_t lm = 0;
-      if (now - lm > 33) { lm = now; animateMarkers(now); }
+      if (now - lm > 33) { lm = now; animateMarkers(now); if (cfg["layout"]["playLightStrobe"] | false) renderPlayLight(false); }
     }
   }
   nightDimTick(now);                                  // auto-dim panel+strips during configured night hours
