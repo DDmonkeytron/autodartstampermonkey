@@ -1,10 +1,10 @@
 # Autodarts LED Scoreboard
 
-A physical LED scoreboard + ambient light reactions for play.autodarts.io, driven
-from the browser userscript over your LAN.
+A physical LED scoreboard + ambient light reactions for play.autodarts.com (the old
+play.autodarts.io domain still works too), driven from the browser userscript over your LAN.
 
 ```
-autodarts.io page ─► CORE theme script ─(DOM CustomEvent)─► Scoreboard bridge script
+autodarts page ───► CORE theme script ─(DOM CustomEvent)─► Scoreboard bridge script
                                                                │ GM_xmlhttpRequest (POST)
                                                                ▼
                                                    ESP32-S3  ── HUB75 64x64 panel (scoreboard)
@@ -115,7 +115,7 @@ Every change is applied by **Save & apply** — live, no reflash.
   you debug over WiFi with no serial cable. Every received event is logged.
 - **GIF previews** — the web UI shows each sprite as a thumbnail (GIFs are served at `/gifs/<name>`).
 - **Config backup** — **Download** in the web UI saves `config.json`; the textarea + **Save** restores it.
-- **On-page HUD** — the userscript shows a 🟢/🔴 pill on autodarts.io with connection status + last event.
+- **On-page HUD** — the userscript shows a 🟢/🔴 pill on play.autodarts.com with connection status + last event.
 - **Dump match state** — userscript menu **"Dump match state (copy)"** copies the last raw autodarts
   WebSocket JSON to the clipboard — the fast way to confirm/tune the schema.
 - **Arbitrary text** — `POST /text {text,ms,effect,color}` (or the web UI box) scrolls any message.

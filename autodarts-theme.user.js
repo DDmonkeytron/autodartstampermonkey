@@ -2,7 +2,8 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.40.4
+// @version      2.40.5
+// @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
 // @grant        none
@@ -17,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.40.4";
+  const SCRIPT_VERSION = "2.40.5";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -4320,7 +4321,7 @@ svg.ad-board-svg text{
 
     const a = document.createElement("a");
     a.id = BM_BTN_ID;
-    a.href = "https://play.autodarts.io/";
+    a.href = location.origin + "/";   // .com or legacy .io — whichever domain the page is on
     a.target = "_self";
     a.rel = "noopener";
     Object.assign(a.style, {
