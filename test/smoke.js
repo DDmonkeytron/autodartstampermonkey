@@ -22,6 +22,7 @@ const html = `<!doctype html><html><head></head><body><div id="root">
     <div class="relative isolate flex-1 flex flex-col items-center overflow-clip @container min-h-36 bg-raspberry-slush-diagonal">
      <div class="w-full flex justify-center items-center gap-1.5">
        <div class="size-2 rounded-full bg-mono-white shrink-0"></div>
+       <div class="relative shrink-0 z-4 rounded-full border-2 border-black-05"><span class="bg-black-90 rounded-full"></span></div>
        <span class="font-display text-[18px] uppercase">davethew</span>
      </div>
      <div class="flex justify-center items-center gap-1.5">
@@ -45,6 +46,7 @@ const html = `<!doctype html><html><head></head><body><div id="root">
     <div class="relative isolate flex-1 flex flex-col items-center overflow-clip @container min-h-36 bg-black-80">
      <div class="w-full flex justify-center items-center gap-1.5">
        <div class="size-2 rounded-full bg-mono-white shrink-0 invisible"></div>
+       <div class="relative shrink-0 z-4 rounded-full border-2 border-black-05"><span class="bg-black-90 rounded-full"></span></div>
        <span class="font-display text-[18px] uppercase">Bot Level 1</span>
      </div>
      <div class="flex justify-center items-center gap-1.5">
@@ -105,5 +107,29 @@ setTimeout(() => {
   console.log('#ad-ext-turn        :', !!d.getElementById('ad-ext-turn'));
   console.log('.ad-core-throw      :', d.querySelectorAll('.ad-core-throw').length);
   console.log('data-adraw values   :', [...d.querySelectorAll('[data-adraw]')].map(e => e.getAttribute('data-adraw')));
-  process.exit(errors.length || threw ? 1 : 0);
+
+  // The Layout Editor drags these selectors and writes PI_*_X_PX / _Y_PX. If a target
+  // stops resolving, or the CSS stops applying the offsets, dragging silently does
+  // nothing -- which is exactly how v2.41.x shipped.
+  console.log('');
+  console.log('=== LAYOUT EDITOR TARGETS ===');
+  const targets = { name: '.ad-ext-player-name', score: '.ad-ext-player-score',
+                    avg: '.ad-core-pi-avg', avatar: '.ad-core-pi-avatar' };
+  let missing = [];
+  for (const [k, sel] of Object.entries(targets)) {
+    const n = d.querySelectorAll(sel).length;
+    console.log((k + '                ').slice(0, 20) + ':', n ? 'OK (' + n + ')' : 'MISSING ' + sel);
+    if (!n) missing.push(k);
+  }
+  const css = [...d.querySelectorAll('style')].map(e => e.textContent).join(String.fromCharCode(10));
+  console.log('');
+  console.log('=== OFFSETS APPLIED IN CSS? ===');
+  const offsetRules = ['--ad-pi-name-x', '--ad-pi-score-x', '--ad-pi-avg-x', '--pp-shift-x'];
+  let noOffset = offsetRules.filter(v => !css.includes('translate: var(' + v));
+  for (const v of offsetRules) console.log((v + '            ').slice(0, 18) + ':', css.includes('translate: var(' + v) ? 'applied' : 'NOT APPLIED');
+  const migOk = true;   // migration is covered by migration.js (asserts on state, not CSS)
+  const ok = !threw && !errors.length && cog.length && !missing.length && !noOffset.length && migOk;
+  console.log('');
+  console.log(ok ? 'PASS' : 'FAIL');
+  process.exit(ok ? 0 : 1);
 }, 2500);

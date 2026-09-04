@@ -3,6 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "description": "Smoke test for autodarts-theme.user.js",
-  "scripts": { "test": "node smoke.js" },
-  "dependencies": { "jsdom": "^24.0.0" }
+  "scripts": {
+    "test": "node smoke.js && node migration.js"
+  },
+  "dependencies": {
+    "jsdom": "^24.0.0"
+  }
 }

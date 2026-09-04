@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.41.1
+// @version      2.42.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.41.1";
+  const SCRIPT_VERSION = "2.42.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -34,7 +34,7 @@
   "ad_core_state_v230",
   "ad_core_state_v227",
 ];
-  const STATE_SCHEMA_VERSION = 1;
+  const STATE_SCHEMA_VERSION = 2;
   const LEGACY_CLOCK_KEY = "ad_clock_only_v11";
 
   const clone = (obj) => (typeof structuredClone === "function")
@@ -320,9 +320,16 @@
     PLAYER_INFO: true,
     PI_NAME_FONT_PX: 80, PI_SCORE_FONT_PX: 220, PI_AVG_FONT_PX: 39, PI_HISTORY_FONT_PX: 58,
     PI_CUSTOM_COLORS: true, PI_NAME_COLOR_HEX: "#f53232", PI_SCORE_COLOR_HEX: "#ec1842", PI_AVG_COLOR_HEX: "#e82626", PI_HISTORY_COLOR_HEX: "#f01919",
-    PI_STACK_GAP_PX: 80, PI_HISTORY_HEIGHT_PX: 560, PI_AVATAR_SCALE: 2.5, PI_CARD_WIDTH_PX: 440, PI_CARD_HEIGHT_PX: 810,
-    PI_AVATAR_OFFSET_PX: 75, PI_SCORE_Y_PX: -170, PI_NAME_Y_PX: -190, PI_AVG_X_PX: 5, PI_AVG_Y_PX: -180, PI_HISTORY_OFFSET_PX: -95,
-    PI_P1_SHIFT_Y: -36, PI_P2_SHIFT_Y: -34, PI_P3_SHIFT_Y: -32, PI_P4_SHIFT_Y: -36,
+    PI_STACK_GAP_PX: 0, PI_HISTORY_HEIGHT_PX: 560, PI_AVATAR_SCALE: 2.5, PI_CARD_WIDTH_PX: 440, PI_CARD_HEIGHT_PX: 810,
+    // Position offsets zeroed for the rebuilt autodarts.com layout. These held
+    // PI_AVATAR_OFFSET_PX:75, PI_SCORE_Y_PX:-170, PI_NAME_Y_PX:-190, PI_AVG_Y_PX:-180,
+    // PI_HISTORY_OFFSET_PX:-95 and per-player shifts around -35, all of which dragged
+    // elements into place on the OLD absolutely-positioned card. The rebuilt card is a
+    // centred flex column, so re-applying them threw the name and score clean off it --
+    // which is why loading Preset A looked like it did nothing. Fonts, colours, card
+    // size and avatar scale are all unchanged.
+    PI_AVATAR_OFFSET_PX: 0, PI_SCORE_Y_PX: 0, PI_NAME_Y_PX: 0, PI_AVG_X_PX: 0, PI_AVG_Y_PX: 0, PI_HISTORY_OFFSET_PX: 0,
+    PI_P1_SHIFT_Y: 0, PI_P2_SHIFT_Y: 0, PI_P3_SHIFT_Y: 0, PI_P4_SHIFT_Y: 0,
     PI_PER_PLAYER_COLORS: true,
     PI_P2_NAME_COLOR_HEX: "#e356f5", PI_P2_SCORE_COLOR_HEX: "#ec6ae7", PI_P2_AVG_COLOR_HEX: "#f264be", PI_P2_HISTORY_COLOR_HEX: "#dd46d8",
     PI_P3_NAME_COLOR_HEX: "#1b22ee", PI_P3_SCORE_COLOR_HEX: "#2a27dd",
@@ -1280,8 +1287,35 @@
             : (i === 0 ? presetA() : presetBC()))
       : makeDefaultPresets();
 
+    // v2 migration (rebuilt autodarts.com): the PI_* position keys were tuned against
+    // the OLD absolutely-positioned layout, where elements had to be dragged into place
+    // (saved presets routinely hold PI_SCORE_Y_PX:-193, PI_P1_SHIFT_Y:-120 and similar).
+    // The rebuilt card is a centred flex column that already places everything, so those
+    // offsets now throw text clean off the card. Zero them ONCE so every saved preset
+    // starts from a sane baseline; the Layout Editor then works from there as normal.
+    // Fonts, colours, sizes and every other setting are left untouched.
+    if (Number(st?.schemaVersion || 0) < 2) {
+      for (const pr of out.presets) zeroLegacyOffsets(pr);
+    }
+
     out.schemaVersion = STATE_SCHEMA_VERSION;
     return out;
+  }
+
+  // The position keys neutralised by the v2 migration above.
+  const LEGACY_OFFSET_KEYS = (() => {
+    const base = ["PI_NAME_X_PX","PI_NAME_Y_PX","PI_SCORE_X_PX","PI_SCORE_Y_PX",
+                  "PI_AVG_X_PX","PI_AVG_Y_PX","PI_HISTORY_X_PX","PI_HISTORY_OFFSET_PX",
+                  "PI_AVATAR_X_PX","PI_AVATAR_OFFSET_PX","PI_STACK_GAP_PX"];
+    const g = base.map((k) => k.replace(/^PI_/, "PI_G_"));
+    const per = [];
+    for (let n = 1; n <= 4; n++) per.push(`PI_P${n}_SHIFT_X`, `PI_P${n}_SHIFT_Y`,
+                                          `PI_P${n}_CARD_X_PX`, `PI_P${n}_CARD_Y_PX`);
+    return [...base, ...g, ...per];
+  })();
+  function zeroLegacyOffsets(cfgObj) {
+    for (const k of LEGACY_OFFSET_KEYS) if (k in cfgObj) cfgObj[k] = 0;
+    return cfgObj;
   }
 
   const FX_STYLES = ["outline", "emboss", "glow", "shadow"];
@@ -1744,6 +1778,143 @@
 `);
         }
       }
+
+      // Rebuilt-site (autodarts.com) Player Info + turn bar. This lives in renderCss(),
+      // NOT in EXTRA_CSS: that block is only injected while the optional Skin/Layout
+      // module is on, so putting the compatibility styling there made every preset
+      // look dead whenever Skin was off. The rules only match once AD2.tag() has
+      // stamped the DOM, so they are inert on the legacy site.
+      css.push(String.raw`
+/* ============================================================================
+   REBUILT SITE (play.autodarts.com, Sept 2026)
+   Autodarts replaced Chakra with Tailwind, so every '.css-XXXXXX' rule above is
+   now inert — harmless, it simply never matches. These rules target the stable
+   hooks stamped by the COMPAT layer instead, and deliberately reuse the SAME
+   --ad-pi-* variables renderCss() already emits, so every existing CORE panel
+   slider keeps driving them with no config migration.
+   ============================================================================ */
+
+/* Card sizing. The rebuilt card is its own container-query context (@container
+   + @[260px]: rules), so we size the COLUMN and let the site scale its own text
+   from that — fighting the container queries directly just causes clipping. */
+.ad-core-game .ad-core-col{
+  width: var(--ad-pi-card-w, 25rem) !important;
+  flex: 0 0 auto !important;
+  translate: var(--pp-shift-x, 0px) var(--pp-shift-y, 0px);
+}
+/* PI_CARD_HEIGHT_PX was tuned against the old absolutely-positioned layout, where
+   it meant "the whole card box". Here the card is a flex child that already fills
+   its column, so an unclamped 900px+ value just overflows the viewport. Respect the
+   setting, but cap it. */
+.ad-core-game .ad-core-card{ min-height: min(var(--ad-pi-card-h, 9rem), 60vh) !important; }
+
+/* The board/turn-bar column sits between the players and is a sibling of them,
+   so any legacy '#ad-ext-player-display > div:nth-child(n)' positioning would
+   otherwise drag the board around. Pin it. */
+.ad-core-game > .ad-core-centre{ translate: none !important; transform: none !important; }
+
+
+/* --- POSITIONAL OFFSETS ---
+   These drive the Layout Editor (drag = write PI_*_X_PX / _Y_PX / PI_P*_SHIFT_*), so
+   they must be applied or nothing moves when you drag. 'translate' is used rather than
+   'transform' because it composes with the site's own transforms instead of clobbering
+   them. Values saved against the OLD absolutely-positioned layout are zeroed once by
+   the v2 state migration (see zeroLegacyOffsets), so everything starts centred here and
+   is re-tuned from that baseline. --- */
+
+/* --- name --- the site pins the chip to h-8 and the span to h-3.75, which crops
+   anything larger than default, so height/overflow are released here. */
+.ad-core-card .ad-core-pi-name{
+  font-size: var(--ad-pi-name-font) !important;
+  color: var(--ad-pi-name-color) !important;
+  height: auto !important;
+  line-height: 1.05 !important;
+  max-width: none !important;
+  overflow: visible !important;
+  translate: var(--ad-pi-name-x, 0px) var(--ad-pi-name-y, 0px);
+}
+.ad-core-card .ad-core-pi-name::after{ content: none !important; }
+/* release the fixed-height chip that wraps the name */
+.ad-core-card .ad-core-pi-name:where(span){ display: inline-block !important; }
+.ad-core-card :where(.ad-core-pi-name) ~ *{ flex-shrink: 0; }
+
+/* --- remaining score --- site uses h-14 / @[260px]:h-25 + overflow-hidden */
+.ad-core-card .ad-core-pi-score{
+  font-size: var(--ad-pi-score-font) !important;
+  color: var(--ad-pi-score-color) !important;
+  height: auto !important;
+  overflow: visible !important;
+  align-items: center !important;
+  translate: var(--ad-pi-score-x, 0px) var(--ad-pi-score-y, 0px);
+}
+
+/* --- leg / match averages --- */
+.ad-core-card .ad-core-pi-avg{
+  font-size: var(--ad-pi-avg-font) !important;
+  color: var(--ad-pi-avg-color) !important;
+  translate: var(--ad-pi-avg-x, 0px) var(--ad-pi-avg-y, 0px);
+}
+.ad-core-card .ad-core-pi-avg *{ color: inherit !important; font-size: inherit !important; }
+
+/* --- legs-won pill --- reuses the history colour slot */
+.ad-core-card .ad-core-pi-legs{ color: var(--ad-pi-history-color) !important; }
+
+/* --- per-player colour overrides (P2-P4) --- */
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-name{  color: var(--ad-pi-p2-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-score{ color: var(--ad-pi-p2-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-avg{   color: var(--ad-pi-p2-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-legs{  color: var(--ad-pi-p2-history-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-name{  color: var(--ad-pi-p3-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-score{ color: var(--ad-pi-p3-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-avg{   color: var(--ad-pi-p3-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-legs{  color: var(--ad-pi-p3-history-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-name{  color: var(--ad-pi-p4-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-score{ color: var(--ad-pi-p4-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-avg{   color: var(--ad-pi-p4-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-legs{  color: var(--ad-pi-p4-history-color) !important; }
+
+/* --- active player --- driven by ACTIVE_CLASS, which AD2.tag() sets from the
+   site's own signal (gradient card bg / visible turn dot) rather than guessing. */
+.ad-core-game .ad-ext-player.ad-active-player .ad-core-card{
+  outline: var(--ad-active-outline, 6px) solid rgba(var(--ad-active-rgb, 255,255,255), .95) !important;
+  outline-offset: -3px !important;
+  /* --ad-active-glow is an OPACITY 0-1 (renderCss clamps ACTIVE_GLOW to 0..1), not a
+     length. Feed it through alpha exactly like the legacy rule above does. */
+  box-shadow:
+    0 0 36px  rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * 1)),
+    0 0 110px rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * .66)) !important;
+  border-radius: 1rem !important;
+}
+.ad-core-game .ad-ext-player:not(.ad-active-player) .ad-core-card{
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* --- turn total ---
+   forceCenterTotalOverlay() is skipped on the rebuilt site (it injected a stray
+   overlay into the throws row), so the site's own total element is styled directly. */
+#ad-ext-turn .ad-core-turn-total{
+  background-color: rgba(var(--ad-total-bg-rgb, 0,0,0), var(--ad-total-bg-op, 0)) !important;
+}
+#ad-ext-turn .ad-core-turn-total span{
+  font-family: 'Barlow Condensed', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+  font-size: var(--ad-total-font) !important;
+  color: rgba(var(--ad-total-rgb), var(--ad-total-op)) !important;
+  line-height: 1 !important;
+}
+
+/* --- throw cards --- the site paints these; CORE's colours win. The computed-points
+   text itself is rendered by the .ad-core-throw[data-adval]::after rule in renderCss. */
+#ad-ext-turn .ad-core-throw.ad-has-throw{
+  background-color: rgba(var(--ad-throw-bg-rgb), var(--ad-throw-bg-op)) !important;
+  background-image: none !important;
+}
+#ad-ext-turn .ad-core-throw.ad-has-throw:hover{
+  background-color: rgba(var(--ad-throw-hover-bg-rgb), var(--ad-throw-hover-bg-op)) !important;
+}
+
+`);
 
       if (c.THROWS_TO_POINTS) {
         css.push(`
@@ -3086,33 +3257,6 @@ svg.ad-board-svg text{
   background-attachment: fixed !important;
 }
 
-/* ============================================================================
-   REBUILT SITE (play.autodarts.com, Sept 2026)
-   Autodarts replaced Chakra with Tailwind, so every '.css-XXXXXX' rule above is
-   now inert — harmless, it simply never matches. These rules target the stable
-   hooks stamped by the COMPAT layer instead, and deliberately reuse the SAME
-   --ad-pi-* variables renderCss() already emits, so every existing CORE panel
-   slider keeps driving them with no config migration.
-   ============================================================================ */
-
-/* Card sizing. The rebuilt card is its own container-query context (@container
-   + @[260px]: rules), so we size the COLUMN and let the site scale its own text
-   from that — fighting the container queries directly just causes clipping. */
-.ad-core-game .ad-core-col{
-  width: var(--ad-pi-card-w, 25rem) !important;
-  flex: 0 0 auto !important;
-}
-/* PI_CARD_HEIGHT_PX was tuned against the old absolutely-positioned layout, where
-   it meant "the whole card box". Here the card is a flex child that already fills
-   its column, so an unclamped 900px+ value just overflows the viewport. Respect the
-   setting, but cap it. */
-.ad-core-game .ad-core-card{ min-height: min(var(--ad-pi-card-h, 9rem), 60vh) !important; }
-
-/* The board/turn-bar column sits between the players and is a sibling of them,
-   so any legacy '#ad-ext-player-display > div:nth-child(n)' positioning would
-   otherwise drag the board around. Pin it. */
-.ad-core-game > .ad-core-centre{ translate: none !important; transform: none !important; }
-
 /* --- card background ---
    The old site painted player cards dark, so every colour in the CORE palette was
    picked to read against dark. The rebuilt site paints the ACTIVE card with a bright
@@ -3122,105 +3266,6 @@ svg.ad-board-svg text{
 .ad-core-game .ad-core-card{
   background-image: none !important;
   background-color: rgba(var(--ad-player-bg-rgb, 10,14,22), var(--ad-player-bg-op, .92)) !important;
-}
-
-/* --- POSITIONAL OFFSETS ARE DELIBERATELY NOT APPLIED HERE ---
-   PI_*_X_PX / PI_*_Y_PX / PI_P*_SHIFT_* exist to compensate for the OLD layout, where
-   cards were absolutely positioned and elements had to be dragged into place (the
-   shipped presets carry values like PI_SCORE_Y_PX:-193, PI_NAME_Y_PX:-190,
-   PI_P1_SHIFT_Y:-120). The rebuilt card is a centred flex column that already places
-   everything correctly, so re-applying those offsets throws the text clean off the
-   card. Ignoring them here fixes every preset AND every user's saved config at once,
-   with no data migration. They become live again when there is a layout editor that
-   understands the new geometry. --- */
-
-/* --- name --- the site pins the chip to h-8 and the span to h-3.75, which crops
-   anything larger than default, so height/overflow are released here. */
-.ad-core-card .ad-core-pi-name{
-  font-size: var(--ad-pi-name-font) !important;
-  color: var(--ad-pi-name-color) !important;
-  height: auto !important;
-  line-height: 1.05 !important;
-  max-width: none !important;
-  overflow: visible !important;
-}
-.ad-core-card .ad-core-pi-name::after{ content: none !important; }
-/* release the fixed-height chip that wraps the name */
-.ad-core-card .ad-core-pi-name:where(span){ display: inline-block !important; }
-.ad-core-card :where(.ad-core-pi-name) ~ *{ flex-shrink: 0; }
-
-/* --- remaining score --- site uses h-14 / @[260px]:h-25 + overflow-hidden */
-.ad-core-card .ad-core-pi-score{
-  font-size: var(--ad-pi-score-font) !important;
-  color: var(--ad-pi-score-color) !important;
-  height: auto !important;
-  overflow: visible !important;
-  align-items: center !important;
-}
-
-/* --- leg / match averages --- */
-.ad-core-card .ad-core-pi-avg{
-  font-size: var(--ad-pi-avg-font) !important;
-  color: var(--ad-pi-avg-color) !important;
-}
-.ad-core-card .ad-core-pi-avg *{ color: inherit !important; font-size: inherit !important; }
-
-/* --- legs-won pill --- reuses the history colour slot */
-.ad-core-card .ad-core-pi-legs{ color: var(--ad-pi-history-color) !important; }
-
-/* --- per-player colour overrides (P2-P4) --- */
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-name{  color: var(--ad-pi-p2-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-score{ color: var(--ad-pi-p2-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-avg{   color: var(--ad-pi-p2-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-legs{  color: var(--ad-pi-p2-history-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-name{  color: var(--ad-pi-p3-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-score{ color: var(--ad-pi-p3-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-avg{   color: var(--ad-pi-p3-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-legs{  color: var(--ad-pi-p3-history-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-name{  color: var(--ad-pi-p4-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-score{ color: var(--ad-pi-p4-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-avg{   color: var(--ad-pi-p4-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-legs{  color: var(--ad-pi-p4-history-color) !important; }
-
-/* --- active player --- driven by ACTIVE_CLASS, which AD2.tag() sets from the
-   site's own signal (gradient card bg / visible turn dot) rather than guessing. */
-.ad-core-game .ad-ext-player.ad-active-player .ad-core-card{
-  outline: var(--ad-active-outline, 6px) solid rgba(var(--ad-active-rgb, 255,255,255), .95) !important;
-  outline-offset: -3px !important;
-  /* --ad-active-glow is an OPACITY 0-1 (renderCss clamps ACTIVE_GLOW to 0..1), not a
-     length. Feed it through alpha exactly like the legacy rule above does. */
-  box-shadow:
-    0 0 36px  rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * 1)),
-    0 0 110px rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * .66)) !important;
-  border-radius: 1rem !important;
-}
-.ad-core-game .ad-ext-player:not(.ad-active-player) .ad-core-card{
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* --- turn total ---
-   forceCenterTotalOverlay() is skipped on the rebuilt site (it injected a stray
-   overlay into the throws row), so the site's own total element is styled directly. */
-#ad-ext-turn .ad-core-turn-total{
-  background-color: rgba(var(--ad-total-bg-rgb, 0,0,0), var(--ad-total-bg-op, 0)) !important;
-}
-#ad-ext-turn .ad-core-turn-total span{
-  font-family: 'Barlow Condensed', system-ui, sans-serif !important;
-  font-weight: 800 !important;
-  font-size: var(--ad-total-font) !important;
-  color: rgba(var(--ad-total-rgb), var(--ad-total-op)) !important;
-  line-height: 1 !important;
-}
-
-/* --- throw cards --- the site paints these; CORE's colours win. The computed-points
-   text itself is rendered by the .ad-core-throw[data-adval]::after rule in renderCss. */
-#ad-ext-turn .ad-core-throw.ad-has-throw{
-  background-color: rgba(var(--ad-throw-bg-rgb), var(--ad-throw-bg-op)) !important;
-  background-image: none !important;
-}
-#ad-ext-turn .ad-core-throw.ad-has-throw:hover{
-  background-color: rgba(var(--ad-throw-hover-bg-rgb), var(--ad-throw-hover-bg-op)) !important;
 }
 
 `;
@@ -4876,6 +4921,10 @@ function markCheckoutInTurnBar(turn) {
         if (!card) return;
         card.classList.add("ad-core-card");
 
+        // the avatar the Layout Editor targets (chakra .css-1psdi5l is long gone)
+        const avatarEl = card.querySelector(".rounded-full.border-2") || card.querySelector("span.rounded-full");
+        if (avatarEl) avatarEl.classList.add("ad-core-pi-avatar");
+
         const nameEl = card.querySelector("span.font-display");
         if (nameEl) nameEl.classList.add("ad-ext-player-name", "ad-core-pi-name");
 
@@ -5086,7 +5135,7 @@ function markCheckoutInTurnBar(turn) {
     score: ".ad-ext-player-score",
     avg: ".ad-core-pi-avg",
     history: ".css-1u90hiz",
-    avatar: ".css-1psdi5l",
+    avatar: ".ad-core-pi-avatar, .css-1psdi5l",
   };
   const PI_EL_KEY = { name: "name", score: "score", avg: "average", history: "history", avatar: "avatar" };
   // gXKey/gYKey/gFontKey/gScaleKey/gWidthKey/gHeightKey mirror the base keys for the independent
