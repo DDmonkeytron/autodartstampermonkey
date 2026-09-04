@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.40.5
+// @version      2.41.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -12,13 +12,13 @@
 // @supportURL   https://github.com/DDmonkeytron/autodartstampermonkey/issues
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/autodarts-theme.user.js
-// @description  CORE panel with 6 presets (A-F) + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module + theme gallery (GitHub-hosted, with color-swatch previews) + click/drag Layout Editor (Beta) for Player Info with snap-to-grid/alignment guides and one-click 2P<->3-4P layout copy. Includes performance optimizations (dirty flags + scoped observers).
+// @description  Rebuilt-site (autodarts.com) compatible. CORE panel with 6 presets (A-F) + HU/EN/DE + SafeMode + Total overlay fix + integrated Floating Clock + optional Back-to-Autodarts button on /boards + integrated Stylebot CSS as toggleable "Skin/Layout" module + theme gallery (GitHub-hosted, with color-swatch previews) + click/drag Layout Editor (Beta) for Player Info with snap-to-grid/alignment guides and one-click 2P<->3-4P layout copy. Includes performance optimizations (dirty flags + scoped observers).
 // ==/UserScript==
 
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.40.5";
+  const SCRIPT_VERSION = "2.41.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -1821,6 +1821,20 @@
   color: rgba(var(--ad-throw-rgb), var(--ad-throw-op)) !important;
 }
 .ad-ext-turn-throw p:not([data-adval])::after{ content:"" !important; }
+
+/* Rebuilt site: there is no <p>, so AD2.valueEl() writes data-adval onto the SLOT.
+   Render from the slot and hide the site's own "S"/"20" spans while we are showing
+   computed points. Scoped to [data-adval] so a slot with no throw stays untouched. */
+.ad-core-throw[data-adval] > *{ display:none !important; }
+.ad-core-throw[data-adval]::after{
+  content: attr(data-adval);
+  font-family:'Barlow Condensed', system-ui, sans-serif !important;
+  font-weight:800 !important;
+  font-size:var(--ad-throw-font) !important;
+  line-height:1 !important;
+  letter-spacing:1px !important;
+  color: rgba(var(--ad-throw-rgb), var(--ad-throw-op)) !important;
+}
 `);
         if (c.SHOW_ORIG_IN_CORNER) {
           css.push(`
@@ -1838,9 +1852,25 @@
   pointer-events:none !important;
 }
 .ad-ext-turn-throw p:not([data-adorig])::before{ content:"" !important; }
+
+/* corner original (T20) on the rebuilt slot -- the slot already has position:relative */
+.ad-core-throw[data-adorig]::before{
+  content: attr(data-adorig);
+  position:absolute !important;
+  right:10px !important;
+  bottom:8px !important;
+  font-family:'Barlow Condensed', system-ui, sans-serif !important;
+  font-weight:700 !important;
+  font-size:var(--ad-orig-font) !important;
+  line-height:1 !important;
+  letter-spacing:.5px !important;
+  color: rgba(var(--ad-orig-rgb), var(--ad-orig-op)) !important;
+  pointer-events:none !important;
+}
 `);
         } else {
-          css.push(`.ad-ext-turn-throw p::before{ content:"" !important; }`);
+          css.push(`.ad-ext-turn-throw p::before{ content:"" !important; }
+.ad-core-throw::before{ content:"" !important; }`);
         }
       }
 
@@ -3055,6 +3085,144 @@ svg.ad-board-svg text{
   background-size: cover !important;
   background-attachment: fixed !important;
 }
+
+/* ============================================================================
+   REBUILT SITE (play.autodarts.com, Sept 2026)
+   Autodarts replaced Chakra with Tailwind, so every '.css-XXXXXX' rule above is
+   now inert — harmless, it simply never matches. These rules target the stable
+   hooks stamped by the COMPAT layer instead, and deliberately reuse the SAME
+   --ad-pi-* variables renderCss() already emits, so every existing CORE panel
+   slider keeps driving them with no config migration.
+   ============================================================================ */
+
+/* Card sizing. The rebuilt card is its own container-query context (@container
+   + @[260px]: rules), so we size the COLUMN and let the site scale its own text
+   from that — fighting the container queries directly just causes clipping. */
+.ad-core-game .ad-core-col{
+  width: var(--ad-pi-card-w, 25rem) !important;
+  flex: 0 0 auto !important;
+}
+/* PI_CARD_HEIGHT_PX was tuned against the old absolutely-positioned layout, where
+   it meant "the whole card box". Here the card is a flex child that already fills
+   its column, so an unclamped 900px+ value just overflows the viewport. Respect the
+   setting, but cap it. */
+.ad-core-game .ad-core-card{ min-height: min(var(--ad-pi-card-h, 9rem), 60vh) !important; }
+
+/* The board/turn-bar column sits between the players and is a sibling of them,
+   so any legacy '#ad-ext-player-display > div:nth-child(n)' positioning would
+   otherwise drag the board around. Pin it. */
+.ad-core-game > .ad-core-centre{ translate: none !important; transform: none !important; }
+
+/* --- card background ---
+   The old site painted player cards dark, so every colour in the CORE palette was
+   picked to read against dark. The rebuilt site paints the ACTIVE card with a bright
+   brand gradient (bg-raspberry-slush-diagonal), which makes those same colours
+   near-invisible. Repaint from the existing Skin control (SKIN_PLAYER_BG_HEX) so
+   the user's palette keeps working; the site's gradient becomes a thin accent edge. */
+.ad-core-game .ad-core-card{
+  background-image: none !important;
+  background-color: rgba(var(--ad-player-bg-rgb, 10,14,22), var(--ad-player-bg-op, .92)) !important;
+}
+
+/* --- POSITIONAL OFFSETS ARE DELIBERATELY NOT APPLIED HERE ---
+   PI_*_X_PX / PI_*_Y_PX / PI_P*_SHIFT_* exist to compensate for the OLD layout, where
+   cards were absolutely positioned and elements had to be dragged into place (the
+   shipped presets carry values like PI_SCORE_Y_PX:-193, PI_NAME_Y_PX:-190,
+   PI_P1_SHIFT_Y:-120). The rebuilt card is a centred flex column that already places
+   everything correctly, so re-applying those offsets throws the text clean off the
+   card. Ignoring them here fixes every preset AND every user's saved config at once,
+   with no data migration. They become live again when there is a layout editor that
+   understands the new geometry. --- */
+
+/* --- name --- the site pins the chip to h-8 and the span to h-3.75, which crops
+   anything larger than default, so height/overflow are released here. */
+.ad-core-card .ad-core-pi-name{
+  font-size: var(--ad-pi-name-font) !important;
+  color: var(--ad-pi-name-color) !important;
+  height: auto !important;
+  line-height: 1.05 !important;
+  max-width: none !important;
+  overflow: visible !important;
+}
+.ad-core-card .ad-core-pi-name::after{ content: none !important; }
+/* release the fixed-height chip that wraps the name */
+.ad-core-card .ad-core-pi-name:where(span){ display: inline-block !important; }
+.ad-core-card :where(.ad-core-pi-name) ~ *{ flex-shrink: 0; }
+
+/* --- remaining score --- site uses h-14 / @[260px]:h-25 + overflow-hidden */
+.ad-core-card .ad-core-pi-score{
+  font-size: var(--ad-pi-score-font) !important;
+  color: var(--ad-pi-score-color) !important;
+  height: auto !important;
+  overflow: visible !important;
+  align-items: center !important;
+}
+
+/* --- leg / match averages --- */
+.ad-core-card .ad-core-pi-avg{
+  font-size: var(--ad-pi-avg-font) !important;
+  color: var(--ad-pi-avg-color) !important;
+}
+.ad-core-card .ad-core-pi-avg *{ color: inherit !important; font-size: inherit !important; }
+
+/* --- legs-won pill --- reuses the history colour slot */
+.ad-core-card .ad-core-pi-legs{ color: var(--ad-pi-history-color) !important; }
+
+/* --- per-player colour overrides (P2-P4) --- */
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-name{  color: var(--ad-pi-p2-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-score{ color: var(--ad-pi-p2-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-avg{   color: var(--ad-pi-p2-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-legs{  color: var(--ad-pi-p2-history-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-name{  color: var(--ad-pi-p3-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-score{ color: var(--ad-pi-p3-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-avg{   color: var(--ad-pi-p3-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-legs{  color: var(--ad-pi-p3-history-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-name{  color: var(--ad-pi-p4-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-score{ color: var(--ad-pi-p4-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-avg{   color: var(--ad-pi-p4-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-legs{  color: var(--ad-pi-p4-history-color) !important; }
+
+/* --- active player --- driven by ACTIVE_CLASS, which AD2.tag() sets from the
+   site's own signal (gradient card bg / visible turn dot) rather than guessing. */
+.ad-core-game .ad-ext-player.ad-active-player .ad-core-card{
+  outline: var(--ad-active-outline, 6px) solid rgba(var(--ad-active-rgb, 255,255,255), .95) !important;
+  outline-offset: -3px !important;
+  /* --ad-active-glow is an OPACITY 0-1 (renderCss clamps ACTIVE_GLOW to 0..1), not a
+     length. Feed it through alpha exactly like the legacy rule above does. */
+  box-shadow:
+    0 0 36px  rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * 1)),
+    0 0 110px rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * .66)) !important;
+  border-radius: 1rem !important;
+}
+.ad-core-game .ad-ext-player:not(.ad-active-player) .ad-core-card{
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* --- turn total ---
+   forceCenterTotalOverlay() is skipped on the rebuilt site (it injected a stray
+   overlay into the throws row), so the site's own total element is styled directly. */
+#ad-ext-turn .ad-core-turn-total{
+  background-color: rgba(var(--ad-total-bg-rgb, 0,0,0), var(--ad-total-bg-op, 0)) !important;
+}
+#ad-ext-turn .ad-core-turn-total span{
+  font-family: 'Barlow Condensed', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+  font-size: var(--ad-total-font) !important;
+  color: rgba(var(--ad-total-rgb), var(--ad-total-op)) !important;
+  line-height: 1 !important;
+}
+
+/* --- throw cards --- the site paints these; CORE's colours win. The computed-points
+   text itself is rendered by the .ad-core-throw[data-adval]::after rule in renderCss. */
+#ad-ext-turn .ad-core-throw.ad-has-throw{
+  background-color: rgba(var(--ad-throw-bg-rgb), var(--ad-throw-bg-op)) !important;
+  background-image: none !important;
+}
+#ad-ext-turn .ad-core-throw.ad-has-throw:hover{
+  background-color: rgba(var(--ad-throw-hover-bg-rgb), var(--ad-throw-hover-bg-op)) !important;
+}
+
 `;
 
     // ================== SKIN – selector health-check ==================
@@ -3068,7 +3236,7 @@ svg.ad-board-svg text{
     if (!location.pathname.startsWith("/matches/")) return;
 
     const turn = document.querySelector("#ad-ext-turn");
-    const players = document.querySelector("#ad-ext-player-display");
+    const players = playersHost();
 
     // ha még nem töltött be a meccs UI, próbáljuk újra párszor
     if (!turn || !players) {
@@ -3491,7 +3659,7 @@ svg.ad-board-svg text{
   // Resolves the same "active or first player panel" triggerHighscore's flash effect targets,
   // reused here so the gold/red glow lands on the same element.
   function getActiveOrFirstPanel() {
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (!host) return null;
     return Array.from(host.children).find(p => p.classList && p.classList.contains(ACTIVE_CLASS))
       || host.children[0] || null;
@@ -4410,7 +4578,7 @@ svg.ad-board-svg text{
     // fontos: itt MOST NEM szűrünk ad-has-throw / data-adval alapján,
     // mert pont ez szokott “nem kész lenni” kattintáskor.
     // Csak a teljesen üres/placeholdert dobjuk ki:
-    const p = card.querySelector("p");
+    const p = AD2.valueEl(card);
     const raw = (p?.textContent || "").trim();
     if (isPlaceholderRaw(raw)) return;
 
@@ -4435,7 +4603,7 @@ svg.ad-board-svg text{
     const throwDivs = Array.from(parent.children).filter((el) => el.classList?.contains("ad-ext-turn-throw"));
     if (!throwDivs.length) return;
 
-    const ps = throwDivs.map((d) => d.querySelector("p")).filter(Boolean);
+    const ps = throwDivs.map((d) => AD2.valueEl(d)).filter(Boolean);
     if (!ps.length) return;
 
     const raws = ps.map((p) => (p.textContent || "").trim());
@@ -4495,7 +4663,7 @@ function applyStickyThrowSelection(turn){
   }
 
   // ha a kiválasztott kártya placeholder lett -> töröljük a kijelölést
-  const p = cards[idx].querySelector("p");
+  const p = AD2.valueEl(cards[idx]);
   const txt = (p?.textContent || "").trim();
   if (isPlaceholderRaw(txt)) {
     turn.removeAttribute(TURN_SEL_ATTR);
@@ -4536,6 +4704,12 @@ function applyStickyThrowSelection(turn){
 
   function forceCenterTotalOverlay(turn) {
     if (!turn) return;
+    // The rebuilt turn bar already renders the turn total as its own element, which
+    // AD2.tag() marks as .ad-core-turn-total. The legacy overlay machinery below hunts
+    // for a "numeric leaf", which on the new DOM lands inside the THROWS row -- it then
+    // injects a stray .ad-total-overlay there that looks like a fourth dart, and hides
+    // the real value. Style .ad-core-turn-total with CSS instead.
+    if (AD2.isNewSite()) return;
 
     const leaf = (() => {
       const candidates = Array.from(turn.querySelectorAll("p.ad-ext-turn-points, .ad-ext-turn-points"));
@@ -4596,6 +4770,7 @@ function markCheckoutInTurnBar(turn) {
     if (el.closest(".ad-ext-turn-throw")) continue;    // dobáskártyákon ne
     if (el.closest(".ad-total-cell")) continue;        // total cellen belül ne
     if (el.closest(".ad-total-overlay")) continue;     // total overlayen ne
+    if (el.closest(".ad-core-turn-total")) continue;   // rebuilt total: "25"/"50" would match the token regex
     if (isInButton(el)) continue;                      // gombokon ne
 
     // ✅ KRITIKUS: csak LEAF elemet jelöljünk (különben a * selector mindent elvisz)
@@ -4607,6 +4782,193 @@ function markCheckoutInTurnBar(turn) {
     if (CHECKOUT_TOKEN_RE.test(txt)) el.classList.add("ad-ext-turn-checkout-value");
   }
 }
+
+  /* ================== COMPAT — REBUILT SITE (autodarts.com, Sept 2026) ==================
+     Autodarts rebuilt play.* from Next.js + Chakra to Vite + Tailwind. Every `css-XXXXXX`
+     emotion hash this script used to target is gone, and Tools-for-Autodarts v3 no longer
+     emits `#ad-ext-turn` / `#ad-ext-player-display` / `.ad-ext-*` either.
+
+     Rather than rewrite every module, this layer re-creates the OLD CONTRACT on the new
+     DOM: it finds the real elements structurally (by role and content, never by class
+     hash) and stamps the ids/classes the rest of the script already knows. Downstream
+     modules keep working unchanged.
+
+     Verified live 2026-09-04 against a 2-player match on play.autodarts.com.
+
+     New-site layout:
+       div[container-type:size]                     <- GAME ROOT (flex row)
+         div.flex.w-100.flex-col.divide-y           <- player column  (one per player)
+           div.rounded-t-2xl > div.@container       <- the card
+         div.grid.grid-rows-[auto_minmax(0,1fr)_auto]  <- centre: board + turn bar + Next
+     Active player is signalled two ways (we accept either):
+       - card carries a gradient bg utility (bg-raspberry-slush-*) vs bg-black-80
+       - the leading dot .size-2.rounded-full.bg-mono-white loses `invisible`
+  */
+  const AD2 = (() => {
+    const big = () => Array.from(document.querySelectorAll("div.font-number"))
+      .filter((e) => e.children.length === 0 && /^\d{1,3}$/.test((e.textContent || "").trim())
+                  && parseFloat(getComputedStyle(e).fontSize) > 50);
+
+    // The card is the element the site paints (background, active gradient, rounding)
+    // and is its own container-query context. Walking up to the first ancestor that
+    // merely CONTAINS the name span stops too early — that is the inner content
+    // wrapper, and styling it leaves the real card's gradient showing around it.
+    // Prefer the nearest @container ancestor; fall back to the content wrapper.
+    function cardOf(scoreEl) {
+      let fallback = null, n = scoreEl;
+      for (let i = 0; i < 10 && n; i++, n = n.parentElement) {
+        if (!n.className || !n.querySelector) continue;
+        const has = n.querySelector("span.font-display");
+        if (has && !fallback) fallback = n;
+        if (has && /@container/.test(n.className.toString())) return n;
+      }
+      return fallback;
+    }
+    function commonAncestor(els) {
+      if (!els.length) return null;
+      const chain = (e) => { const s = []; for (let n = e; n; n = n.parentElement) s.push(n); return s; };
+      const first = chain(els[0]);
+      const rest = els.slice(1).map((e) => new Set(chain(e)));
+      return first.find((n) => rest.every((s) => s.has(n))) || null;
+    }
+
+    // ---- the live match state, straight out of the React fiber (no auth, no scraping) ----
+    // The rebuilt app keeps the whole match object in props; walking up from any card finds it.
+    function matchState() {
+      const s = big()[0]; if (!s) return null;
+      const key = Object.keys(s).find((k) => k.startsWith("__reactFiber$")); if (!key) return null;
+      const ok = (o) => o && typeof o === "object" && Array.isArray(o.players) && o.gameScores !== undefined;
+      let f = s[key];
+      for (let d = 0; f && d < 40; d++, f = f.return) {
+        const p = f.memoizedProps;
+        if (p) for (const k in p) { let v; try { v = p[k]; } catch (_) { continue; } if (ok(v)) return v; }
+      }
+      return null;
+    }
+
+    function isNewSite() { return !!big().length; }
+
+    // ---- tagging ----
+    function tag() {
+      const scores = big();
+      if (!scores.length) return false;
+      const cards = scores.map(cardOf).filter(Boolean);
+      if (!cards.length) return false;
+
+      const root = cards.length > 1 ? commonAncestor(cards) : cards[0].parentElement?.parentElement?.parentElement;
+      if (!root) return false;
+      // NB: deliberately NOT stamping the legacy id "ad-ext-player-display" here.
+      // On the rebuilt site the board/turn column is a SIBLING of the player columns,
+      // so `#ad-ext-player-display > div:nth-child(3)` (the legacy 3-4 player grid
+      // rules) would match on a 2-player match and scale every font to ~53%.
+      // JS reaches this element through playersHost() instead; legacy CSS stays inert.
+      root.classList.add("ad-core-game");
+
+      // each direct child of the root that holds a card is a player column
+      const cols = Array.from(root.children).filter((c) => cards.some((cd) => c.contains(cd)));
+      const centre = Array.from(root.children).find((c) => !cols.includes(c));
+      if (centre) centre.classList.add("ad-core-centre");
+
+      cols.forEach((col, i) => {
+        col.classList.add("ad-ext-player", "ad-core-col");
+        col.setAttribute("data-ad-p", String(i + 1));
+        const card = cards.find((cd) => col.contains(cd));
+        if (!card) return;
+        card.classList.add("ad-core-card");
+
+        const nameEl = card.querySelector("span.font-display");
+        if (nameEl) nameEl.classList.add("ad-ext-player-name", "ad-core-pi-name");
+
+        const scoreEl = scores.find((s) => card.contains(s));
+        if (scoreEl) scoreEl.classList.add("ad-ext-player-score", "ad-core-pi-score");
+
+        // legs-won pill: the small .font-number that is NOT the big score
+        const legs = Array.from(card.querySelectorAll(".font-number")).find((e) => e !== scoreEl);
+        if (legs) legs.classList.add("ad-core-pi-legs");
+
+        // averages row ("Leg 0.0 / Match 0.0") — tag by its separator, class hashes are not stable
+        const sep = Array.from(card.querySelectorAll("span")).find((e) => (e.textContent || "").trim() === "/");
+        const avgRow = sep?.parentElement;
+        if (avgRow) {
+          avgRow.classList.add("ad-core-pi-avg");
+          const pair = Array.from(avgRow.children).filter((e) => e !== sep);
+          pair[0]?.classList.add("ad-core-pi-avg-leg");
+          pair[1]?.classList.add("ad-core-pi-avg-match");
+        }
+
+        // active player: gradient background, or the visible leading dot
+        const bgActive  = /bg-(raspberry|brand|gradient)/.test(col.className + " " + card.className);
+        const dot = card.querySelector(".size-2.rounded-full");
+        const dotActive = !!dot && !dot.classList.contains("invisible");
+        col.classList.toggle(ACTIVE_CLASS, bgActive || dotActive);
+      });
+
+      // ---- turn bar ----
+      if (centre) {
+        const bar = Array.from(centre.querySelectorAll("div"))
+          .find((d) => /rounded-2xl/.test(d.className) && d.querySelector(".font-number"));
+        if (bar) {
+          bar.id = bar.id || "ad-ext-turn";
+          bar.classList.add("ad-core-turnbar");
+          const wrap = Array.from(bar.children).find((c) => /border-r/.test(c.className)) || bar;
+          wrap.classList.add("ad-core-throws");
+          // Only the site's own dart cells are slots. Filter by the card's own signature
+          // (@container + font-number) so anything WE inject into this row -- e.g. a
+          // stray .ad-total-overlay from the legacy TOTAL_VIEW module -- is never
+          // mistaken for a fourth dart.
+          const slotEls = Array.from(wrap.children).filter((c) =>
+            /@container/.test(c.className || "") && /font-number/.test(c.className || "")
+            && !c.classList.contains("ad-total-overlay"));
+          slotEls.forEach((slot, i) => {
+            slot.classList.add("ad-ext-turn-throw", "ad-core-throw");
+            slot.setAttribute("data-ad-throw-idx", String(i));
+            // normalise "S\n20" -> "S20" so parseThrow()/parseThrowValue() keep working
+            // NB: the raw segment goes in data-adraw, NOT data-adval. THROWS->POINTS
+            // owns data-adval (it puts the computed POINTS there for the ::after to render).
+            // textContent, NOT innerText: THROWS->POINTS hides the site's own spans with
+            // display:none, which innerText honours (returning "") but textContent ignores.
+            const raw = (slot.textContent || "").replace(/\s+/g, "").toUpperCase();
+            if (raw) slot.setAttribute("data-adraw", raw); else slot.removeAttribute("data-adraw");
+            slot.classList.toggle("ad-has-throw", !!raw);
+          });
+          // turn total = the .font-number block outside the throws wrapper
+          const total = Array.from(bar.querySelectorAll(".font-number")).find((e) => !wrap.contains(e));
+          if (total) { total.classList.add("ad-ext-turn-total-value", "ad-core-turn-total"); }
+        }
+      }
+      return true;
+    }
+
+    // Old code did `card.querySelector("p").textContent`; the rebuilt slots use spans, and
+    // injecting our own <p> into React-managed nodes invites removeChild crashes. Read the
+    // attribute we stamp above instead, falling back to the legacy <p> on the old site.
+    function throwRaw(slot) {
+      if (!slot) return "";
+      const a = slot.getAttribute?.("data-adraw");
+      if (a != null && a !== "") return a;
+      const p = slot.querySelector?.("p");
+      return (p?.textContent || slot.textContent || "").trim().toUpperCase();
+    }
+
+    // Every module reads a throw card's value through a <p> child, and writes its
+    // computed points back onto that same node as data-adval/data-adorig. The rebuilt
+    // slots have no <p> (two spans instead), and injecting one into React-managed DOM
+    // risks removeChild crashes on re-render. So the SLOT ITSELF stands in for the <p>:
+    // textContent still reads "S20", and the dataset writes land somewhere the CSS can
+    // render from. See the .ad-core-throw rules in renderCss().
+    function valueEl(slot) {
+      if (!slot) return null;
+      return slot.querySelector?.("p") || slot;
+    }
+
+    return { isNewSite, tag, matchState, throwRaw, valueEl, cardOf };
+  })();
+
+  // The players container: the legacy extension's id on the old site, the tagged
+  // game root on the rebuilt one. Every module should reach it through here.
+  function playersHost() {
+    return playersHost() || document.querySelector(".ad-core-game");
+  }
 
   /* ================== ACTIVE PLAYER DETECT ================== */
   function parseRGBA(str) {
@@ -4662,15 +5024,23 @@ function markCheckoutInTurnBar(turn) {
     return best;
   }
   function clearActiveClasses() {
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (!host) return;
-    Array.from(host.children).forEach(p => p.classList?.remove(ACTIVE_CLASS));
+    // rebuilt site: player panels are the tagged columns, not every child (one child is the board)
+    const panels = host.querySelectorAll(".ad-ext-player").length
+      ? host.querySelectorAll(".ad-ext-player") : host.children;
+    Array.from(panels).forEach(p => p.classList?.remove(ACTIVE_CLASS));
   }
   function updateActivePlayerHighlight() {
     const c = cfg();
     if (!c.ACTIVE_PLAYER_HIGHLIGHT) return;
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (!host) return;
+
+    // On the rebuilt site AD2.tag() has already set ACTIVE_CLASS from the site's own
+    // signal (gradient card background / visible turn dot), which is exact. The
+    // white-frame brightness heuristic below is the legacy-DOM fallback only.
+    if (AD2.isNewSite()) return;
 
     const panels = Array.from(host.children).filter((n) => n && n.nodeType === 1);
     if (!panels.length) return;
@@ -4689,8 +5059,9 @@ function markCheckoutInTurnBar(turn) {
   // content marker (∅) with a stable class the CSS can target.
   function tagPlayerInfo() {
     if (!cfg().PLAYER_INFO) return;
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (!host) return;
+    if (AD2.isNewSite()) return;   // AD2.tag() stamps name/score/avg/legs directly
     const cards = host.querySelectorAll(".ad-ext-player");
     for (const card of cards) {
       const ps = card.querySelectorAll("p");
@@ -4769,7 +5140,7 @@ function markCheckoutInTurnBar(turn) {
   }
 
   function isGridMode() {
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (!host) return false;
     if (!cfg().PI_GRID_ADJUST) return false;
     return host.children.length >= 3;
@@ -4891,7 +5262,7 @@ function markCheckoutInTurnBar(turn) {
 
   function getEditTargets() {
     const out = [];
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (host) {
       Array.from(host.children).forEach((cardEl, i) => {
         const player = i + 1;
@@ -4918,7 +5289,7 @@ function markCheckoutInTurnBar(turn) {
   function hitTestEditTarget(rawTarget, clientX, clientY) {
     if (!rawTarget || !rawTarget.closest) return null;
 
-    const host = document.querySelector("#ad-ext-player-display");
+    const host = playersHost();
     if (host && host.contains(rawTarget)) {
       const cards = Array.from(host.children);
       for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
@@ -5622,7 +5993,7 @@ function markCheckoutInTurnBar(turn) {
   }
 
   function positionEditBoxes() {
-    if (!document.querySelector("#ad-ext-player-display")) { setEditMode(false); return; }
+    if (!playersHost()) { setEditMode(false); return; }
 
     if (editHoverTarget && (!editSelected || editHoverTarget.el !== editSelected.el)) {
       const r = editHoverTarget.el.getBoundingClientRect();
@@ -5700,7 +6071,7 @@ function markCheckoutInTurnBar(turn) {
 
   function setEditMode(on) {
     if (on) {
-      const host = document.querySelector("#ad-ext-player-display");
+      const host = playersHost();
       if (!host) { showToast(T().piText.editNeedMatch); return; }
       editModeOn = true;
       ensureEditOverlayEls();
@@ -5771,7 +6142,7 @@ function markCheckoutInTurnBar(turn) {
     const cards = turn.querySelectorAll(".ad-ext-turn-throw");
 
     for (const card of cards) {
-      const p = card.querySelector("p");
+      const p = AD2.valueEl(card);
       const raw = (p?.textContent || "").trim().toUpperCase();
       const placeholder = (!raw || raw === "..." || raw === "…" || raw.includes("•"));
 
@@ -5842,7 +6213,7 @@ function markCheckoutInTurnBar(turn) {
 
     let doubleCount = 0, thrownCount = 0;
     for (const card of cards) {
-      const p = card.querySelector("p");
+      const p = AD2.valueEl(card);
       const raw = (p?.textContent || "").trim().toUpperCase();
       const placeholder = (!raw || raw === "..." || raw === "…" || raw.includes("•"));
 
@@ -5923,7 +6294,7 @@ function markCheckoutInTurnBar(turn) {
     const spinMs = clamp((Number(c.HIGHSCORE_SPIN_MS) || 7000) * intensity, 300, 20000);
 
     if (c.HIGHSCORE_FLASH) {
-      const host = document.querySelector("#ad-ext-player-display");
+      const host = playersHost();
       if (host) {
         const activePanel = Array.from(host.children).find(p => p.classList && p.classList.contains(ACTIVE_CLASS))
           || Array.from(host.children)[0];
@@ -5969,7 +6340,7 @@ function markCheckoutInTurnBar(turn) {
 
     let total = 0, count = 0;
     for (const card of cards) {
-      const p = card.querySelector("p");
+      const p = AD2.valueEl(card);
       const raw = (p?.textContent || "").trim().toUpperCase();
       if (!raw || raw === "..." || raw === "…" || raw.includes("•")) continue;
       total += parseThrowValue(raw);
@@ -6003,7 +6374,7 @@ function markCheckoutInTurnBar(turn) {
   function readTurnTotal(turn) {
     let total = 0, count = 0;
     for (const card of turn.querySelectorAll(".ad-ext-turn-throw")) {
-      const p = card.querySelector("p");
+      const p = AD2.valueEl(card);
       const raw = (p?.textContent || "").trim().toUpperCase();
       if (!raw || raw === "..." || raw === "…" || raw.includes("•")) continue;
       total += parseThrowValue(raw);
@@ -6274,7 +6645,11 @@ function initWinMusicOnce() {
 
 function hadThrowInThisTurn() {
   const turn = document.querySelector("#ad-ext-turn");
-  const t = (turn?.innerText || "").toUpperCase();
+  if (!turn) return false;
+  // Prefer the stamped raw segments: they survive THROWS->POINTS replacing the visible
+  // text with computed points (and innerText going empty behind display:none).
+  if (turn.querySelectorAll("[data-adraw]").length) return true;
+  const t = (turn.textContent || "").toUpperCase();
   return /\b[SDT](?:[1-9]|1\d|20)\b/.test(t) || /\bSBULL\b|\bDBULL\b|\bBULL\b|\b25\b|\b50\b/.test(t);
 }
 
@@ -6543,6 +6918,10 @@ function scanWinMusic() {
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
+
+      // Re-stamp the legacy contract onto the rebuilt DOM first: everything below
+      // (and most of the skin CSS) looks the tagged elements up by id/class.
+      try { AD2.tag(); } catch (_) {}
 
       renderCss();
 
@@ -8886,7 +9265,7 @@ function ensureMainButtonPosition() {
           dirtyTurn();
         }
 
-        const players = document.querySelector("#ad-ext-player-display");
+        const players = playersHost();
         if (players && players !== lastPlayers) {
           if (playersObs) playersObs.disconnect();
           lastPlayers = players;
