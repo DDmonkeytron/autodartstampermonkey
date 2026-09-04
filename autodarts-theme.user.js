@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.41.0
+// @version      2.41.1
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.41.0";
+  const SCRIPT_VERSION = "2.41.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -4967,7 +4967,10 @@ function markCheckoutInTurnBar(turn) {
   // The players container: the legacy extension's id on the old site, the tagged
   // game root on the rebuilt one. Every module should reach it through here.
   function playersHost() {
-    return playersHost() || document.querySelector(".ad-core-game");
+    // NB: must NOT call playersHost() here -- a blanket rename of the legacy lookup
+    // once rewrote this very line into infinite recursion, which killed the whole
+    // script (RangeError before the settings cog was ever built).
+    return document.querySelector("#ad-ext-player-display") || document.querySelector(".ad-core-game");
   }
 
   /* ================== ACTIVE PLAYER DETECT ================== */

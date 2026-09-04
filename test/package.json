@@ -1,0 +1,8 @@
+{
+  "name": "autodarts-theme-test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Smoke test for autodarts-theme.user.js",
+  "scripts": { "test": "node smoke.js" },
+  "dependencies": { "jsdom": "^24.0.0" }
+}
