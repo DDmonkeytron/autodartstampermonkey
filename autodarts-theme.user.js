@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.48.0
+// @version      2.49.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.48.0";
+  const SCRIPT_VERSION = "2.49.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -112,6 +112,17 @@
     TB_THROW_W_PX: 0,
     TB_TOTAL_W_PX: 0,
     TB_GAP_PX: 12,
+    TB_ALIGN: "evenly",        // dart cards in their row: evenly | center | start | end
+    TB_OFFSET_X_PX: 0,         // shift the dart cards left/right as a group
+    THROW_BOXED: false,        // each dart card (and the total) in its own rounded box
+    TB_BOX_RADIUS_PX: 12,
+    TB_BOX_PAD_PX: 6,          // space around the boxes inside the bar
+    TB_BORDER_PX: 1,
+    TB_COLORS_CUSTOM: false,   // on = the four colours below apply
+    TURN_BAR_BG_HEX: "#16181c", TURN_BAR_BG_OPACITY: 1,
+    THROW_EMPTY_BG_HEX: "#2a2d33", THROW_EMPTY_BG_OPACITY: 1,
+    TB_BORDER_HEX: "#000000", TB_BORDER_OPACITY: 0.25,
+    CHECKOUT_X_PX: 0, CHECKOUT_Y_PX: 0,   // rebuilt site: move the checkout tips on the card
     TOTAL_VIEW: true,
     CHECKOUT_VIEW: true,
 
@@ -1781,6 +1792,22 @@ ${selector}{
   filter: brightness(1.05) saturate(1.06) !important;
 }
 `);
+        // Rebuilt site: the whole player panel (card + history) carries the highlight.
+        // Glow strength drives both the alpha AND the size, so the slider is visible.
+        css.push(`
+.ad-core-game .ad-core-panel{
+  position: relative;
+  border-radius: 1rem;
+  transition: box-shadow .18s ease, outline-color .18s ease;
+}
+.ad-core-game .ad-ext-player.${ACTIVE_CLASS} .ad-core-panel{
+  outline: var(--ad-active-outline) solid rgba(var(--ad-active-rgb), .95) !important;
+  outline-offset: 0px !important;
+  box-shadow:
+    0 0 calc(var(--ad-active-glow) * 50px + 6px) calc(var(--ad-active-glow) * 8px) rgba(var(--ad-active-rgb), calc(var(--ad-active-glow) * 1.0)),
+    0 0 calc(var(--ad-active-glow) * 150px + 20px) calc(var(--ad-active-glow) * 20px) rgba(var(--ad-active-rgb), calc(var(--ad-active-glow) * 0.6)) !important;
+}
+`);
         const activePP = !!c.ACTIVE_PER_PLAYER;
         if (activePP) {
           for (const n of [2, 3, 4]) {
@@ -1797,9 +1824,20 @@ ${selector}{
   --ad-active-trail-width: calc(var(--ad-active-outline) + 4px);
 }
 `);
-            if (!c[`ACTIVE_P${n}_TRAIL`]) css.push(`#ad-ext-player-display > div:nth-child(${n}).${ACTIVE_CLASS}::before{ display:none !important; }`);
+            css.push(`
+.ad-core-game .ad-core-col[data-ad-p="${n}"]{
+  --ad-active-rgb: ${rgb};
+  --ad-active-trail-rgb: ${trailrgb};
+  --ad-active-outline: ${clamp(+c[`ACTIVE_P${n}_OUTLINE_PX`] || 3, 0, 12)}px;
+  --ad-active-glow: ${clamp(+c[`ACTIVE_P${n}_GLOW`] || 0.42, 0, 1)};
+  --ad-active-trail-speed: ${clamp(+c[`ACTIVE_P${n}_TRAIL_SPEED_MS`] || 2500, 500, 10000)}ms;
+  --ad-active-trail-width: calc(var(--ad-active-outline) + 4px);
+}`);
+            if (!c[`ACTIVE_P${n}_TRAIL`]) css.push(`#ad-ext-player-display > div:nth-child(${n}).${ACTIVE_CLASS}::before,
+.ad-core-game .ad-core-col[data-ad-p="${n}"].${ACTIVE_CLASS} .ad-core-panel::before{ display:none !important; }`);
           }
-          if (!c.ACTIVE_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(1).${ACTIVE_CLASS}::before{ display:none !important; }`);
+          if (!c.ACTIVE_TRAIL) css.push(`#ad-ext-player-display > div:nth-child(1).${ACTIVE_CLASS}::before,
+.ad-core-game .ad-core-col[data-ad-p="1"].${ACTIVE_CLASS} .ad-core-panel::before{ display:none !important; }`);
         }
         const trailOn = activePP ? (c.ACTIVE_TRAIL || c.ACTIVE_P2_TRAIL || c.ACTIVE_P3_TRAIL || c.ACTIVE_P4_TRAIL) : c.ACTIVE_TRAIL;
         if (trailOn) {
@@ -1813,7 +1851,8 @@ ${selector}{
   from { --ad-trail-from: 0deg; }
   to   { --ad-trail-from: 360deg; }
 }
-#ad-ext-player-display > div.${ACTIVE_CLASS}::before {
+#ad-ext-player-display > div.${ACTIVE_CLASS}::before,
+.ad-core-game .ad-ext-player.${ACTIVE_CLASS} .ad-core-panel::before {
   content: '' !important;
   position: absolute !important;
   inset: calc(-1 * var(--ad-active-trail-width)) !important;
@@ -1945,22 +1984,8 @@ ${selector}{
 /* the score "pill" is a fixed w-12.5 (50px); let it grow with the text */
 .ad-core-game .ad-core-pi-history > * > *{ width: auto !important; min-width: 2.2em !important; }
 
-/* --- active player --- driven by ACTIVE_CLASS, which AD2.tag() sets from the
-   site's own signal (gradient card bg / visible turn dot) rather than guessing. */
-.ad-core-game .ad-ext-player.ad-active-player .ad-core-card{
-  outline: var(--ad-active-outline, 6px) solid rgba(var(--ad-active-rgb, 255,255,255), .95) !important;
-  outline-offset: -3px !important;
-  /* --ad-active-glow is an OPACITY 0-1 (renderCss clamps ACTIVE_GLOW to 0..1), not a
-     length. Feed it through alpha exactly like the legacy rule above does. */
-  box-shadow:
-    0 0 36px  rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * 1)),
-    0 0 110px rgba(var(--ad-active-rgb, 255,255,255), calc(var(--ad-active-glow, .42) * .66)) !important;
-  border-radius: 1rem !important;
-}
-.ad-core-game .ad-ext-player:not(.ad-active-player) .ad-core-card{
-  outline: none !important;
-  box-shadow: none !important;
-}
+/* --- active player --- outline/glow/trail live on .ad-core-panel, emitted by the
+   ACTIVE_PLAYER_HIGHLIGHT block (the card's own wrapper clips box-shadows). */
 
 /* --- turn total ---
    forceCenterTotalOverlay() is skipped on the rebuilt site (it injected a stray
@@ -2170,6 +2195,41 @@ ${thW ? `#ad-ext-turn.ad-core-turnbar .ad-core-throws{ flex:1 0 auto !important;
 #ad-ext-turn.ad-core-turnbar .ad-core-throw{ width:${thW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
 ${toW ? `#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ width:${toW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
 `);
+
+        // alignment of the dart cards in their row + a group offset
+        const justify = { evenly: "space-evenly", center: "center", start: "flex-start", end: "flex-end" }[c.TB_ALIGN] || "space-evenly";
+        const offX = clamp(Math.round(+c.TB_OFFSET_X_PX || 0), -1000, 1000);
+        if (justify !== "space-evenly") css.push(`
+#ad-ext-turn.ad-core-turnbar .ad-core-throws{ justify-content:${justify} !important; padding-inline:${gap}px !important; }`);
+        if (offX) css.push(`
+#ad-ext-turn.ad-core-turnbar .ad-core-throw{ translate:${offX}px 0; }`);
+
+        // colours: bar background, empty cards, card borders
+        const rgba = (hex, op, fb) => `rgba(${hexToRgbString(sanitizeHex(hex, fb))}, ${clamp(Number.isFinite(+op) ? +op : 1, 0, 1)})`;
+        const borderCol = c.TB_COLORS_CUSTOM ? rgba(c.TB_BORDER_HEX, c.TB_BORDER_OPACITY, "#000000") : "rgba(0,0,0,.25)";
+        if (c.TB_COLORS_CUSTOM) css.push(`
+#ad-ext-turn.ad-core-turnbar{ background-color:${rgba(c.TURN_BAR_BG_HEX, c.TURN_BAR_BG_OPACITY, "#16181c")} !important; }
+${(+c.TURN_BAR_BG_OPACITY || 0) < 0.05 ? `#ad-ext-turn.ad-core-turnbar{ box-shadow:none !important; }` : ""}
+#ad-ext-turn.ad-core-turnbar .ad-core-throw:not(.ad-has-throw){ background-color:${rgba(c.THROW_EMPTY_BG_HEX, c.THROW_EMPTY_BG_OPACITY, "#2a2d33")} !important; }
+#ad-ext-turn.ad-core-turnbar .ad-core-throw,
+#ad-ext-turn.ad-core-turnbar .ad-core-throws{ border-color:${borderCol} !important; }`);
+
+        // individual boxes: every card (empty or not) and the total get their own rounded box
+        if (c.THROW_BOXED) {
+          const r = clamp(Math.round(+c.TB_BOX_RADIUS_PX || 0), 0, 60);
+          const pad = clamp(Math.round(Number.isFinite(+c.TB_BOX_PAD_PX) ? +c.TB_BOX_PAD_PX : 6), 0, 60);
+          const bw = clamp(Math.round(Number.isFinite(+c.TB_BORDER_PX) ? +c.TB_BORDER_PX : 1), 0, 12);
+          css.push(`
+#ad-ext-turn.ad-core-turnbar .ad-core-throws{ border-right:none !important; padding-block:${pad}px !important; }
+#ad-ext-turn.ad-core-turnbar .ad-core-throw,
+#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{
+  border:${bw}px solid ${borderCol} !important;
+  border-radius:${r}px !important;
+  box-sizing:border-box !important;
+  overflow:hidden !important;
+}
+#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ margin:${pad}px ${pad}px ${pad}px ${gap}px !important; }`);
+        }
       }
 
       if (c.THROWS_TO_POINTS && c.THROW_STACKED) {
@@ -2237,6 +2297,18 @@ ${toW ? `#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ width:${toW}px !impor
   letter-spacing:1px !important;
   color: rgba(var(--ad-checkout-rgb), var(--ad-checkout-op)) !important;
   text-shadow:none !important;
+}
+/* rebuilt site: the tips are fixed-height (h-8) pills in a column on the card */
+.ad-core-card .ad-core-checkout-pill{ height:auto !important; padding:.12em .35em !important; }
+/* the site paints the tip text with a gradient clipped to the glyphs; switch that off so
+   the colour/opacity settings show */
+.ad-core-card .ad-ext-turn-checkout-value{
+  background:none !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+.ad-core-card .ad-core-checkout{
+  translate: ${clamp(Math.round(+c.CHECKOUT_X_PX || 0), -1500, 1500)}px ${clamp(Math.round(+c.CHECKOUT_Y_PX || 0), -1500, 1500)}px;
+  z-index: 5;
 }
 `);
       }
@@ -5075,7 +5147,11 @@ function markCheckoutInTurnBar(turn) {
         if (scoreEl) scoreEl.classList.add("ad-ext-player-score", "ad-core-pi-score");
 
         // legs-won pill: the small .font-number that is NOT the big score
-        const legs = Array.from(card.querySelectorAll(".font-number")).find((e) => e !== scoreEl);
+        // Look beside the score first: the checkout-tip pills are .font-number too.
+        const isTip = (e) => !!(e.closest(".ad-core-checkout") || e.querySelector(".text-checkout-suggestion") || e.classList.contains("text-checkout-suggestion"));
+        const legs = (scoreEl?.parentElement && Array.from(scoreEl.parentElement.querySelectorAll(".font-number")).find((e) => e !== scoreEl && !isTip(e)))
+          || Array.from(card.querySelectorAll(".font-number")).find((e) => e !== scoreEl && !isTip(e));
+        card.querySelectorAll(".ad-core-pi-legs").forEach((e) => { if (e !== legs) e.classList.remove("ad-core-pi-legs"); });
         if (legs) legs.classList.add("ad-core-pi-legs");
 
         // averages row ("Leg 0.0 / Match 0.0") — tag by its separator, class hashes are not stable
@@ -5094,6 +5170,22 @@ function markCheckoutInTurnBar(turn) {
           while (stack && stack !== card && !(stack.contains(nameEl) && (!avgRow || stack.contains(avgRow)))) stack = stack.parentElement;
           if (stack && stack !== card) stack.classList.add("ad-core-pi-stack");
         }
+
+        // checkout tips: one pill per dart in a column on the card. The site ALSO puts
+        // .text-checkout-suggestion on matching turn-bar cards, so only look inside the card.
+        card.querySelectorAll(".text-checkout-suggestion").forEach((t) => {
+          t.classList.add("ad-ext-turn-checkout-value");
+          const pill = t.parentElement;
+          if (pill && pill !== card) {
+            pill.classList.add("ad-core-checkout-pill");
+            if (pill.parentElement && pill.parentElement !== card) pill.parentElement.classList.add("ad-core-checkout");
+          }
+        });
+
+        // the whole player panel (card + history): active glow/trail go here, because the
+        // card's own wrapper is overflow:hidden and would clip them
+        const panel = Array.from(col.children).find((ch) => ch.contains(card));
+        if (panel) panel.classList.add("ad-core-panel");
 
         // throw history: the 2-column score grid under the card (outside .ad-core-card)
         const hist = Array.from(col.querySelectorAll(".grid.grid-cols-2")).find((g) => !card.contains(g));
@@ -5345,7 +5437,7 @@ function markCheckoutInTurnBar(turn) {
   // fallback for empty background clicks - otherwise it would shadow total/checkout/throw clicks.
   const GLOBAL_EDIT_SELECTORS = {
     total: ".ad-ext-turn-total-value",
-    checkout: ".ad-ext-turn-checkout-value",
+    checkout: ".ad-core-checkout, .ad-ext-turn-checkout-value",
     board: "." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
     undoBtn: ".ad-core-btn-undo",
     nextBtn: ".ad-core-btn-next",
@@ -5400,6 +5492,7 @@ function markCheckoutInTurnBar(turn) {
     total:    { widthKey: "TB_TOTAL_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
     // avatar on the rebuilt site is a 46px chip in the name row: own 1 = native multiplier
     avatar:   { scaleKey: "PI_AVATAR_ZOOM", gScaleKey: null },
+    checkout: { xKey: "CHECKOUT_X_PX", yKey: "CHECKOUT_Y_PX" },
   };
   function getModeKeys(kind) {
     let base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
@@ -5540,6 +5633,9 @@ function markCheckoutInTurnBar(turn) {
 
     const host = playersHost();
     const cards = playerPanels(host);
+    // checkout tips sit on the card but are a global target (one set of settings)
+    const coEl = rawTarget.closest(".ad-core-checkout");
+    if (coEl) return { el: coEl, kind: "checkout", player: 0, card: null };
     if (cards.some((c) => c.contains(rawTarget))) {
       for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
         const el = rawTarget.closest(sel);
@@ -9030,6 +9126,41 @@ function ensureMainButtonPosition() {
         addSliderInt("TB_GAP_PX",     "Gap between cards px", 0, 120);
         addSliderInt("TURN_BAR_X_PX", "Move left / right px", -800, 800);
         addSliderInt("TURN_BAR_Y_PX", "Move up / down px", -800, 800);
+
+        const sub = (txt) => {
+          const h = document.createElement("div");
+          h.textContent = txt;
+          Object.assign(h.style, { fontWeight: "900", fontSize: "11px", opacity: "0.7", textTransform: "uppercase",
+            letterSpacing: "0.04em", marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(255,255,255,0.12)" });
+          box.appendChild(h);
+        };
+        sub("Dart card layout");
+        addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
+        addSliderInt("TB_OFFSET_X_PX", "Offset cards left / right px", -600, 600);
+        addCheckbox("Each card in its own box", () => !!c.THROW_BOXED, (v) => { c.THROW_BOXED = v; });
+        if (c.THROW_BOXED) {
+          addSliderInt("TB_BOX_RADIUS_PX", "Box corner radius px", 0, 40);
+          addSliderInt("TB_BOX_PAD_PX",    "Space around boxes px", 0, 40);
+          addSliderInt("TB_BORDER_PX",     "Box border px", 0, 8);
+        }
+
+        sub("Turn bar colours");
+        addCheckbox("Custom turn bar colours", () => !!c.TB_COLORS_CUSTOM, (v) => { c.TB_COLORS_CUSTOM = v; });
+        if (c.TB_COLORS_CUSTOM) {
+          addColor(() => c.TURN_BAR_BG_HEX, (v) => c.TURN_BAR_BG_HEX = v, "Bar background");
+          addSlider01(() => c.TURN_BAR_BG_OPACITY, (v) => c.TURN_BAR_BG_OPACITY = v, "Bar background opacity", 0.05);
+          addColor(() => c.THROW_EMPTY_BG_HEX, (v) => c.THROW_EMPTY_BG_HEX = v, "Empty card colour");
+          addSlider01(() => c.THROW_EMPTY_BG_OPACITY, (v) => c.THROW_EMPTY_BG_OPACITY = v, "Empty card opacity", 0.05);
+          addColor(() => c.TB_BORDER_HEX, (v) => c.TB_BORDER_HEX = v, "Card border / line colour");
+          addSlider01(() => c.TB_BORDER_OPACITY, (v) => c.TB_BORDER_OPACITY = v, "Border opacity", 0.05);
+        }
+        {
+          const n2 = document.createElement("div");
+          Object.assign(n2.style, { opacity: "0.7", fontSize: "11px", lineHeight: "1.4", margin: "4px 0" });
+          n2.textContent = "Thrown-card colours, text colours and the total's colours are on the Throw Points / Total pages.";
+          box.appendChild(n2);
+        }
+        sub("Text");
         if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
           addSliderInt("THROW_FIT_PCT", "Points text (% of card)", 10, 90);
           addSliderInt("ORIG_FIT_PCT",  "D20/T20 text (% of card)", 5, 50);
@@ -9041,7 +9172,8 @@ function ensureMainButtonPosition() {
         }
         const resetBtn = mkButton("Reset turn bar sizes", () => {
           for (const k of ["TB_WIDTH_PX", "TB_HEIGHT_PX", "TB_THROW_W_PX", "TB_TOTAL_W_PX", "TB_GAP_PX",
-                           "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE"]) c[k] = DEFAULT_CFG[k];
+                           "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE", "TB_ALIGN", "TB_OFFSET_X_PX",
+                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX"]) c[k] = DEFAULT_CFG[k];
           saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
           showToast(L.saved);
         }, "ghost", compact);
@@ -9076,6 +9208,8 @@ function ensureMainButtonPosition() {
         addSliderPx("CHECKOUT_FONT_PX", L.fields.fontSize, 20, EXT_LIMITS.CHECKOUT_FONT_PX, 1);
         addColor(()=>c.CHECKOUT_COLOR_HEX, v=>c.CHECKOUT_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.CHECKOUT_OPACITY, v=>c.CHECKOUT_OPACITY=v, L.fields.opacity, 0.05);
+        addSliderInt("CHECKOUT_X_PX", "Move left / right px", -600, 600);
+        addSliderInt("CHECKOUT_Y_PX", "Move up / down px", -600, 600);
         break;
 
       case "playerinfo": {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.9.1
+// @version      0.9.2
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.com: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -204,8 +204,12 @@
   // Autodarts' OWN suggested checkout, read from the on-screen route (autodarts-tools renders
   // each dart as <p class="ad-ext-turn-checkout-value"> inside div.suggestion). Verbatim mirror —
   // it belongs to the player currently at the oche. "" when not on a finish → board computes its own.
-  function readCheckout() {
+  function readCheckout(m) {
+    // Rebuilt site: the match state carries autodarts' own route, no DOM needed
+    const guide = m && m.state && Array.isArray(m.state.checkoutGuide) ? m.state.checkoutGuide : null;
+    if (guide && guide.length) return guide.slice(0, 3).map((t) => String(t && t.name || "").toUpperCase()).filter(Boolean).join(" ");
     let els = document.querySelectorAll(".ad-ext-turn-checkout-value");
+    if (!els.length) els = document.querySelectorAll(".ad-core-card .text-checkout-suggestion, .text-checkout-suggestion:not(.ad-core-throw)");
     if (!els.length) els = document.querySelectorAll(".suggestion");   // fallback if the value class is renamed
     if (!els.length) return "";
     return Array.from(els).slice(0, 3).map((e) => e.textContent.trim()).filter(Boolean).join(" ");
@@ -265,7 +269,7 @@
     if (matchId && matchId !== curMatchId) { curMatchId = matchId; legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false]; }
 
     // mirror autodarts' own suggested checkout onto the active player (the thrower)
-    if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout();
+    if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout(m);
 
     // push scoreboard (deduped) — include the active turn's individual dart scores
     const throwPoints = s.throws.map(dartPoints);
