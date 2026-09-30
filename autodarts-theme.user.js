@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.52.0
+// @version      2.53.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.52.0";
+  const SCRIPT_VERSION = "2.53.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -112,6 +112,7 @@
     TB_THROW_W_PX: 0,
     TB_TOTAL_W_PX: 0,
     TB_GAP_PX: 12,
+    TB_EMPTY_DART_PCT: 0,      // dart icon in an empty card, % of card width (0 = site size)
     THROW_ALIGN: "center",     // points inside each dart card: center | left | right
     TB_ALIGN: "evenly",        // dart cards in their row: evenly | center | start | end
     TB_OFFSET_X_PX: 0,         // shift the dart cards left/right as a group
@@ -2204,6 +2205,15 @@ ${thW ? `#ad-ext-turn.ad-core-turnbar .ad-core-throws{ flex:1 0 auto !important;
 #ad-ext-turn.ad-core-turnbar .ad-core-throw{ width:${thW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
 ${toW ? `#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ width:${toW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
 `);
+
+        // the dart icon shown in a card before it's thrown (vector, so it scales cleanly)
+        const dartPct = clamp(Math.round(+c.TB_EMPTY_DART_PCT || 0), 0, 100);
+        if (dartPct) css.push(`
+#ad-ext-turn .ad-core-throw:not([data-adval]) > span > svg{
+  width:${dartPct}% !important;
+  height:auto !important;
+  max-height:85% !important;
+}`);
 
         // alignment of the dart cards in their row + a group offset
         const justify = { evenly: "space-evenly", center: "center", start: "flex-start", end: "flex-end" }[c.TB_ALIGN] || "space-evenly";
@@ -9231,6 +9241,7 @@ function ensureMainButtonPosition() {
         sub("Dart card layout");
         addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
         addSliderInt("TB_OFFSET_X_PX", "Offset cards left / right px", -600, 600);
+        addSliderInt("TB_EMPTY_DART_PCT", "Empty card dart size % (0 = site)", 0, 100);
         addSelect("THROW_ALIGN", "Points inside each card", [["center", "Centre"], ["left", "Left"], ["right", "Right"]]);
         addCheckbox("Each card in its own box", () => !!c.THROW_BOXED, (v) => { c.THROW_BOXED = v; });
         if (c.THROW_BOXED) {
@@ -9268,7 +9279,7 @@ function ensureMainButtonPosition() {
         const resetBtn = mkButton("Reset turn bar & board sizes", () => {
           for (const k of ["TB_WIDTH_PX", "TB_HEIGHT_PX", "TB_THROW_W_PX", "TB_TOTAL_W_PX", "TB_GAP_PX",
                            "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE", "TB_ALIGN", "TB_OFFSET_X_PX",
-                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX",
+                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "TB_EMPTY_DART_PCT", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX",
                            "CAMERA_BTN_X_PX", "CAMERA_BTN_Y_PX", "CAMERA_BTN_SCALE"]) c[k] = DEFAULT_CFG[k];
           saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
           showToast(L.saved);
