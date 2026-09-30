@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.51.0
+// @version      2.52.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.51.0";
+  const SCRIPT_VERSION = "2.52.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -304,6 +304,7 @@
     // existing spin/flash animations instead of clobbering them (same technique as Player Info).
     BOARD_X_PX: 0, BOARD_Y_PX: 0, BOARD_SCALE: 1,
     UNDO_BTN_X_PX: 0, UNDO_BTN_Y_PX: 0, UNDO_BTN_SCALE: 1,
+    CAMERA_BTN_X_PX: 0, CAMERA_BTN_Y_PX: 0, CAMERA_BTN_SCALE: 1,   // rebuilt site: the camera button on the board
     NEXT_BTN_X_PX: 0, NEXT_BTN_Y_PX: 0, NEXT_BTN_SCALE: 1,
     // Whole turn bar (the 3 dart-throw cards + total score, moved/scaled as one linked unit)
     TURN_BAR_X_PX: 0, TURN_BAR_Y_PX: 0, TURN_BAR_SCALE: 1,
@@ -585,7 +586,7 @@
         editGroupScale: "Sarok húzása: minden elem méretezése is (kikapcsolva: csak a doboz). A kártya húzása mindig mindent együtt mozgat.",
         editGlobalLabel: {
           throwVal: "Dobás érték", orig: "Eredeti dobás (sarok)", total: "Összpontszám",
-          checkout: "Kiszálló javaslat", board: "Tábla (SVG/kép)", undoBtn: "Vissza gomb", nextBtn: "Következő gomb",
+          checkout: "Kiszálló javaslat", board: "Tábla (SVG/kép)", undoBtn: "Vissza gomb", nextBtn: "Következő gomb", cameraBtn: "Kamera gomb",
           turnBar: "Dobás sáv (kártyák + összpontszám együtt)",
         },
       },
@@ -830,7 +831,7 @@
         editGroupScale: "Corner drag also resizes every element (off = box only). Dragging the card body always moves everything together.",
         editGlobalLabel: {
           throwVal: "Throw value", orig: "Original throw (corner)", total: "Total score",
-          checkout: "Checkout suggestion", board: "Board (SVG/image)", undoBtn: "Undo button", nextBtn: "Next button",
+          checkout: "Checkout suggestion", board: "Board (SVG/image)", undoBtn: "Undo button", nextBtn: "Next button", cameraBtn: "Camera button",
           turnBar: "Turn bar (cards + total together)",
         },
       },
@@ -1075,7 +1076,7 @@
         editGroupScale: "Eckenziehen skaliert auch alle Elemente (aus = nur Box). Ziehen der Karte selbst bewegt immer alles zusammen.",
         editGlobalLabel: {
           throwVal: "Wurfwert", orig: "Ursprünglicher Wurf (Ecke)", total: "Gesamtpunktzahl",
-          checkout: "Checkout-Vorschlag", board: "Board (SVG/Bild)", undoBtn: "Rückgängig-Button", nextBtn: "Weiter-Button",
+          checkout: "Checkout-Vorschlag", board: "Board (SVG/Bild)", undoBtn: "Rückgängig-Button", nextBtn: "Weiter-Button", cameraBtn: "Kamera-Button",
           turnBar: "Wurfleiste (Karten + Gesamtpunktzahl zusammen)",
         },
       },
@@ -2369,6 +2370,12 @@ svg.ad-board-svg, img.ad-board-img, svg.ad-core-board{
 *:has(> svg.ad-board-svg), *:has(> img.ad-board-img), .ad-core-board-wrap{
   translate: ${clamp(Number.isFinite(+c.BOARD_X_PX) ? +c.BOARD_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.BOARD_Y_PX) ? +c.BOARD_Y_PX : 0, -1000, 1000)}px !important;
   scale: ${clamp(Number.isFinite(+c.BOARD_SCALE) ? +c.BOARD_SCALE : 1, 0.3, 3)} !important;
+}
+.ad-core-btn-camera{
+  translate: ${clamp(Math.round(+c.CAMERA_BTN_X_PX || 0), -1000, 1000)}px ${clamp(Math.round(+c.CAMERA_BTN_Y_PX || 0), -1000, 1000)}px !important;
+  scale: ${clamp(Number.isFinite(+c.CAMERA_BTN_SCALE) ? +c.CAMERA_BTN_SCALE : 1, 0.3, 3)} !important;
+  position: relative;
+  z-index: 30;
 }
 .ad-core-btn-undo{
   translate: ${clamp(Number.isFinite(+c.UNDO_BTN_X_PX) ? +c.UNDO_BTN_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.UNDO_BTN_Y_PX) ? +c.UNDO_BTN_Y_PX : 0, -1000, 1000)}px !important;
@@ -5246,6 +5253,9 @@ function markCheckoutInTurnBar(turn) {
           const r = s.getBoundingClientRect();
           if (r.width > 150 && r.width * r.height > best) { best = r.width * r.height; board = s; }
         }
+        // camera toggle on the board (FontAwesome camera icon)
+        const cam = centre.querySelector('svg[data-icon="camera"]')?.closest("button");
+        if (cam && !cam.classList.contains("ad-core-btn-camera")) cam.classList.add("ad-core-btn-camera");
         if (board) {
           if (!board.classList.contains("ad-core-board")) board.classList.add("ad-core-board");
           const wrap = board.parentElement;
@@ -5485,6 +5495,7 @@ function markCheckoutInTurnBar(turn) {
     checkout: { fontKey: "CHECKOUT_FONT_PX",  colorKey: "CHECKOUT_COLOR_HEX",  opacityKey: "CHECKOUT_OPACITY",  global: true },
     board:    { xKey: "BOARD_X_PX",        yKey: "BOARD_Y_PX",        scaleKey: "BOARD_SCALE",        resizeMode: "scale", global: true, centred: true, scaleRange: [0.3, 3] },
     undoBtn:  { xKey: "UNDO_BTN_X_PX",     yKey: "UNDO_BTN_Y_PX",     scaleKey: "UNDO_BTN_SCALE",      resizeMode: "scale", global: true },
+    cameraBtn:{ xKey: "CAMERA_BTN_X_PX",   yKey: "CAMERA_BTN_Y_PX",   scaleKey: "CAMERA_BTN_SCALE",    resizeMode: "scale", global: true, scaleRange: [0.3, 3] },
     nextBtn:  { xKey: "NEXT_BTN_X_PX",     yKey: "NEXT_BTN_Y_PX",     scaleKey: "NEXT_BTN_SCALE",      resizeMode: "scale", global: true },
     turnBar:  { xKey: "TURN_BAR_X_PX",     yKey: "TURN_BAR_Y_PX",     scaleKey: "TURN_BAR_SCALE",      resizeMode: "scale", global: true },
   };
@@ -5493,6 +5504,7 @@ function markCheckoutInTurnBar(turn) {
   const GLOBAL_EDIT_SELECTORS = {
     total: ".ad-ext-turn-total-value",
     checkout: ".ad-core-checkout, .ad-ext-turn-checkout-value",
+    cameraBtn: ".ad-core-btn-camera",
     board: ".ad-core-board-wrap, svg.ad-core-board, ." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
     undoBtn: ".ad-core-btn-undo",
     nextBtn: ".ad-core-btn-next",
@@ -9213,6 +9225,8 @@ function ensureMainButtonPosition() {
         }
         addSliderInt("BOARD_X_PX", "Board left / right px", -1000, 1000);
         addSliderInt("BOARD_Y_PX", "Board up / down px", -1000, 1000);
+        addSliderInt("CAMERA_BTN_X_PX", "Camera button left / right px", -800, 800);
+        addSliderInt("CAMERA_BTN_Y_PX", "Camera button up / down px", -800, 800);
 
         sub("Dart card layout");
         addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
@@ -9254,7 +9268,8 @@ function ensureMainButtonPosition() {
         const resetBtn = mkButton("Reset turn bar & board sizes", () => {
           for (const k of ["TB_WIDTH_PX", "TB_HEIGHT_PX", "TB_THROW_W_PX", "TB_TOTAL_W_PX", "TB_GAP_PX",
                            "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE", "TB_ALIGN", "TB_OFFSET_X_PX",
-                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX"]) c[k] = DEFAULT_CFG[k];
+                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX",
+                           "CAMERA_BTN_X_PX", "CAMERA_BTN_Y_PX", "CAMERA_BTN_SCALE"]) c[k] = DEFAULT_CFG[k];
           saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
           showToast(L.saved);
         }, "ghost", compact);
