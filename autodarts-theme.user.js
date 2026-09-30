@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.44.0
+// @version      2.45.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.44.0";
+  const SCRIPT_VERSION = "2.45.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -2072,25 +2072,25 @@
 }
 #ad-ext-turn .ad-core-throw[data-adval]::after{
   order:1 !important;
-  font-size:min(var(--ad-throw-font), calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit-solo))) !important;
+  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit-solo)) !important;
   line-height:1 !important;
   text-align:center !important;
 }
 #ad-ext-turn .ad-core-throw[data-adval][data-adorig]::after{
-  font-size:min(var(--ad-throw-font), calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit))) !important;
+  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit)) !important;
 }
 #ad-ext-turn .ad-core-throw[data-adorig]::before{
   order:2 !important;
   position:static !important;
   right:auto !important;
   bottom:auto !important;
-  font-size:min(var(--ad-orig-font), calc(var(--ad-slot-w, 96px) * var(--ad-orig-fit))) !important;
+  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-orig-fit)) !important;
   line-height:1 !important;
   text-align:center !important;
 }
 #ad-ext-turn.ad-core-turnbar .ad-core-turn-total,
 #ad-ext-turn.ad-core-turnbar .ad-core-turn-total *{
-  font-size:min(var(--ad-total-font), calc(var(--ad-slot-w, 96px) * var(--ad-total-fit))) !important;
+  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-total-fit)) !important;
   line-height:1 !important;
 }
 `);
@@ -5247,7 +5247,16 @@ function markCheckoutInTurnBar(turn) {
     const r = el.getBoundingClientRect();
     const fx = (clientX - r.left) / (r.width || 1);
     const fy = (clientY - r.top) / (r.height || 1);
+    if (stackedActive()) return fy > 0.66 ? "orig" : "throwVal";   // stacked: label is the bottom third
     return (fx > 0.65 && fy > 0.65) ? "orig" : "throwVal";
+  }
+  // THROW_STACKED on the rebuilt site: card text is sized as % of the card, so the editor's
+  // size control must edit those keys (the px font keys don't reach the stacked cards).
+  const STACKED_FIT_KEY = { throwVal: "THROW_FIT_PCT", orig: "ORIG_FIT_PCT", total: "TOTAL_FIT_PCT" };
+  const FIT_RANGE = { THROW_FIT_PCT: [10, 90], ORIG_FIT_PCT: [5, 50], TOTAL_FIT_PCT: [10, 120] };
+  function stackedActive() {
+    const c = cfg();
+    return !!(c.THROWS_TO_POINTS && c.THROW_STACKED && AD2.isNewSite());
   }
 
   function isGridMode() {
@@ -5268,6 +5277,7 @@ function markCheckoutInTurnBar(turn) {
   // (or when a kind has no grid counterpart, e.g. color keys stay shared between both layouts).
   function getModeKeys(kind) {
     const base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
+    if (base && STACKED_FIT_KEY[kind] && stackedActive()) return { ...base, fontKey: STACKED_FIT_KEY[kind], fitPct: true };
     if (!base || base.global || !isGridMode()) return base;
     return {
       ...base,
@@ -5385,7 +5395,8 @@ function markCheckoutInTurnBar(turn) {
         out.push({ el: cardEl, kind: "card", player, card: cardEl });
       });
     }
-    const throwP = document.querySelector(".ad-ext-turn-throw p");
+    const throwP = document.querySelector(".ad-ext-turn-throw p")
+      || document.querySelector(".ad-core-throw[data-adval]") || document.querySelector(".ad-core-throw");
     if (throwP) {
       out.push({ el: throwP, kind: "throwVal", player: 0, card: null });
       out.push({ el: throwP, kind: "orig", player: 0, card: null });
@@ -5420,7 +5431,7 @@ function markCheckoutInTurnBar(turn) {
     }
 
     // throwVal/orig share the same <p> (both render via ::before/::after pseudo-content)
-    const throwEl = rawTarget.closest(".ad-ext-turn-throw p");
+    const throwEl = rawTarget.closest(".ad-ext-turn-throw p") || rawTarget.closest(".ad-core-throw");
     if (throwEl) {
       const kind = classifyThrowClick(throwEl, clientX, clientY);
       return { el: throwEl, kind, player: 0, card: null };
@@ -5664,9 +5675,10 @@ function markCheckoutInTurnBar(turn) {
 
     if (map.fontKey) {
       const v = effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey];
-      const { row, input } = numRow(pi.editFont, v, 1, (nv) => {
-        let vv = clamp(Math.round(nv), 4, 400);
-        vv = clampIfSafe((map._base || map).fontKey, vv);
+      const [fLo, fHi] = map.fitPct ? FIT_RANGE[map.fontKey] : [4, 400];
+      const { row, input } = numRow(map.fitPct ? "Size (% of card)" : pi.editFont, v, 1, (nv) => {
+        let vv = clamp(Math.round(nv), fLo, fHi);
+        if (!map.fitPct) vv = clampIfSafe((map._base || map).fontKey, vv);
         c[map.fontKey] = vv;
         input.value = String(vv);
         applyEditChange();
@@ -6070,8 +6082,9 @@ function markCheckoutInTurnBar(turn) {
       } else if (map.resizeMode === "scale") {
         c[map.scaleKey] = clamp(+(st.startScale + dx / 80).toFixed(2), 0.2, 12);
       } else if (map.fontKey) {
-        let v = clamp(Math.round(st.startFont + dx), 4, 400);
-        v = clampIfSafe((map._base || map).fontKey, v);
+        const [fLo, fHi] = map.fitPct ? FIT_RANGE[map.fontKey] : [4, 400];
+        let v = clamp(Math.round(st.startFont + (map.fitPct ? dx / 3 : dx)), fLo, fHi);
+        if (!map.fitPct) v = clampIfSafe((map._base || map).fontKey, v);
         c[map.fontKey] = v;
       }
     }
@@ -8785,6 +8798,13 @@ function ensureMainButtonPosition() {
       }
 
       case "throws":
+        if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
+          const n = document.createElement("div");
+          Object.assign(n.style, { opacity: "0.75", fontSize: "12px", lineHeight: "1.4", marginBottom: "6px" });
+          n.textContent = "Stacked throw cards is on: this % of card size is what applies (the px font size below is for the classic layout).";
+          box.appendChild(n);
+          addSliderInt("THROW_FIT_PCT", "Points size (% of card width)", 10, 90);
+        }
         addSliderPx("THROW_VAL_FONT_PX", L.fields.fontSize, 20, EXT_LIMITS.THROW_VAL_FONT_PX, 1);
         addColor(()=>c.THROW_VAL_COLOR_HEX, v=>c.THROW_VAL_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.THROW_VAL_OPACITY, v=>c.THROW_VAL_OPACITY=v, L.fields.opacity, 0.05);
@@ -8796,6 +8816,13 @@ function ensureMainButtonPosition() {
         break;
 
       case "orig":
+        if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
+          const n = document.createElement("div");
+          Object.assign(n.style, { opacity: "0.75", fontSize: "12px", lineHeight: "1.4", marginBottom: "6px" });
+          n.textContent = "Stacked throw cards is on: this % of card size is what applies (the px font size below is for the classic layout).";
+          box.appendChild(n);
+          addSliderInt("ORIG_FIT_PCT", "D20/T20 label size (% of card width)", 5, 50);
+        }
         addSliderPx("ORIG_FONT_PX", L.fields.fontSize, 10, EXT_LIMITS.ORIG_FONT_PX, 1);
         addColor(()=>c.ORIG_COLOR_HEX, v=>c.ORIG_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.ORIG_OPACITY, v=>c.ORIG_OPACITY=v, L.fields.opacity, 0.05);
@@ -8808,6 +8835,13 @@ function ensureMainButtonPosition() {
         break;
 
       case "total":
+        if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
+          const n = document.createElement("div");
+          Object.assign(n.style, { opacity: "0.75", fontSize: "12px", lineHeight: "1.4", marginBottom: "6px" });
+          n.textContent = "Stacked throw cards is on: this % of card size is what applies (the px font size below is for the classic layout).";
+          box.appendChild(n);
+          addSliderInt("TOTAL_FIT_PCT", "Turn total size (% of card width)", 10, 120);
+        }
         addSliderPx("TOTAL_FONT_PX", L.fields.fontSize, 20, EXT_LIMITS.TOTAL_FONT_PX, 1);
         addColor(()=>c.TOTAL_COLOR_HEX, v=>c.TOTAL_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.TOTAL_OPACITY, v=>c.TOTAL_OPACITY=v, L.fields.opacity, 0.05);
