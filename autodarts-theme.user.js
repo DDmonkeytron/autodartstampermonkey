@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.50.0
+// @version      2.51.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.50.0";
+  const SCRIPT_VERSION = "2.51.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -455,7 +455,7 @@
         throws:   "Megjelenítés – Dobáspontok",
         orig:     "Megjelenítés – Sarok jelölés (T20)",
         stacked:  "Megjelenítés – Egymás alatti dobáskártyák",
-        turnsize: "Megjelenítés – Dobássáv méretei",
+        turnsize: "Megjelenítés – Dobássáv és tábla méretei",
         total:    "Megjelenítés – Összérték",
         checkout: "Megjelenítés – Checkout tipp",
         playerinfo: "Megjelenítés – Játékos infó",
@@ -700,7 +700,7 @@
         throws:   "Display – Throw Points",
         orig:     "Display – Corner Label (T20)",
         stacked:  "Display – Stacked throw cards",
-        turnsize: "Display – Turn bar sizes",
+        turnsize: "Display – Turn bar & board sizes",
         total:    "Display – Total",
         checkout: "Display – Checkout Tip",
         playerinfo: "Display – Player Info",
@@ -945,7 +945,7 @@
         throws:   "Anzeige – Wurfpunkte",
         orig:     "Anzeige – Eckenlabel (T20)",
         stacked:  "Anzeige – Gestapelte Wurfkarten",
-        turnsize: "Anzeige – Wurfleiste Größen",
+        turnsize: "Anzeige – Wurfleiste & Board Größen",
         total:    "Anzeige – Gesamtwert",
         checkout: "Anzeige – Checkout-Tipp",
         playerinfo: "Anzeige – Spieler-Info",
@@ -2360,11 +2360,13 @@ ${(+c.TURN_BAR_BG_OPACITY || 0) < 0.05 ? `#ad-ext-turn.ad-core-turnbar{ box-shad
       // board svg/img" - so putting translate on both it AND the svg double-applied the shift
       // for the svg specifically, since CSS transforms compound down the DOM chain).
       css.push(`
-svg.ad-board-svg, img.ad-board-img{
+svg.ad-board-svg, img.ad-board-img, svg.ad-core-board{
   translate: none !important;
   scale: 1 !important;
 }
-*:has(> svg.ad-board-svg), *:has(> img.ad-board-img){
+/* rebuilt site: let a scaled-up board spill past its row instead of being cropped */
+.ad-core-centre *:has(> .ad-core-board-wrap){ overflow: visible !important; }
+*:has(> svg.ad-board-svg), *:has(> img.ad-board-img), .ad-core-board-wrap{
   translate: ${clamp(Number.isFinite(+c.BOARD_X_PX) ? +c.BOARD_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.BOARD_Y_PX) ? +c.BOARD_Y_PX : 0, -1000, 1000)}px !important;
   scale: ${clamp(Number.isFinite(+c.BOARD_SCALE) ? +c.BOARD_SCALE : 1, 0.3, 3)} !important;
 }
@@ -5235,6 +5237,22 @@ function markCheckoutInTurnBar(turn) {
         col.classList.toggle(ACTIVE_CLASS, bgActive || dotActive);
       });
 
+      // ---- dartboard ---- the biggest svg in the centre column. Tagged here, not only by
+      // the optional Board Marker utility, so the Layout Editor and BOARD_X/Y/SCALE always
+      // have something to hold. The wrapper (svg's parent, rounded-full) is what moves/scales.
+      if (centre) {
+        let board = null, best = 0;
+        for (const s of centre.querySelectorAll("svg")) {
+          const r = s.getBoundingClientRect();
+          if (r.width > 150 && r.width * r.height > best) { best = r.width * r.height; board = s; }
+        }
+        if (board) {
+          if (!board.classList.contains("ad-core-board")) board.classList.add("ad-core-board");
+          const wrap = board.parentElement;
+          if (wrap && wrap !== centre && !wrap.classList.contains("ad-core-board-wrap")) wrap.classList.add("ad-core-board-wrap");
+        }
+      }
+
       // ---- turn bar ----
       if (centre) {
         const bar = Array.from(centre.querySelectorAll("div"))
@@ -5465,7 +5483,7 @@ function markCheckoutInTurnBar(turn) {
     orig:     { fontKey: "ORIG_FONT_PX",      colorKey: "ORIG_COLOR_HEX",      opacityKey: "ORIG_OPACITY",      global: true },
     total:    { fontKey: "TOTAL_FONT_PX",     colorKey: "TOTAL_COLOR_HEX",     opacityKey: "TOTAL_OPACITY",     global: true },
     checkout: { fontKey: "CHECKOUT_FONT_PX",  colorKey: "CHECKOUT_COLOR_HEX",  opacityKey: "CHECKOUT_OPACITY",  global: true },
-    board:    { xKey: "BOARD_X_PX",        yKey: "BOARD_Y_PX",        scaleKey: "BOARD_SCALE",        resizeMode: "scale", global: true },
+    board:    { xKey: "BOARD_X_PX",        yKey: "BOARD_Y_PX",        scaleKey: "BOARD_SCALE",        resizeMode: "scale", global: true, centred: true, scaleRange: [0.3, 3] },
     undoBtn:  { xKey: "UNDO_BTN_X_PX",     yKey: "UNDO_BTN_Y_PX",     scaleKey: "UNDO_BTN_SCALE",      resizeMode: "scale", global: true },
     nextBtn:  { xKey: "NEXT_BTN_X_PX",     yKey: "NEXT_BTN_Y_PX",     scaleKey: "NEXT_BTN_SCALE",      resizeMode: "scale", global: true },
     turnBar:  { xKey: "TURN_BAR_X_PX",     yKey: "TURN_BAR_Y_PX",     scaleKey: "TURN_BAR_SCALE",      resizeMode: "scale", global: true },
@@ -5475,7 +5493,7 @@ function markCheckoutInTurnBar(turn) {
   const GLOBAL_EDIT_SELECTORS = {
     total: ".ad-ext-turn-total-value",
     checkout: ".ad-core-checkout, .ad-ext-turn-checkout-value",
-    board: "." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
+    board: ".ad-core-board-wrap, svg.ad-core-board, ." + BOARD_HOST_CLASS + ", ." + BOARD_VISUAL_CLASS + ", svg.ad-board-svg, img.ad-board-img",
     undoBtn: ".ad-core-btn-undo",
     nextBtn: ".ad-core-btn-next",
     turnBar: "#ad-ext-turn",
@@ -6231,6 +6249,7 @@ function markCheckoutInTurnBar(turn) {
       startY: map.perPlayerShift ? effShiftValue(target.player) : (map.yKey ? effVal(map, map.yKey) : 0),
       startFont: map.fontKey ? (effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey]) : 0,
       startScale: map.scaleKey ? (effVal(map, map.scaleKey) || DEFAULT_CFG[(map._base || map).scaleKey]) : 0,
+      startRectW: rect.width,
       startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(map.layoutPx ? (target.el.offsetWidth || rect.width) : rect.width)) : 0,
       startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(map.layoutPx ? (target.el.offsetHeight || rect.height) : rect.height)) : 0,
       // Shift+drag the handle of a box-resized target with text = change the text size instead
@@ -6361,7 +6380,12 @@ function markCheckoutInTurnBar(turn) {
           }
         }
       } else if (map.resizeMode === "scale") {
-        c[map.scaleKey] = clamp(+(st.startScale + dx / 80).toFixed(2), 0.2, 12);
+        // proportional: dragging the corner by the element's own width doubles it. Centred
+        // elements (the board) grow both ways, so the handle only travels half the growth.
+        const w = st.startRectW || 200;
+        const grow = (w + dx * (map.centred ? 2 : 1)) / w;
+        const [sLo, sHi] = map.scaleRange || [0.2, 12];
+        c[map.scaleKey] = clamp(+(st.startScale * Math.max(0.05, grow)).toFixed(3), sLo, sHi);
       } else if (map.fontKey) {
         const [fLo, fHi] = map.fitPct ? FIT_RANGE[map.fontKey] : [4, 400];
         let v = clamp(Math.round(st.startFont + (map.fitPct ? dx / 3 : dx)), fLo, fHi);
@@ -9171,6 +9195,25 @@ function ensureMainButtonPosition() {
             letterSpacing: "0.04em", marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(255,255,255,0.12)" });
           box.appendChild(h);
         };
+        sub("Dartboard");
+        {
+          const slider = document.createElement("input");
+          slider.type = "range"; slider.min = "0.3"; slider.max = "3"; slider.step = "0.01";
+          const v0 = clamp(Number(c.BOARD_SCALE) || 1, 0.3, 3);
+          slider.value = String(v0);
+          const row = mkSliderRow("Board size", slider, `${Math.round(v0 * 100)}%`, "ok", compact);
+          box.appendChild(row.row);
+          slider.addEventListener("input", () => {
+            const v = clamp(Number(slider.value) || 1, 0.3, 3);
+            c.BOARD_SCALE = v;
+            row.setPill(`${Math.round(v * 100)}%`, "ok");
+            saveStateDebounced(); renderCss(); scheduleUpdate();
+          });
+          slider.addEventListener("change", () => showToast(L.saved));
+        }
+        addSliderInt("BOARD_X_PX", "Board left / right px", -1000, 1000);
+        addSliderInt("BOARD_Y_PX", "Board up / down px", -1000, 1000);
+
         sub("Dart card layout");
         addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
         addSliderInt("TB_OFFSET_X_PX", "Offset cards left / right px", -600, 600);
@@ -9208,10 +9251,10 @@ function ensureMainButtonPosition() {
           addSliderPx("ORIG_FONT_PX",      "D20/T20 text", 10, EXT_LIMITS.ORIG_FONT_PX, 1);
           addSliderPx("TOTAL_FONT_PX",     "Total text", 20, EXT_LIMITS.TOTAL_FONT_PX, 1);
         }
-        const resetBtn = mkButton("Reset turn bar sizes", () => {
+        const resetBtn = mkButton("Reset turn bar & board sizes", () => {
           for (const k of ["TB_WIDTH_PX", "TB_HEIGHT_PX", "TB_THROW_W_PX", "TB_TOTAL_W_PX", "TB_GAP_PX",
                            "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE", "TB_ALIGN", "TB_OFFSET_X_PX",
-                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX"]) c[k] = DEFAULT_CFG[k];
+                           "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX"]) c[k] = DEFAULT_CFG[k];
           saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
           showToast(L.saved);
         }, "ghost", compact);
