@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.55.0
+// @version      2.56.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.55.0";
+  const SCRIPT_VERSION = "2.56.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -126,7 +126,8 @@
     THROW_EMPTY_BG_HEX: "#2a2d33", THROW_EMPTY_BG_OPACITY: 1,
     TB_BORDER_HEX: "#000000", TB_BORDER_OPACITY: 0.25,
     CHECKOUT_X_PX: 0, CHECKOUT_Y_PX: 0,
-    CHECKOUT_BAR_FIT_PCT: 45,  // checkout route shown in the empty turn bar cards, % of the card   // rebuilt site: move the checkout tips on the card
+    CHECKOUT_BAR_FIT_PCT: 45,
+    CHECKOUT_BAR_COLOR_HEX: "#00e0b8", CHECKOUT_BAR_OPACITY: 1,   // its own colour  // checkout route shown in the empty turn bar cards, % of the card   // rebuilt site: move the checkout tips on the card
     TOTAL_VIEW: true,
     CHECKOUT_VIEW: true,
 
@@ -2371,7 +2372,7 @@ ${(+c.TURN_BAR_BG_OPACITY || 0) < 0.05 ? `#ad-ext-turn.ad-core-turnbar{ box-shad
   font-family: 'Barlow Condensed', system-ui, sans-serif !important;
   font-weight: 800 !important;
   font-size: calc(var(--ad-card-u, 96px) * ${clamp(+c.CHECKOUT_BAR_FIT_PCT || 45, 10, 90) / 100}) !important;
-  color: rgba(var(--ad-checkout-rgb), var(--ad-checkout-op)) !important;
+  color: rgba(${hexToRgbString(sanitizeHex(c.CHECKOUT_BAR_COLOR_HEX, "#00e0b8"))}, ${clamp(Number.isFinite(+c.CHECKOUT_BAR_OPACITY) ? +c.CHECKOUT_BAR_OPACITY : 1, 0, 1)}) !important;
   -webkit-text-fill-color: currentColor !important;
 }
 #ad-ext-turn .ad-core-throw.text-checkout-suggestion:not([data-adval]) *,
@@ -5284,11 +5285,15 @@ function markCheckoutInTurnBar(turn) {
         const hist = Array.from(col.querySelectorAll(".grid.grid-cols-2")).find((g) => !card.contains(g));
         if (hist) hist.classList.add("ad-core-pi-history");
 
-        // active player: gradient background, or the visible leading dot
-        const bgActive  = /bg-(raspberry|brand|gradient)/.test(col.className + " " + card.className);
+        // active player: the leading turn dot (every card has one, only the thrower's is
+        // visible). The gradient card background is only a fallback when there's no dot:
+        // a player's own colour can be a gradient that stays on all game, which used to
+        // mark BOTH players active (trail/glow on both) during the other player's turn.
         const dot = card.querySelector(".size-2.rounded-full");
-        const dotActive = !!dot && !dot.classList.contains("invisible");
-        col.classList.toggle(ACTIVE_CLASS, bgActive || dotActive);
+        const active = dot
+          ? !dot.classList.contains("invisible")
+          : /bg-(raspberry|brand|gradient)/.test(col.className + " " + card.className);
+        col.classList.toggle(ACTIVE_CLASS, active);
       });
 
       // ---- dartboard ---- the biggest svg in the centre column. Tagged here, not only by
@@ -9297,6 +9302,17 @@ function ensureMainButtonPosition() {
           addSliderInt("TB_BORDER_PX",     "Box border px", 0, 8);
         }
 
+        sub("Checkout route (T20 / D18 in empty cards)");
+        addSliderInt("CHECKOUT_BAR_FIT_PCT", "Route size (% of card)", 10, 90);
+        addColor(()=>c.CHECKOUT_BAR_COLOR_HEX, v=>c.CHECKOUT_BAR_COLOR_HEX=v, "Route colour");
+        addSlider01(()=>c.CHECKOUT_BAR_OPACITY, v=>c.CHECKOUT_BAR_OPACITY=v, "Route opacity", 0.05);
+        if (!c.CHECKOUT_VIEW) {
+          const n3 = document.createElement("div");
+          Object.assign(n3.style, { opacity: "0.7", fontSize: "11px", lineHeight: "1.4", margin: "2px 0 4px" });
+          n3.textContent = "Turn on 'Display – Checkout Tip' for these to apply.";
+          box.appendChild(n3);
+        }
+
         sub("Turn bar colours");
         addCheckbox("Custom turn bar colours", () => !!c.TB_COLORS_CUSTOM, (v) => { c.TB_COLORS_CUSTOM = v; });
         if (c.TB_COLORS_CUSTOM) {
@@ -9363,6 +9379,8 @@ function ensureMainButtonPosition() {
         addColor(()=>c.CHECKOUT_COLOR_HEX, v=>c.CHECKOUT_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.CHECKOUT_OPACITY, v=>c.CHECKOUT_OPACITY=v, L.fields.opacity, 0.05);
         addSliderInt("CHECKOUT_BAR_FIT_PCT", "Route in turn bar cards (% of card)", 10, 90);
+        addColor(()=>c.CHECKOUT_BAR_COLOR_HEX, v=>c.CHECKOUT_BAR_COLOR_HEX=v, "Route in turn bar colour");
+        addSlider01(()=>c.CHECKOUT_BAR_OPACITY, v=>c.CHECKOUT_BAR_OPACITY=v, "Route in turn bar opacity", 0.05);
         addSliderInt("CHECKOUT_X_PX", "Move left / right px", -600, 600);
         addSliderInt("CHECKOUT_Y_PX", "Move up / down px", -600, 600);
         break;
