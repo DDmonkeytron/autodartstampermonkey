@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.46.0
+// @version      2.47.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.46.0";
+  const SCRIPT_VERSION = "2.47.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -105,6 +105,13 @@
     THROW_FIT_PCT: 46,   // points height, % of card width
     ORIG_FIT_PCT: 18,    // D20/T20 label height, % of card width
     TOTAL_FIT_PCT: 62,   // turn total height, % of card width
+    // Turn bar box sizes (rebuilt site). 0 = the site's own size (bar fills the centre
+    // column, cards 100x72). Height is shared: the bar is exactly as tall as its cards.
+    TB_WIDTH_PX: 0,
+    TB_HEIGHT_PX: 0,
+    TB_THROW_W_PX: 0,
+    TB_TOTAL_W_PX: 0,
+    TB_GAP_PX: 12,
     TOTAL_VIEW: true,
     CHECKOUT_VIEW: true,
 
@@ -431,6 +438,7 @@
         throws:   "Megjelenítés – Dobáspontok",
         orig:     "Megjelenítés – Sarok jelölés (T20)",
         stacked:  "Megjelenítés – Egymás alatti dobáskártyák",
+        turnsize: "Megjelenítés – Dobássáv méretei",
         total:    "Megjelenítés – Összérték",
         checkout: "Megjelenítés – Checkout tipp",
         playerinfo: "Megjelenítés – Játékos infó",
@@ -675,6 +683,7 @@
         throws:   "Display – Throw Points",
         orig:     "Display – Corner Label (T20)",
         stacked:  "Display – Stacked throw cards",
+        turnsize: "Display – Turn bar sizes",
         total:    "Display – Total",
         checkout: "Display – Checkout Tip",
         playerinfo: "Display – Player Info",
@@ -919,6 +928,7 @@
         throws:   "Anzeige – Wurfpunkte",
         orig:     "Anzeige – Eckenlabel (T20)",
         stacked:  "Anzeige – Gestapelte Wurfkarten",
+        turnsize: "Anzeige – Wurfleiste Größen",
         total:    "Anzeige – Gesamtwert",
         checkout: "Anzeige – Checkout-Tipp",
         playerinfo: "Anzeige – Spieler-Info",
@@ -2067,39 +2077,66 @@
         }
       }
 
+      // Turn bar box sizes (rebuilt site only - .ad-core-turnbar is stamped by AD2.tag()).
+      // --ad-card-u / --ad-total-u are the "size unit" the stacked text scales with: the box
+      // width, capped by its height at the site's native 100:72 shape, so a wider-but-not-
+      // taller card doesn't grow text out of the top and bottom.
+      {
+        const px = (v, lo, hi) => { const n = Math.round(+v || 0); return n > 0 ? clamp(n, lo, hi) : 0; };
+        const tbW = px(c.TB_WIDTH_PX, 200, 3000), tbH = px(c.TB_HEIGHT_PX, 30, 600);
+        const thW = px(c.TB_THROW_W_PX, 30, 800), toW = px(c.TB_TOTAL_W_PX, 30, 1000);
+        const gap = clamp(Math.round(Number.isFinite(+c.TB_GAP_PX) ? +c.TB_GAP_PX : 12), 0, 200);
+        css.push(`
+#ad-ext-turn.ad-core-turnbar{
+  --ad-card-w: ${thW ? thW + "px" : "var(--ad-slot-w, 96px)"};
+  --ad-card-h: ${tbH ? tbH + "px" : "72px"};
+  --ad-card-u: min(var(--ad-card-w), calc(var(--ad-card-h) * 1.389));
+  --ad-total-u: min(${toW ? toW + "px" : "var(--ad-card-w)"}, calc(var(--ad-card-h) * 1.389));
+}
+*:has(> #ad-ext-turn.ad-core-turnbar){ justify-content:center !important; }
+#ad-ext-turn.ad-core-turnbar .ad-core-throws{ gap:${gap}px !important; }
+${tbW ? `#ad-ext-turn.ad-core-turnbar{ flex:0 0 auto !important; width:${tbW}px !important; max-width:none !important; }` : ""}
+${tbH ? `#ad-ext-turn.ad-core-turnbar .ad-core-throw,
+#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ height:${tbH}px !important; }` : ""}
+${thW ? `#ad-ext-turn.ad-core-turnbar .ad-core-throws{ flex:1 0 auto !important; }
+#ad-ext-turn.ad-core-turnbar .ad-core-throw{ width:${thW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
+${toW ? `#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ width:${toW}px !important; max-width:none !important; flex:0 0 auto !important; }` : ""}
+`);
+      }
+
       if (c.THROWS_TO_POINTS && c.THROW_STACKED) {
         css.push(`
 /* THROW_STACKED (rebuilt site): points big + centred, D20/T20 label centred underneath,
-   everything capped to the card (--ad-slot-w is published by AD2.tag()). */
+   everything capped to the card (--ad-card-u is set by the turn bar size block above). */
 #ad-ext-turn .ad-core-throw[data-adval]{
   display:flex !important;
   flex-direction:column !important;
   align-items:center !important;
   justify-content:center !important;
-  gap:calc(var(--ad-slot-w, 96px) * .02) !important;
+  gap:calc(var(--ad-card-u, 96px) * .02) !important;
   overflow:hidden !important;
 }
 #ad-ext-turn .ad-core-throw[data-adval]::after{
   order:1 !important;
-  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit-solo)) !important;
+  font-size:calc(var(--ad-card-u, 96px) * var(--ad-throw-fit-solo)) !important;
   line-height:1 !important;
   text-align:center !important;
 }
 #ad-ext-turn .ad-core-throw[data-adval][data-adorig]::after{
-  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-throw-fit)) !important;
+  font-size:calc(var(--ad-card-u, 96px) * var(--ad-throw-fit)) !important;
 }
 #ad-ext-turn .ad-core-throw[data-adorig]::before{
   order:2 !important;
   position:static !important;
   right:auto !important;
   bottom:auto !important;
-  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-orig-fit)) !important;
+  font-size:calc(var(--ad-card-u, 96px) * var(--ad-orig-fit)) !important;
   line-height:1 !important;
   text-align:center !important;
 }
 #ad-ext-turn.ad-core-turnbar .ad-core-turn-total,
 #ad-ext-turn.ad-core-turnbar .ad-core-turn-total *{
-  font-size:calc(var(--ad-slot-w, 96px) * var(--ad-total-fit)) !important;
+  font-size:calc(var(--ad-total-u, 96px) * var(--ad-total-fit)) !important;
   line-height:1 !important;
 }
 `);
@@ -5297,8 +5334,18 @@ function markCheckoutInTurnBar(turn) {
   // Resolves which literal config keys the editor should read/write for a kind, given whether
   // a 3-4 player match is currently active. Falls back to the 2-player keys when not in grid mode
   // (or when a kind has no grid counterpart, e.g. color keys stay shared between both layouts).
+  // Rebuilt site: the turn bar, dart cards and total resize as boxes (independent width and
+  // height, TB_* keys) instead of one locked scale; text size stays on the popover's font row
+  // (or Shift+drag the handle). layoutPx = measure offsetWidth, not the scaled rect.
+  const NEW_SITE_BOX_MAP = {
+    turnBar:  { widthKey: "TB_WIDTH_PX",   heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true, centred: true },
+    throwVal: { widthKey: "TB_THROW_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
+    orig:     { widthKey: "TB_THROW_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
+    total:    { widthKey: "TB_TOTAL_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
+  };
   function getModeKeys(kind) {
-    const base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
+    let base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
+    if (base && NEW_SITE_BOX_MAP[kind] && AD2.isNewSite()) base = { ...base, ...NEW_SITE_BOX_MAP[kind] };
     if (base && STACKED_FIT_KEY[kind] && stackedActive()) return { ...base, fontKey: STACKED_FIT_KEY[kind], fitPct: true };
     if (!base || base.global || !isGridMode()) return base;
     return {
@@ -5691,9 +5738,18 @@ function markCheckoutInTurnBar(turn) {
     const closeX = document.createElement("div");
     closeX.textContent = "✕";
     Object.assign(closeX.style, { cursor: "pointer", opacity: "0.7", fontWeight: "900", padding: "0 4px" });
+    closeX.setAttribute("data-ad-close", "1");
     closeX.addEventListener("click", () => selectEditTarget(null));
     head.appendChild(title); head.appendChild(closeX);
+    head.title = "Drag to move this box";
+    makePopoverDraggable(head);
     editPopoverEl.appendChild(head);
+    if (map.layoutPx) {
+      const tip = document.createElement("div");
+      tip.textContent = "Yellow square: drag = width/height · Shift+drag = text size · 0 = site default";
+      Object.assign(tip.style, { fontSize: "11px", opacity: "0.65", lineHeight: "1.35", margin: "-2px 0 8px", maxWidth: "240px" });
+      editPopoverEl.appendChild(tip);
+    }
 
     if (map.fontKey) {
       const v = effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey];
@@ -5984,8 +6040,10 @@ function markCheckoutInTurnBar(turn) {
       startY: map.perPlayerShift ? effShiftValue(target.player) : (map.yKey ? effVal(map, map.yKey) : 0),
       startFont: map.fontKey ? (effVal(map, map.fontKey) || DEFAULT_CFG[(map._base || map).fontKey]) : 0,
       startScale: map.scaleKey ? (effVal(map, map.scaleKey) || DEFAULT_CFG[(map._base || map).scaleKey]) : 0,
-      startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(rect.width)) : 0,
-      startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(rect.height)) : 0,
+      startW: map.widthKey ? (Number(c[map.widthKey]) || Math.round(map.layoutPx ? (target.el.offsetWidth || rect.width) : rect.width)) : 0,
+      startH: map.heightKey ? (Number(c[map.heightKey]) || Math.round(map.layoutPx ? (target.el.offsetHeight || rect.height) : rect.height)) : 0,
+      // Shift+drag the handle of a box-resized target with text = change the text size instead
+      fontDrag: mode === "resize" && !!e.shiftKey && map.resizeMode === "box" && !!map.fontKey,
       groupSnapshot: (target.kind === "card" && mode === "resize" && groupResizeEnabled)
         ? GROUP_SCALE_PAIRS.map((pair) => ({ key: groupScaleActiveKey(pair), value: groupScaleEffValue(pair) }))
         : null,
@@ -6087,7 +6145,17 @@ function markCheckoutInTurnBar(turn) {
     } else if (st.mode === "resize") {
       if (editGuideV) editGuideV.style.display = "none";
       if (editGuideH) editGuideH.style.display = "none";
-      if (map.resizeMode === "box") {
+      if (st.fontDrag) {
+        const [fLo, fHi] = map.fitPct ? FIT_RANGE[map.fontKey] : [4, 400];
+        let v = clamp(Math.round(st.startFont + (map.fitPct ? dx / 3 : dx)), fLo, fHi);
+        if (!map.fitPct) v = clampIfSafe((map._base || map).fontKey, v);
+        c[map.fontKey] = v;
+      } else if (map.resizeMode === "box" && map.layoutPx) {
+        // centred elements grow on both sides, so the handle only travels half the growth
+        const k = map.centred ? 2 : 1;
+        if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx * k), 30, 3000);
+        if (map.heightKey) c[map.heightKey] = clamp(Math.round(st.startH + dy), 30, 600);
+      } else if (map.resizeMode === "box") {
         if (map.widthKey) c[map.widthKey] = clamp(Math.round(st.startW + dx), 40, 2000);
         if (map.heightKey) c[map.heightKey] = clamp(Math.round(st.startH + dy), 20, 2000);
         if (st.groupSnapshot) {
@@ -6124,18 +6192,52 @@ function markCheckoutInTurnBar(turn) {
     showToast(T().saved);
   }
 
+  // Popover placement: keep it off the selected element AND, for anything in the turn bar,
+  // off the whole bar (so it never covers the total/cards you're sizing). Tries below, above,
+  // right, left; the user can also drag it by its title, which pins it for this edit session.
+  let editPopoverManual = null;
   function positionPopover(rect) {
     if (!editPopoverEl || editPopoverEl.style.display === "none") return;
     const margin = 10;
-    let left = rect.right + margin;
-    let top = rect.top;
     const pw = editPopoverEl.offsetWidth || 240;
     const ph = editPopoverEl.offsetHeight || 200;
-    if (left + pw > window.innerWidth - margin) left = rect.left - pw - margin;
-    if (left < margin) left = margin;
-    if (top + ph > window.innerHeight - margin) top = window.innerHeight - ph - margin;
-    if (top < margin) top = margin;
-    Object.assign(editPopoverEl.style, { left: left + "px", top: top + "px" });
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const fit = (l, t) => ({ left: clamp(l, margin, Math.max(margin, vw - pw - margin)), top: clamp(t, margin, Math.max(margin, vh - ph - margin)) });
+    if (editPopoverManual) {
+      const p = fit(editPopoverManual.left, editPopoverManual.top);
+      Object.assign(editPopoverEl.style, { left: p.left + "px", top: p.top + "px" });
+      return;
+    }
+    let a = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    const bar = editSelected?.el?.closest?.("#ad-ext-turn");
+    if (bar) {
+      const b = bar.getBoundingClientRect();
+      a = { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) };
+    }
+    const cx = (a.left + a.right) / 2 - pw / 2, cy = (a.top + a.bottom) / 2 - ph / 2;
+    const tries = [
+      { left: cx, top: a.bottom + margin, ok: a.bottom + margin + ph <= vh - margin },
+      { left: cx, top: a.top - ph - margin, ok: a.top - ph - margin >= margin },
+      { left: a.right + margin, top: cy, ok: a.right + margin + pw <= vw - margin },
+      { left: a.left - pw - margin, top: cy, ok: a.left - pw - margin >= margin },
+    ];
+    const pick = tries.find((t) => t.ok) || tries[0];
+    const p = fit(pick.left, pick.top);
+    Object.assign(editPopoverEl.style, { left: p.left + "px", top: p.top + "px" });
+  }
+  function makePopoverDraggable(handle) {
+    handle.style.cursor = "move";
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      if (e.target.closest && e.target.closest("[data-ad-close]")) return;
+      e.preventDefault(); e.stopPropagation();
+      const r = editPopoverEl.getBoundingClientRect();
+      const offX = e.clientX - r.left, offY = e.clientY - r.top;
+      const move = (ev) => { editPopoverManual = { left: ev.clientX - offX, top: ev.clientY - offY }; positionEditBoxes(); };
+      const up = () => { window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", up, true); };
+      window.addEventListener("pointermove", move, true);
+      window.addEventListener("pointerup", up, true);
+    });
   }
 
   function positionEditBoxes() {
@@ -6216,6 +6318,7 @@ function markCheckoutInTurnBar(turn) {
   }
 
   function setEditMode(on) {
+    editPopoverManual = null;
     if (on) {
       const host = playersHost();
       if (!host) { showToast(T().piText.editNeedMatch); return; }
@@ -7948,6 +8051,7 @@ function ensureMainButtonPosition() {
     addModuleRow("throws",   () => c.THROWS_TO_POINTS, v => { c.THROWS_TO_POINTS = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("orig",     () => c.SHOW_ORIG_IN_CORNER, v => { c.SHOW_ORIG_IN_CORNER = v; dirtyTurn(); scheduleUpdate(); }, !c.THROWS_TO_POINTS, true, !c.THROWS_TO_POINTS);
     addModuleRow("stacked",  () => c.THROW_STACKED, v => { c.THROW_STACKED = v; dirtyTurn(); scheduleUpdate(); }, !c.THROWS_TO_POINTS, true, !c.THROWS_TO_POINTS);
+    addModuleRow("turnsize", () => true, () => {}, true, true, false);
 
     addModuleRow("total",    () => c.TOTAL_VIEW, v => { c.TOTAL_VIEW = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
     addModuleRow("checkout", () => c.CHECKOUT_VIEW, v => { c.CHECKOUT_VIEW = v; dirtyTurn(); scheduleUpdate(); }, false, true, false);
@@ -8855,6 +8959,38 @@ function ensureMainButtonPosition() {
         addSliderInt("ORIG_FIT_PCT",  "D20/T20 label size (% of card width)", 5, 50);
         addSliderInt("TOTAL_FIT_PCT", "Turn total size (% of card width)", 10, 120);
         break;
+
+      case "turnsize": {
+        const n = document.createElement("div");
+        Object.assign(n.style, { opacity: "0.75", fontSize: "12px", lineHeight: "1.4", marginBottom: "6px" });
+        n.textContent = "Sizes are in px and saved to the current preset. 0 = the site's own size. The Layout Editor's yellow square changes the same values.";
+        box.appendChild(n);
+        addSliderInt("TB_WIDTH_PX",   "Turn bar width px (0 = fill)", 0, 2400);
+        addSliderInt("TB_HEIGHT_PX",  "Height px – bar + cards (0 = 72)", 0, 400);
+        addSliderInt("TB_THROW_W_PX", "Dart card width px (0 = 100)", 0, 600);
+        addSliderInt("TB_TOTAL_W_PX", "Total box width px (0 = 100)", 0, 800);
+        addSliderInt("TB_GAP_PX",     "Gap between cards px", 0, 120);
+        addSliderInt("TURN_BAR_X_PX", "Move left / right px", -800, 800);
+        addSliderInt("TURN_BAR_Y_PX", "Move up / down px", -800, 800);
+        if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
+          addSliderInt("THROW_FIT_PCT", "Points text (% of card)", 10, 90);
+          addSliderInt("ORIG_FIT_PCT",  "D20/T20 text (% of card)", 5, 50);
+          addSliderInt("TOTAL_FIT_PCT", "Total text (% of box)", 10, 120);
+        } else {
+          addSliderPx("THROW_VAL_FONT_PX", "Points text", 20, EXT_LIMITS.THROW_VAL_FONT_PX, 1);
+          addSliderPx("ORIG_FONT_PX",      "D20/T20 text", 10, EXT_LIMITS.ORIG_FONT_PX, 1);
+          addSliderPx("TOTAL_FONT_PX",     "Total text", 20, EXT_LIMITS.TOTAL_FONT_PX, 1);
+        }
+        const resetBtn = mkButton("Reset turn bar sizes", () => {
+          for (const k of ["TB_WIDTH_PX", "TB_HEIGHT_PX", "TB_THROW_W_PX", "TB_TOTAL_W_PX", "TB_GAP_PX",
+                           "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE"]) c[k] = DEFAULT_CFG[k];
+          saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
+          showToast(L.saved);
+        }, "ghost", compact);
+        resetBtn.style.marginTop = "8px";
+        box.appendChild(resetBtn);
+        break;
+      }
 
       case "total":
         if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
