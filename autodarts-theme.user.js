@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.47.0
+// @version      2.48.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.47.0";
+  const SCRIPT_VERSION = "2.48.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -132,6 +132,7 @@
     PI_HISTORY_WIDTH_PX: 0,    // throw-history table width: 0 = auto (fit to font), >0 = fixed px
     PI_HISTORY_HEIGHT_PX: 0,   // throw-history table height: 0 = auto (fit rows), >0 = fixed px
     PI_AVATAR_SCALE: 7,        // profile avatar size (native = 7; lower = smaller)
+    PI_AVATAR_ZOOM: 1,         // rebuilt site: avatar size multiplier (1 = native)
     PI_CARD_WIDTH_PX: 0,       // whole player card width: 0 = native, >0 = fixed px
     PI_CARD_HEIGHT_PX: 0,      // whole player card height: 0 = native, >0 = fixed px
     // Per-element positioning (translate px; X = left/right, Y = up/down)
@@ -1586,6 +1587,36 @@
     }
   }
 
+  // Player Info text effects (stackable): outline -> text-stroke; emboss/glow/shadow ->
+  // text-shadow. Returns one rule for `selector`, or "" when no effects are set.
+  function piTextFxCss(c, selector) {
+    const fxList = Array.isArray(c.PI_TEXT_EFFECTS) ? c.PI_TEXT_EFFECTS : [];
+    const fxShadows = [];
+    let fxStroke = null;
+    for (const e of fxList) {
+      if (!e || !FX_STYLES.includes(e.style)) continue;
+      const sz = clamp(Number(e.size) || 2, 1, 12);
+      const col = sanitizeHex(e.color, "#000000");
+      if (e.style === "outline") {
+        if (!fxStroke || sz > fxStroke.sz) fxStroke = { sz, col }; // only one stroke possible; keep the largest
+      } else if (e.style === "emboss") {
+        fxShadows.push(`${sz}px ${sz}px ${sz}px rgba(0,0,0,.55)`, `-${sz}px -${sz}px ${sz}px rgba(255,255,255,.35)`);
+      } else if (e.style === "glow") {
+        fxShadows.push(`0 0 ${sz*3}px ${col}`, `0 0 ${sz*6}px ${col}`);
+      } else if (e.style === "shadow") {
+        fxShadows.push(`${sz}px ${sz}px ${Math.round(sz*1.5)}px rgba(0,0,0,.7)`);
+      }
+    }
+    let fxDecl = "";
+    if (fxStroke) fxDecl += `-webkit-text-stroke: ${fxStroke.sz}px ${fxStroke.col} !important; paint-order: stroke fill !important;`;
+    if (fxShadows.length) fxDecl += `text-shadow: ${fxShadows.join(", ")} !important;`;
+    return fxDecl ? `
+${selector}{
+  ${fxDecl}
+}
+` : "";
+  }
+
   function renderCss() {
     ensureHead(() => {
       ensureFontLink();
@@ -1701,6 +1732,8 @@
   --ad-pi-history-x: ${clamp(Number.isFinite(+c.PI_HISTORY_X_PX) ? +c.PI_HISTORY_X_PX : 0, -300, 300)}px;
   --ad-pi-history-offset: ${clamp(Number.isFinite(+c.PI_HISTORY_OFFSET_PX) ? +c.PI_HISTORY_OFFSET_PX : 0, -200, 500)}px;
   --ad-pi-history-height: ${(+c.PI_HISTORY_HEIGHT_PX > 0) ? clamp(+c.PI_HISTORY_HEIGHT_PX, 80, 900) + "px" : "auto"};
+  --ad-pi-history-width: ${(+c.PI_HISTORY_WIDTH_PX > 0) ? clamp(+c.PI_HISTORY_WIDTH_PX, 40, 900) + "px" : "auto"};
+  --ad-pi-avatar-zoom: ${clamp(Number.isFinite(+c.PI_AVATAR_ZOOM) ? +c.PI_AVATAR_ZOOM : 1, 0.3, 6)};
   --ad-pi-card-w: ${(+c.PI_CARD_WIDTH_PX > 0) ? clamp(+c.PI_CARD_WIDTH_PX, 200, 900) + "px" : "auto"};
   --ad-pi-card-h: ${(+c.PI_CARD_HEIGHT_PX > 0) ? clamp(+c.PI_CARD_HEIGHT_PX, 200, 1400) + "px" : "auto"};
 }
@@ -1832,7 +1865,8 @@
 .ad-core-game .ad-core-col{
   width: var(--ad-pi-card-w, 25rem) !important;
   flex: 0 0 auto !important;
-  translate: var(--pp-shift-x, 0px) var(--pp-shift-y, 0px);
+  /* whole-card move (Layout Editor card drag / PI_P{n}_CARD_X/Y), set per column below */
+  translate: var(--pp-card-x, 0px) var(--pp-card-y, 0px) !important;
 }
 /* PI_CARD_HEIGHT_PX was tuned against the old absolutely-positioned layout, where
    it meant "the whole card box". Here the card is a flex child that already fills
@@ -1863,7 +1897,7 @@
   line-height: 1.05 !important;
   max-width: none !important;
   overflow: visible !important;
-  translate: var(--ad-pi-name-x, 0px) var(--ad-pi-name-y, 0px);
+  translate: calc(var(--ad-pi-name-x, 0px) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-name-y, 0px) + var(--pp-shift-y, 0px));
 }
 .ad-core-card .ad-core-pi-name::after{ content: none !important; }
 /* release the fixed-height chip that wraps the name */
@@ -1884,26 +1918,32 @@
 .ad-core-card .ad-core-pi-avg{
   font-size: var(--ad-pi-avg-font) !important;
   color: var(--ad-pi-avg-color) !important;
-  translate: var(--ad-pi-avg-x, 0px) var(--ad-pi-avg-y, 0px);
+  translate: calc(var(--ad-pi-avg-x, 0px) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-avg-y, 0px) + var(--pp-shift-y, 0px));
 }
 .ad-core-card .ad-core-pi-avg *{ color: inherit !important; font-size: inherit !important; }
 
 /* --- legs-won pill --- reuses the history colour slot */
 .ad-core-card .ad-core-pi-legs{ color: var(--ad-pi-history-color) !important; }
 
-/* --- per-player colour overrides (P2-P4) --- */
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-name{  color: var(--ad-pi-p2-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-score{ color: var(--ad-pi-p2-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-avg{   color: var(--ad-pi-p2-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="2"] .ad-core-pi-legs{  color: var(--ad-pi-p2-history-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-name{  color: var(--ad-pi-p3-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-score{ color: var(--ad-pi-p3-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-avg{   color: var(--ad-pi-p3-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="3"] .ad-core-pi-legs{  color: var(--ad-pi-p3-history-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-name{  color: var(--ad-pi-p4-name-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-score{ color: var(--ad-pi-p4-score-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-avg{   color: var(--ad-pi-p4-avg-color) !important; }
-.ad-core-game .ad-core-col[data-ad-p="4"] .ad-core-pi-legs{  color: var(--ad-pi-p4-history-color) !important; }
+/* --- avatar --- zoom (not scale) so the name row makes room for a bigger avatar */
+.ad-core-card .ad-core-pi-avatar{
+  zoom: var(--ad-pi-avatar-zoom, 1);
+  translate: calc(var(--ad-pi-avatar-x, 0px) + var(--pp-shift-x, 0px)) calc(var(--ad-pi-avatar-offset, 0px) + var(--pp-shift-y, 0px));
+}
+
+/* --- name / score / average stack spacing --- */
+.ad-core-card .ad-core-pi-stack{ gap: var(--ad-pi-gap) !important; }
+
+/* --- throw history grid (under the card) --- */
+.ad-core-game .ad-core-pi-history{
+  height: var(--ad-pi-history-height, auto) !important;
+  font-size: var(--ad-pi-history-font) !important;
+  translate: var(--ad-pi-history-x, 0px) var(--ad-pi-history-offset, 0px);
+}
+.ad-core-game .ad-core-pi-history > *{ min-height: 0 !important; font-size: inherit !important; }
+.ad-core-game .ad-core-pi-history > * *{ font-size: inherit !important; line-height: 1.1 !important; }
+/* the score "pill" is a fixed w-12.5 (50px); let it grow with the text */
+.ad-core-game .ad-core-pi-history > * > *{ width: auto !important; min-width: 2.2em !important; }
 
 /* --- active player --- driven by ACTIVE_CLASS, which AD2.tag() sets from the
    site's own signal (gradient card bg / visible turn dot) rather than guessing. */
@@ -1947,6 +1987,34 @@
 }
 
 `);
+
+      // Rebuilt site, per-player + setting-dependent Player Info rules (the static block
+      // above can't branch). Columns are .ad-core-col[data-ad-p=n], stamped by AD2.tag().
+      {
+        const num = (v, lo, hi) => clamp(Number.isFinite(+v) ? +v : 0, lo, hi);
+        const piColor = !!c.PI_CUSTOM_COLORS;
+        const perCol = [1, 2, 3, 4].map((n) => `
+.ad-core-game .ad-core-col[data-ad-p="${n}"]{
+  --pp-shift-y: ${num(c[`PI_P${n}_SHIFT_Y`], -200, 200)}px;
+  --pp-shift-x: ${num(c[`PI_P${n}_SHIFT_X`], -400, 400)}px;
+  --pp-card-x: ${num(c[`PI_P${n}_CARD_X_PX`], -1500, 1500)}px;
+  --pp-card-y: ${num(c[`PI_P${n}_CARD_Y_PX`], -1500, 1500)}px;
+}`).join("");
+        const perColor = (piColor && c.PI_PER_PLAYER_COLORS) ? [2, 3, 4].map((n) => `
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-name{  color: var(--ad-pi-p${n}-name-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-score{ color: var(--ad-pi-p${n}-score-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-avg{   color: var(--ad-pi-p${n}-avg-color) !important; }
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-legs,
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-history,
+.ad-core-game .ad-core-col[data-ad-p="${n}"] .ad-core-pi-history *{ color: var(--ad-pi-p${n}-history-color) !important; }`).join("") : "";
+        const histW = +c.PI_HISTORY_WIDTH_PX > 0 ? clamp(+c.PI_HISTORY_WIDTH_PX, 40, 900) : 0;
+        css.push(`${perCol}
+${histW ? `.ad-core-game .ad-core-pi-history{ width: ${histW}px !important; max-width: none !important; margin-inline: auto !important; align-self: center !important; }` : ""}
+${piColor ? `.ad-core-game .ad-core-pi-history, .ad-core-game .ad-core-pi-history *{ color: var(--ad-pi-history-color) !important; }` : ""}
+${perColor}
+${c.PLAYER_INFO ? piTextFxCss(c, ".ad-core-card .ad-core-pi-name, .ad-core-card .ad-core-pi-score, .ad-core-card .ad-core-pi-avg, .ad-core-game .ad-core-pi-history > *") : ""}
+`);
+      }
 
       if (c.THROWS_TO_POINTS) {
         css.push(`
@@ -2817,39 +2885,13 @@ svg.ad-board-svg, img.ad-board-img{
         // 3-4 player grid scale (used to derive PI_G_* values that are left null)
         const gs = clamp(Number(c.PI_GRID_SCALE) || 0.5, 0.2, 1);
 
-        // text effects (stackable): outline -> text-stroke; emboss/glow/shadow -> text-shadow
-        const fxList = Array.isArray(c.PI_TEXT_EFFECTS) ? c.PI_TEXT_EFFECTS : [];
-        const fxShadows = [];
-        let fxStroke = null;
-        for (const e of fxList) {
-          if (!e || !FX_STYLES.includes(e.style)) continue;
-          const sz = clamp(Number(e.size) || 2, 1, 12);
-          const col = sanitizeHex(e.color, "#000000");
-          if (e.style === "outline") {
-            if (!fxStroke || sz > fxStroke.sz) fxStroke = { sz, col }; // only one stroke possible; keep the largest
-          } else if (e.style === "emboss") {
-            fxShadows.push(`${sz}px ${sz}px ${sz}px rgba(0,0,0,.55)`, `-${sz}px -${sz}px ${sz}px rgba(255,255,255,.35)`);
-          } else if (e.style === "glow") {
-            fxShadows.push(`0 0 ${sz*3}px ${col}`, `0 0 ${sz*6}px ${col}`);
-          } else if (e.style === "shadow") {
-            fxShadows.push(`${sz}px ${sz}px ${Math.round(sz*1.5)}px rgba(0,0,0,.7)`);
-          }
-        }
-        let fxDecl = "";
-        if (fxStroke) fxDecl += `-webkit-text-stroke: ${fxStroke.sz}px ${fxStroke.col} !important; paint-order: stroke fill !important;`;
-        if (fxShadows.length) fxDecl += `text-shadow: ${fxShadows.join(", ")} !important;`;
-        if (fxDecl) {
-          css.push(`
-#ad-ext-player-display .ad-ext-player-name,
+        const fxRule = piTextFxCss(c, `#ad-ext-player-display .ad-ext-player-name,
 #ad-ext-player-display .ad-ext-player-score,
 #ad-ext-player-display .ad-core-pi-avg,
 #ad-ext-player-display p.css-1j0bqop,
 #ad-ext-player-display .css-1u90hiz td,
-#ad-ext-player-display .css-1u90hiz th{
-  ${fxDecl}
-}
-`);
-        }
+#ad-ext-player-display .css-1u90hiz th`);
+        if (fxRule) css.push(fxRule);
 
         css.push(`
 #ad-ext-player-display .ad-ext-player-name{
@@ -5046,6 +5088,17 @@ function markCheckoutInTurnBar(turn) {
           pair[1]?.classList.add("ad-core-pi-avg-match");
         }
 
+        // the name / score / averages stack = smallest box holding all three (spacing slider)
+        if (nameEl && scoreEl) {
+          let stack = scoreEl.parentElement;
+          while (stack && stack !== card && !(stack.contains(nameEl) && (!avgRow || stack.contains(avgRow)))) stack = stack.parentElement;
+          if (stack && stack !== card) stack.classList.add("ad-core-pi-stack");
+        }
+
+        // throw history: the 2-column score grid under the card (outside .ad-core-card)
+        const hist = Array.from(col.querySelectorAll(".grid.grid-cols-2")).find((g) => !card.contains(g));
+        if (hist) hist.classList.add("ad-core-pi-history");
+
         // active player: gradient background, or the visible leading dot
         const bgActive  = /bg-(raspberry|brand|gradient)/.test(col.className + " " + card.className);
         const dot = card.querySelector(".size-2.rounded-full");
@@ -5252,7 +5305,7 @@ function markCheckoutInTurnBar(turn) {
     name: ".ad-ext-player-name",
     score: ".ad-ext-player-score",
     avg: ".ad-core-pi-avg",
-    history: ".css-1u90hiz",
+    history: ".ad-core-pi-history, .css-1u90hiz",
     avatar: ".ad-core-pi-avatar, .css-1psdi5l",
   };
   const PI_EL_KEY = { name: "name", score: "score", avg: "average", history: "history", avatar: "avatar" };
@@ -5322,6 +5375,9 @@ function markCheckoutInTurnBar(turn) {
     const host = playersHost();
     if (!host) return false;
     if (!cfg().PI_GRID_ADJUST) return false;
+    // The separate 3-4 player layout (PI_G_*) only has rules for the old site; on the
+    // rebuilt site edits must go to the keys that actually apply.
+    if (AD2.isNewSite()) return false;
     return playerPanels(host).length >= 3;
   }
   function gridScaleFactor() {
@@ -5342,6 +5398,8 @@ function markCheckoutInTurnBar(turn) {
     throwVal: { widthKey: "TB_THROW_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
     orig:     { widthKey: "TB_THROW_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
     total:    { widthKey: "TB_TOTAL_W_PX", heightKey: "TB_HEIGHT_PX", resizeMode: "box", layoutPx: true },
+    // avatar on the rebuilt site is a 46px chip in the name row: own 1 = native multiplier
+    avatar:   { scaleKey: "PI_AVATAR_ZOOM", gScaleKey: null },
   };
   function getModeKeys(kind) {
     let base = EDIT_KIND_MAP[kind] || GLOBAL_EDIT_MAP[kind];
@@ -9075,7 +9133,8 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_SCORE_FONT_PX", pi.score, 20, EXT_LIMITS.PI_SCORE_FONT_PX, 1);
         addSliderPx("PI_AVG_FONT_PX", pi.average, 8, EXT_LIMITS.PI_AVG_FONT_PX, 1);
         addSliderPx("PI_HISTORY_FONT_PX", pi.history, 12, EXT_LIMITS.PI_HISTORY_FONT_PX, 1);
-        addSliderScale("PI_AVATAR_SCALE", pi.avatarSize, 1, 10, 0.5);
+        if (AD2.isNewSite()) addSliderScale("PI_AVATAR_ZOOM", pi.avatarSize, 0.3, 6, 0.1);
+        else addSliderScale("PI_AVATAR_SCALE", pi.avatarSize, 1, 10, 0.5);
 
         // ---- POSITIONING ----
         piSection(pi.secPos);
