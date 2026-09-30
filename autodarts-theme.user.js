@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.49.0
+// @version      2.50.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.49.0";
+  const SCRIPT_VERSION = "2.50.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -112,6 +112,7 @@
     TB_THROW_W_PX: 0,
     TB_TOTAL_W_PX: 0,
     TB_GAP_PX: 12,
+    THROW_ALIGN: "center",     // points inside each dart card: center | left | right
     TB_ALIGN: "evenly",        // dart cards in their row: evenly | center | start | end
     TB_OFFSET_X_PX: 0,         // shift the dart cards left/right as a group
     THROW_BOXED: false,        // each dart card (and the total) in its own rounded box
@@ -143,7 +144,11 @@
     PI_HISTORY_WIDTH_PX: 0,    // throw-history table width: 0 = auto (fit to font), >0 = fixed px
     PI_HISTORY_HEIGHT_PX: 0,   // throw-history table height: 0 = auto (fit rows), >0 = fixed px
     PI_AVATAR_SCALE: 7,        // profile avatar size (native = 7; lower = smaller)
-    PI_AVATAR_ZOOM: 1,         // rebuilt site: avatar size multiplier (1 = native)
+    PI_AVATAR_ZOOM: 1,
+    PI_HISTORY_ALIGN: "center",        // numbers in the history cells: center | left | right
+    PI_HISTORY_BG_CUSTOM: false,       // on = the two history colours below apply
+    PI_HISTORY_BG_HEX: "#000000", PI_HISTORY_BG_OPACITY: 0.8,
+    PI_HISTORY_PILL_HEX: "#343434", PI_HISTORY_PILL_OPACITY: 1,         // rebuilt site: avatar size multiplier (1 = native)
     PI_CARD_WIDTH_PX: 0,       // whole player card width: 0 = native, >0 = fixed px
     PI_CARD_HEIGHT_PX: 0,      // whole player card height: 0 = native, >0 = fixed px
     // Per-element positioning (translate px; X = left/right, Y = up/down)
@@ -2036,6 +2041,9 @@ ${selector}{
         css.push(`${perCol}
 ${histW ? `.ad-core-game .ad-core-pi-history{ width: ${histW}px !important; max-width: none !important; margin-inline: auto !important; align-self: center !important; }` : ""}
 ${piColor ? `.ad-core-game .ad-core-pi-history, .ad-core-game .ad-core-pi-history *{ color: var(--ad-pi-history-color) !important; }` : ""}
+${c.PI_HISTORY_BG_CUSTOM ? `.ad-core-game .ad-core-pi-history{ background-color: rgba(${hexToRgbString(sanitizeHex(c.PI_HISTORY_BG_HEX, "#000000"))}, ${num(c.PI_HISTORY_BG_OPACITY, 0, 1)}) !important; }
+.ad-core-game .ad-core-pi-history > * > [class*="bg-"]{ background-color: rgba(${hexToRgbString(sanitizeHex(c.PI_HISTORY_PILL_HEX, "#343434"))}, ${num(c.PI_HISTORY_PILL_OPACITY, 0, 1)}) !important; }` : ""}
+${({ left: 1, right: 1 })[c.PI_HISTORY_ALIGN] ? `.ad-core-game .ad-core-pi-history > *{ justify-content: ${c.PI_HISTORY_ALIGN === "left" ? "flex-start" : "flex-end"} !important; padding-inline: .45em !important; }` : ""}
 ${perColor}
 ${c.PLAYER_INFO ? piTextFxCss(c, ".ad-core-card .ad-core-pi-name, .ad-core-card .ad-core-pi-score, .ad-core-card .ad-core-pi-avg, .ad-core-game .ad-core-pi-history > *") : ""}
 `);
@@ -2203,6 +2211,35 @@ ${toW ? `#ad-ext-turn.ad-core-turnbar .ad-core-turn-total{ width:${toW}px !impor
 #ad-ext-turn.ad-core-turnbar .ad-core-throws{ justify-content:${justify} !important; padding-inline:${gap}px !important; }`);
         if (offX) css.push(`
 #ad-ext-turn.ad-core-turnbar .ad-core-throw{ translate:${offX}px 0; }`);
+
+        // Rebuilt site: the points text IS the card's ::after, which the triple/double
+        // animations also use for their sliding shine (absolute, inset 0, translateX) - that
+        // pinned the number top-left and slid it around. Keep ::after as the number and slam it.
+        css.push(`
+#ad-ext-turn .ad-core-throw[data-adval].${TRIPLE_CLASS}::after,
+#ad-ext-turn .ad-core-throw[data-adval].${DOUBLE_CLASS}::after{
+  position: static !important;
+  inset: auto !important;
+  background: none !important;
+  transform: none;
+  border-radius: 0 !important;
+  z-index: 3 !important;
+  animation: adSlam var(--ad-triple-slam-ms, 250ms) ease-in 1 !important;
+}`);
+
+        // where the points sit inside each card
+        const tJust = { left: "flex-start", right: "flex-end" }[c.THROW_ALIGN];
+        if (tJust) {
+          const stacked = !!(c.THROWS_TO_POINTS && c.THROW_STACKED);
+          css.push(`
+#ad-ext-turn .ad-core-throw[data-adval]{
+  ${stacked ? `align-items:${tJust} !important;` : `justify-content:${tJust} !important;`}
+  padding-inline: calc(var(--ad-card-w, 96px) * .08) !important;
+}
+#ad-ext-turn .ad-core-throw[data-adval]::after,
+#ad-ext-turn .ad-core-throw[data-adval]::before{ text-align:${c.THROW_ALIGN} !important; }
+${(!stacked && c.THROW_ALIGN === "right") ? `#ad-ext-turn .ad-core-throw[data-adorig]::before{ right:auto !important; left:10px !important; }` : ""}`);
+        }
 
         // colours: bar background, empty cards, card borders
         const rgba = (hex, op, fb) => `rgba(${hexToRgbString(sanitizeHex(hex, fb))}, ${clamp(Number.isFinite(+op) ? +op : 1, 0, 1)})`;
@@ -9137,6 +9174,7 @@ function ensureMainButtonPosition() {
         sub("Dart card layout");
         addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
         addSliderInt("TB_OFFSET_X_PX", "Offset cards left / right px", -600, 600);
+        addSelect("THROW_ALIGN", "Points inside each card", [["center", "Centre"], ["left", "Left"], ["right", "Right"]]);
         addCheckbox("Each card in its own box", () => !!c.THROW_BOXED, (v) => { c.THROW_BOXED = v; });
         if (c.THROW_BOXED) {
           addSliderInt("TB_BOX_RADIUS_PX", "Box corner radius px", 0, 40);
@@ -9285,6 +9323,7 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_HISTORY_OFFSET_PX", pi.el.history + " ↕", -100, 400, 5);
         addSliderPx("PI_HISTORY_WIDTH_PX", pi.historyWidth, 0, 600, 10);
         addSliderPx("PI_HISTORY_HEIGHT_PX", pi.historyHeight, 0, 900, 10);
+        addSelect("PI_HISTORY_ALIGN", "History numbers", [["center", "Centre"], ["left", "Left"], ["right", "Right"]]);
         addSliderPx("PI_P1_SHIFT_Y", pi.alignP1, -200, 200, 2);
         addSliderPx("PI_P2_SHIFT_Y", pi.alignP2, -200, 200, 2);
         addSliderPx("PI_P3_SHIFT_Y", pi.alignP3, -200, 200, 2);
@@ -9372,6 +9411,13 @@ function ensureMainButtonPosition() {
         addColor(()=>c.PI_SCORE_COLOR_HEX, v=>c.PI_SCORE_COLOR_HEX=v, p1(pi.scoreColor));
         addColor(()=>c.PI_AVG_COLOR_HEX, v=>c.PI_AVG_COLOR_HEX=v, p1(pi.avgColor));
         addColor(()=>c.PI_HISTORY_COLOR_HEX, v=>c.PI_HISTORY_COLOR_HEX=v, p1(pi.historyColor));
+        addCheckbox("Custom history background", ()=>!!c.PI_HISTORY_BG_CUSTOM, v=>{ c.PI_HISTORY_BG_CUSTOM=v; });
+        if (c.PI_HISTORY_BG_CUSTOM) {
+          addColor(()=>c.PI_HISTORY_BG_HEX, v=>c.PI_HISTORY_BG_HEX=v, "History background");
+          addSlider01(()=>c.PI_HISTORY_BG_OPACITY, v=>c.PI_HISTORY_BG_OPACITY=v, "History background opacity", 0.05);
+          addColor(()=>c.PI_HISTORY_PILL_HEX, v=>c.PI_HISTORY_PILL_HEX=v, "Score pill colour");
+          addSlider01(()=>c.PI_HISTORY_PILL_OPACITY, v=>c.PI_HISTORY_PILL_OPACITY=v, "Score pill opacity", 0.05);
+        }
         if (perPlayer) {
           [2,3,4].forEach(n => {
             const pre = pi["p" + n + "Prefix"] || ("P" + n);
