@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.56.0
+// @version      2.56.1
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.56.0";
+  const SCRIPT_VERSION = "2.56.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -5223,6 +5223,14 @@ function markCheckoutInTurnBar(turn) {
       const centre = Array.from(root.children).find((c) => !cols.includes(c));
       if (centre) centre.classList.add("ad-core-centre");
 
+      // whose turn it is, from the match object React already holds (same object the
+      // match WebSocket delivers; m.player = 0-based thrower index, in column order)
+      const turnIdx = (() => {
+        const m = matchStateFrom(scores[0]);
+        const n = m ? Number(m.player) : NaN;
+        return (Number.isInteger(n) && n >= 0 && n < cols.length) ? n : null;
+      })();
+
       cols.forEach((col, i) => {
         col.classList.add("ad-ext-player", "ad-core-col");
         col.setAttribute("data-ad-p", String(i + 1));
@@ -5285,14 +5293,13 @@ function markCheckoutInTurnBar(turn) {
         const hist = Array.from(col.querySelectorAll(".grid.grid-cols-2")).find((g) => !card.contains(g));
         if (hist) hist.classList.add("ad-core-pi-history");
 
-        // active player: the leading turn dot (every card has one, only the thrower's is
-        // visible). The gradient card background is only a fallback when there's no dot:
-        // a player's own colour can be a gradient that stays on all game, which used to
-        // mark BOTH players active (trail/glow on both) during the other player's turn.
-        const dot = card.querySelector(".size-2.rounded-full");
-        const active = dot
-          ? !dot.classList.contains("invisible")
-          : /bg-(raspberry|brand|gradient)/.test(col.className + " " + card.className);
+        // active player: whose turn it is per the site's own match state (m.player). The
+        // small leading dot is NOT the turn - it marks who started the leg - and using it
+        // put the trail on the wrong player. The active card's gradient background is the
+        // fallback when the state can't be read.
+        const active = (turnIdx !== null)
+          ? i === turnIdx
+          : /bg-\S*(diagonal|gradient)|bg-(raspberry|brand)/.test(col.className + " " + card.className);
         col.classList.toggle(ACTIVE_CLASS, active);
       });
 
@@ -5367,6 +5374,24 @@ function markCheckoutInTurnBar(turn) {
     // Old code did `card.querySelector("p").textContent`; the rebuilt slots use spans, and
     // injecting our own <p> into React-managed nodes invites removeChild crashes. Read the
     // attribute we stamp above instead, falling back to the legacy <p> on the old site.
+    // Walks up the React fiber from a node inside the match view to the match object
+    // (has players[] + gameScores). Read-only; null if React internals aren't reachable.
+    function matchStateFrom(el) {
+      if (!el) return null;
+      const fk = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+      let f = fk ? el[fk] : null;
+      for (let i = 0; i < 40 && f; i++, f = f.return) {
+        const p = f.memoizedProps;
+        if (p && typeof p === "object") {
+          for (const k in p) {
+            const o = p[k];
+            if (o && typeof o === "object" && Array.isArray(o.players) && o.gameScores !== undefined) return o;
+          }
+        }
+      }
+      return null;
+    }
+
     function isCheckoutHintSlot(slot) {
       return !!(slot && slot.classList && (slot.classList.contains("text-checkout-suggestion") || slot.classList.contains("text-checkout-setup")));
     }
