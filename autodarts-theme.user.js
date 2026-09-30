@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.42.0
+// @version      2.43.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.42.0";
+  const SCRIPT_VERSION = "2.43.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -1899,7 +1899,7 @@
 #ad-ext-turn .ad-core-turn-total span{
   font-family: 'Barlow Condensed', system-ui, sans-serif !important;
   font-weight: 800 !important;
-  font-size: var(--ad-total-font) !important;
+  font-size: min(var(--ad-total-font), calc(var(--ad-slot-w, 96px) * .62)) !important;
   color: rgba(var(--ad-total-rgb), var(--ad-total-op)) !important;
   line-height: 1 !important;
 }
@@ -1997,11 +1997,20 @@
    Render from the slot and hide the site's own "S"/"20" spans while we are showing
    computed points. Scoped to [data-adval] so a slot with no throw stays untouched. */
 .ad-core-throw[data-adval] > *{ display:none !important; }
+/* label (D20/T20) on top, points underneath -- stacked, never overlapping */
+.ad-core-throw[data-adval]{
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:calc(var(--ad-slot-w, 96px) * .02) !important;
+  overflow:hidden !important;
+}
 .ad-core-throw[data-adval]::after{
   content: attr(data-adval);
   font-family:'Barlow Condensed', system-ui, sans-serif !important;
   font-weight:800 !important;
-  font-size:var(--ad-throw-font) !important;
+  font-size:min(var(--ad-throw-font), calc(var(--ad-slot-w, 96px) * .48)) !important;
   line-height:1 !important;
   letter-spacing:1px !important;
   color: rgba(var(--ad-throw-rgb), var(--ad-throw-op)) !important;
@@ -2023,16 +2032,17 @@
   pointer-events:none !important;
 }
 .ad-ext-turn-throw p:not([data-adorig])::before{ content:"" !important; }
+.ad-core-throw[data-adval][data-adorig]::after{
+  font-size:min(var(--ad-throw-font), calc(var(--ad-slot-w, 96px) * .4)) !important;
+}
 
-/* corner original (T20) on the rebuilt slot -- the slot already has position:relative */
+/* original (D20/T20) on the rebuilt slot: a label ABOVE the points, not a corner overlay */
 .ad-core-throw[data-adorig]::before{
   content: attr(data-adorig);
-  position:absolute !important;
-  right:10px !important;
-  bottom:8px !important;
+  position:static !important;
   font-family:'Barlow Condensed', system-ui, sans-serif !important;
   font-weight:700 !important;
-  font-size:var(--ad-orig-font) !important;
+  font-size:min(var(--ad-orig-font), calc(var(--ad-slot-w, 96px) * .22)) !important;
   line-height:1 !important;
   letter-spacing:.5px !important;
   color: rgba(var(--ad-orig-rgb), var(--ad-orig-op)) !important;
@@ -2047,6 +2057,12 @@
 
       if (c.TOTAL_VIEW) {
         css.push(`
+/* rebuilt site: the bar is ~65px tall -- keep the total inside it */
+#ad-ext-turn .ad-core-turn-total,
+#ad-ext-turn .ad-core-turn-total *{
+  font-size: min(var(--ad-total-font), calc(var(--ad-slot-w, 96px) * .62)) !important;
+  line-height: 1 !important;
+}
 .ad-ext-turn-total-value,
 .ad-ext-turn-total-value *{
   font-family:'Barlow Condensed', system-ui, sans-serif !important;
@@ -4980,6 +4996,15 @@ function markCheckoutInTurnBar(turn) {
             if (raw) slot.setAttribute("data-adraw", raw); else slot.removeAttribute("data-adraw");
             slot.classList.toggle("ad-has-throw", !!raw);
           });
+          // Size the card text to the card. The rebuilt cards are ~65px tall, so the fixed
+          // 100-130px fonts overflowed them and buried the corner label under the points.
+          // Width comes from the flex layout, not from our text, so it's a stable basis
+          // (no measure->resize feedback loop). Guarded: the turn observer watches attributes.
+          const sw = slotEls[0]?.clientWidth || 0;
+          if (sw) {
+            const v = sw + "px";
+            if (bar.style.getPropertyValue("--ad-slot-w") !== v) bar.style.setProperty("--ad-slot-w", v);
+          }
           // turn total = the .font-number block outside the throws wrapper
           const total = Array.from(bar.querySelectorAll(".font-number")).find((e) => !wrap.contains(e));
           if (total) { total.classList.add("ad-ext-turn-total-value", "ad-core-turn-total"); }
