@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.53.0
+// @version      2.54.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.53.0";
+  const SCRIPT_VERSION = "2.54.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -124,7 +124,8 @@
     TURN_BAR_BG_HEX: "#16181c", TURN_BAR_BG_OPACITY: 1,
     THROW_EMPTY_BG_HEX: "#2a2d33", THROW_EMPTY_BG_OPACITY: 1,
     TB_BORDER_HEX: "#000000", TB_BORDER_OPACITY: 0.25,
-    CHECKOUT_X_PX: 0, CHECKOUT_Y_PX: 0,   // rebuilt site: move the checkout tips on the card
+    CHECKOUT_X_PX: 0, CHECKOUT_Y_PX: 0,
+    CHECKOUT_BAR_FIT_PCT: 45,  // checkout route shown in the empty turn bar cards, % of the card   // rebuilt site: move the checkout tips on the card
     TOTAL_VIEW: true,
     CHECKOUT_VIEW: true,
 
@@ -2345,6 +2346,28 @@ ${(+c.TURN_BAR_BG_OPACITY || 0) < 0.05 ? `#ad-ext-turn.ad-core-turnbar{ box-shad
   letter-spacing:1px !important;
   color: rgba(var(--ad-checkout-rgb), var(--ad-checkout-op)) !important;
   text-shadow:none !important;
+}
+/* rebuilt site: the checkout route shown IN the empty turn bar cards (T20 D18 ...).
+   The site paints it as gradient-clipped text; use the checkout colour instead and
+   size it with the card. */
+#ad-ext-turn .ad-core-throw.text-checkout-suggestion:not([data-adval]),
+#ad-ext-turn .ad-core-throw.text-checkout-setup:not([data-adval]){
+  background-image: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  font-family: 'Barlow Condensed', system-ui, sans-serif !important;
+  font-weight: 800 !important;
+  font-size: calc(var(--ad-card-u, 96px) * ${clamp(+c.CHECKOUT_BAR_FIT_PCT || 45, 10, 90) / 100}) !important;
+  color: rgba(var(--ad-checkout-rgb), var(--ad-checkout-op)) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+#ad-ext-turn .ad-core-throw.text-checkout-suggestion:not([data-adval]) *,
+#ad-ext-turn .ad-core-throw.text-checkout-setup:not([data-adval]) *{
+  font-size: inherit !important;
+  color: inherit !important;
+  -webkit-text-fill-color: currentColor !important;
+  background: none !important;
+  line-height: 1 !important;
 }
 /* rebuilt site: the tips are fixed-height (h-8) pills in a column on the card */
 .ad-core-card .ad-core-checkout-pill{ height:auto !important; padding:.12em .35em !important; }
@@ -4923,7 +4946,8 @@ svg.ad-board-svg text{
     if (!ps.length) return;
 
     const raws = ps.map((p) => (p.textContent || "").trim());
-    const parsed = raws.map((raw) => isPlaceholderRaw(raw) ? { _placeholder: true } : parseThrow(raw));
+    const isHint = (p) => { const cl = p.closest(".ad-ext-turn-throw")?.classList; return !!cl && (cl.contains("text-checkout-suggestion") || cl.contains("text-checkout-setup")); };
+    const parsed = raws.map((raw, i) => (isPlaceholderRaw(raw) || isHint(ps[i])) ? { _placeholder: true } : parseThrow(raw));
 
     parsed.forEach((it, i) => {
       const p = ps[i];
@@ -5297,7 +5321,12 @@ function markCheckoutInTurnBar(turn) {
             // owns data-adval (it puts the computed POINTS there for the ::after to render).
             // textContent, NOT innerText: THROWS->POINTS hides the site's own spans with
             // display:none, which innerText honours (returning "") but textContent ignores.
-            const raw = (slot.textContent || "").replace(/\s+/g, "").toUpperCase();
+            // The site renders autodarts' checkout route INTO the empty cards (Throw type
+            // "suggested" / "setup"). Those are hints, not darts: no data-adraw (so no
+            // points conversion / triple animation) and no ad-has-throw.
+            const isHint = isCheckoutHintSlot(slot);
+            slot.classList.toggle("ad-co-hint", isHint);
+            const raw = isHint ? "" : (slot.textContent || "").replace(/\s+/g, "").toUpperCase();
             if (raw) slot.setAttribute("data-adraw", raw); else slot.removeAttribute("data-adraw");
             slot.classList.toggle("ad-has-throw", !!raw);
           });
@@ -5320,6 +5349,10 @@ function markCheckoutInTurnBar(turn) {
     // Old code did `card.querySelector("p").textContent`; the rebuilt slots use spans, and
     // injecting our own <p> into React-managed nodes invites removeChild crashes. Read the
     // attribute we stamp above instead, falling back to the legacy <p> on the old site.
+    function isCheckoutHintSlot(slot) {
+      return !!(slot && slot.classList && (slot.classList.contains("text-checkout-suggestion") || slot.classList.contains("text-checkout-setup")));
+    }
+
     function throwRaw(slot) {
       if (!slot) return "";
       const a = slot.getAttribute?.("data-adraw");
@@ -9315,6 +9348,7 @@ function ensureMainButtonPosition() {
         addSliderPx("CHECKOUT_FONT_PX", L.fields.fontSize, 20, EXT_LIMITS.CHECKOUT_FONT_PX, 1);
         addColor(()=>c.CHECKOUT_COLOR_HEX, v=>c.CHECKOUT_COLOR_HEX=v, L.fields.color);
         addSlider01(()=>c.CHECKOUT_OPACITY, v=>c.CHECKOUT_OPACITY=v, L.fields.opacity, 0.05);
+        addSliderInt("CHECKOUT_BAR_FIT_PCT", "Route in turn bar cards (% of card)", 10, 90);
         addSliderInt("CHECKOUT_X_PX", "Move left / right px", -600, 600);
         addSliderInt("CHECKOUT_Y_PX", "Move up / down px", -600, 600);
         break;
