@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.45.0
+// @version      2.46.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.45.0";
+  const SCRIPT_VERSION = "2.46.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -34,7 +34,7 @@
   "ad_core_state_v230",
   "ad_core_state_v227",
 ];
-  const STATE_SCHEMA_VERSION = 2;
+  const STATE_SCHEMA_VERSION = 3;
   const LEGACY_CLOCK_KEY = "ad_clock_only_v11";
 
   const clone = (obj) => (typeof structuredClone === "function")
@@ -1305,6 +1305,15 @@
     // Fonts, colours, sizes and every other setting are left untouched.
     if (Number(st?.schemaVersion || 0) < 2) {
       for (const pr of out.presets) zeroLegacyOffsets(pr);
+    }
+
+    // v3 migration: the skin selector health-check looked for the OLD site's Chakra
+    // classes, found none on the rebuilt site, and auto-disabled SKIN_CSS on whichever
+    // preset was active each time a match opened -- silently dropping that preset's
+    // background. The check now skips the rebuilt site; switch Skin back on ONCE for
+    // every preset (a theme applied from the gallery turns it on too).
+    if (Number(st?.schemaVersion || 0) < 3) {
+      for (const pr of out.presets) pr.SKIN_CSS = true;
     }
 
     out.schemaVersion = STATE_SCHEMA_VERSION;
@@ -3330,6 +3339,10 @@ svg.ad-board-svg text{
     const c = cfg();
     if (!c || !c.SKIN_CSS) return;
     if (!location.pathname.startsWith("/matches/")) return;
+    // The Chakra selectors below only exist on the OLD site. On the rebuilt site their
+    // absence is expected (AD2 handles it), and treating it as drift auto-disabled Skin
+    // -- and with it the preset's background -- every time a match opened.
+    if (/autodarts\.com$/.test(location.hostname) || AD2.isNewSite()) return;
 
     const turn = document.querySelector("#ad-ext-turn");
     const players = playersHost();
@@ -3757,8 +3770,8 @@ svg.ad-board-svg text{
   function getActiveOrFirstPanel() {
     const host = playersHost();
     if (!host) return null;
-    return Array.from(host.children).find(p => p.classList && p.classList.contains(ACTIVE_CLASS))
-      || host.children[0] || null;
+    const panels = playerPanels(host);
+    return panels.find(p => p.classList && p.classList.contains(ACTIVE_CLASS)) || panels[0] || null;
   }
 
   let flairTimers = [];
@@ -5080,6 +5093,15 @@ function markCheckoutInTurnBar(turn) {
     // script (RangeError before the settings cog was ever built).
     return document.querySelector("#ad-ext-player-display") || document.querySelector(".ad-core-game");
   }
+  // The player cards/columns under playersHost(). On the rebuilt site the host is the whole
+  // game area and one of its children is the centre column (turn bar + dartboard) -- treating
+  // every child as a player made the editor select the centre column as "player 2", resize
+  // the board along with the turn bar, and think every 2-player game was a 3-4 player grid.
+  function playerPanels(host = playersHost()) {
+    if (!host) return [];
+    const tagged = host.querySelectorAll(":scope > .ad-ext-player");
+    return tagged.length ? Array.from(tagged) : Array.from(host.children).filter((n) => n && n.nodeType === 1);
+  }
 
   /* ================== ACTIVE PLAYER DETECT ================== */
   function parseRGBA(str) {
@@ -5153,7 +5175,7 @@ function markCheckoutInTurnBar(turn) {
     // white-frame brightness heuristic below is the legacy-DOM fallback only.
     if (AD2.isNewSite()) return;
 
-    const panels = Array.from(host.children).filter((n) => n && n.nodeType === 1);
+    const panels = playerPanels(host);
     if (!panels.length) return;
 
     let bestPanel = null, bestScore = 0;
@@ -5263,7 +5285,7 @@ function markCheckoutInTurnBar(turn) {
     const host = playersHost();
     if (!host) return false;
     if (!cfg().PI_GRID_ADJUST) return false;
-    return host.children.length >= 3;
+    return playerPanels(host).length >= 3;
   }
   function gridScaleFactor() {
     return clamp(Number(cfg().PI_GRID_SCALE) || 0.5, 0.2, 1);
@@ -5385,7 +5407,7 @@ function markCheckoutInTurnBar(turn) {
     const out = [];
     const host = playersHost();
     if (host) {
-      Array.from(host.children).forEach((cardEl, i) => {
+      playerPanels(host).forEach((cardEl, i) => {
         const player = i + 1;
         if (player > 4) return;
         for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
@@ -5412,8 +5434,8 @@ function markCheckoutInTurnBar(turn) {
     if (!rawTarget || !rawTarget.closest) return null;
 
     const host = playersHost();
-    if (host && host.contains(rawTarget)) {
-      const cards = Array.from(host.children);
+    const cards = playerPanels(host);
+    if (cards.some((c) => c.contains(rawTarget))) {
       for (const [kind, sel] of Object.entries(EDIT_ELEMENT_SELECTORS)) {
         const el = rawTarget.closest(sel);
         if (el && host.contains(el)) {
@@ -6420,8 +6442,8 @@ function markCheckoutInTurnBar(turn) {
     if (c.HIGHSCORE_FLASH) {
       const host = playersHost();
       if (host) {
-        const activePanel = Array.from(host.children).find(p => p.classList && p.classList.contains(ACTIVE_CLASS))
-          || Array.from(host.children)[0];
+        const panels = playerPanels(host);
+        const activePanel = panels.find(p => p.classList && p.classList.contains(ACTIVE_CLASS)) || panels[0];
         if (activePanel) {
           activePanel.classList.remove(HIGHSCORE_CLASS);
           void activePanel.offsetWidth;
