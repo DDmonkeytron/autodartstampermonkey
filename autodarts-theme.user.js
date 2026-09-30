@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.54.0
+// @version      2.55.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.54.0";
+  const SCRIPT_VERSION = "2.55.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -102,6 +102,7 @@
     // Stacked throw cards (rebuilt site): points big + centred, the D20/T20 label centred
     // underneath, all sized to the card. Off = classic (points + corner label). Themes set these.
     THROW_STACKED: false,
+    THROW_SEGMENT_MAIN: false,   // swap: T20/D18 is the big text, the points are the small label
     THROW_FIT_PCT: 46,   // points height, % of card width
     ORIG_FIT_PCT: 18,    // D20/T20 label height, % of card width
     TOTAL_FIT_PCT: 62,   // turn total height, % of card width
@@ -2316,6 +2317,18 @@ ${(+c.TURN_BAR_BG_OPACITY || 0) < 0.05 ? `#ad-ext-turn.ad-core-turnbar{ box-shad
   font-size:calc(var(--ad-total-u, 96px) * var(--ad-total-fit)) !important;
   line-height:1 !important;
 }
+`);
+      }
+
+      // Swap which text is big: the segment (T20) takes the main slot and size, the points
+      // take the small label slot. Positions/sizes/colours follow the slot, not the content.
+      // MISS has no segment, so it keeps showing MISS.
+      if (c.THROWS_TO_POINTS && c.THROW_SEGMENT_MAIN) {
+        css.push(`
+.ad-ext-turn-throw p[data-adval][data-adorig]::after,
+#ad-ext-turn .ad-core-throw[data-adval][data-adorig]::after{ content: attr(data-adorig) !important; }
+.ad-ext-turn-throw p[data-adval][data-adorig]::before,
+#ad-ext-turn .ad-core-throw[data-adval][data-adorig]::before{ content: attr(data-adval) !important; }
 `);
       }
 
@@ -9194,6 +9207,7 @@ function ensureMainButtonPosition() {
       }
 
       case "throws":
+        addCheckbox("Swap: T20/D18 big, points small", ()=>!!c.THROW_SEGMENT_MAIN, v=>{ c.THROW_SEGMENT_MAIN=v; });
         if (c.THROW_STACKED && c.THROWS_TO_POINTS) {
           const n = document.createElement("div");
           Object.assign(n.style, { opacity: "0.75", fontSize: "12px", lineHeight: "1.4", marginBottom: "6px" });
