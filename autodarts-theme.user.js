@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.56.1
+// @version      2.56.2
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.56.1";
+  const SCRIPT_VERSION = "2.56.2";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -5225,9 +5225,20 @@ function markCheckoutInTurnBar(turn) {
 
       // whose turn it is, from the match object React already holds (same object the
       // match WebSocket delivers; m.player = 0-based thrower index, in column order)
+      // Online matches can show the columns in a different order on each viewer's screen
+      // (you first), so match the thrower by NAME, not by index. Then the active card's
+      // gradient (the site's own per-viewer highlight), and only then the raw index.
       const turnIdx = (() => {
+        const norm = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
         const m = matchStateFrom(scores[0]);
         const n = m ? Number(m.player) : NaN;
+        const who = (m && Number.isInteger(n) && m.players[n]) ? norm(m.players[n].name) : "";
+        if (who) {
+          const hits = cols.map((col, i) => [i, norm(col.querySelector("span.font-display")?.textContent)]).filter(([, t]) => t && t === who);
+          if (hits.length === 1) return hits[0][0];
+        }
+        const grad = cols.map((col, i) => [i, /bg-\S*(diagonal|gradient)|bg-(raspberry|brand)/.test(col.className + " " + (cards.find((cd) => col.contains(cd))?.className || ""))]).filter(([, g]) => g);
+        if (grad.length === 1) return grad[0][0];
         return (Number.isInteger(n) && n >= 0 && n < cols.length) ? n : null;
       })();
 
