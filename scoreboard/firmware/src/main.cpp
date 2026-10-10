@@ -86,7 +86,7 @@ volatile bool otaPullPending = false; // remote OTA: /ota_pull sets this; loop()
 volatile bool gifPullPending = false; String gifPullName = "";   // remote GIF push: board pulls the file from R2
 volatile bool helloPending = false;   // config changed: the cloud task re-sends hello so the relay shows the new layout
 
-struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; float f9 = 0; int coPct = 0; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours; f9 = first-9 avg; coPct = checkout %
+struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; float f9 = 0; int coPct = 0; int dl = 0; int dm = 0; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours; f9 = first-9 avg; coPct = checkout %
 Player players[4];
 int numPlayers = 2, activePlayer = 0;
 int turnThrows[3] = {0, 0, 0}, turnThrowCount = 0;
@@ -247,6 +247,11 @@ String fieldValue(const String &t, int p, JsonObject f) {
   if (t == "f9")       return String(pl.f9, 1);          // first-9 average
   if (t == "co%")      return String(pl.coPct) + "%";    // checkout percentage
   if (t == "checkout") return checkoutStr(pl);
+  if (t == "darts") {                                    // field option m: turn (1-3, default) | leg | match
+    const char *m = f["m"] | "turn";
+    if (!strcmp(m, "leg"))   return String(pl.dl);       // running count, every player (7,8,9 → 10,11,12)
+    if (!strcmp(m, "match")) return String(pl.dm);
+  }
   if (!act) return "";                                   // turn fields: active player only
   if (t == "darts")    return String(turnThrowCount);
   if (t == "last")     return turnThrowCount ? String(turnThrows[turnThrowCount - 1]) : "";
@@ -803,6 +808,8 @@ void handleScore() {
       players[i].co = (const char *)(a[i]["co"] | "");   // autodarts' suggestion; absent/"" → firmware computes its own
       players[i].f9 = a[i]["f9"] | players[i].f9;         // first-9 average (from autodarts stats)
       players[i].coPct = a[i]["coPct"] | players[i].coPct; // checkout %
+      players[i].dl = a[i]["dl"] | players[i].dl;           // darts thrown this leg (running count)
+      players[i].dm = a[i]["dm"] | players[i].dm;           // darts thrown this match
     }
   }
   JsonArray th = d["throws"].as<JsonArray>(); turnThrowCount = 0;

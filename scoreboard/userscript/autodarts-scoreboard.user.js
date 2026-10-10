@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.9.2
+// @version      0.9.3
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.com: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -260,6 +260,35 @@
     if (ev) postEvent(ev, undefined, total);
   }
 
+  // ---- running dart counts (the board's "darts" field in leg / match mode) ----
+  // autodarts keeps dartsThrown per player in stats[i].legStats / .matchStats. Whether that
+  // already includes the darts in hand mid-visit isn't relied on: for the thrower we take the
+  // count at the START of the visit and add the darts as they land (7,8,9 → 10,11,12).
+  let dcVisit = "", dcPrevN = 0, dcBase = { legStats: null, matchStats: null };
+  function dartCounts(m, s) {
+    const a = s.active, n = s.throws.length;
+    const stat = (i, k) => { const v = m.stats?.[i]?.[k]?.dartsThrown; return Number.isFinite(+v) ? +v : null; };
+    const visit = [curMatchId, s.set, s.leg, a, m.round ?? ""].join("|");
+    if (visit !== dcVisit || n < dcPrevN) {             // new visit (or a correction): re-take the base
+      dcVisit = visit;
+      for (const k of ["legStats", "matchStats"]) {
+        const raw = stat(a, k);
+        // joined mid-visit: completed visits are normally whole 3s, so if raw-n is a multiple
+        // of 3 the stat already includes the darts in hand
+        dcBase[k] = raw == null ? null : (n > 0 && raw >= n && (raw - n) % 3 === 0 ? raw - n : raw);
+      }
+    }
+    dcPrevN = n;
+    const one = (i, k) => {
+      if (i === a && dcBase[k] != null) return dcBase[k] + n;
+      const raw = stat(i, k);
+      if (raw != null) return raw;
+      if (k !== "legStats") return null;                // no stats: only the leg count can be tracked here
+      return (legDarts[i] || 0) + (i === a ? Math.max(0, n - curThrows.length) : 0);
+    };
+    return s.players.map((_, i) => ({ dl: one(i, "legStats"), dm: one(i, "matchStats") }));
+  }
+
   function onMatchState(m, matchId) {
     if (DEBUG) log("match state", m);
     const s = readMatch(m);
@@ -270,6 +299,9 @@
 
     // mirror autodarts' own suggested checkout onto the active player (the thrower)
     if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout(m);
+
+    // darts thrown so far: dl = this leg, dm = whole match (per player)
+    dartCounts(m, s).forEach((c, i) => { if (c.dl != null) s.players[i].dl = c.dl; if (c.dm != null) s.players[i].dm = c.dm; });
 
     // push scoreboard (deduped) — include the active turn's individual dart scores
     const throwPoints = s.throws.map(dartPoints);
