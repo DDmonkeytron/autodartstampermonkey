@@ -84,6 +84,7 @@ uint16_t C_WHITE, C_RED, C_GREEN, C_YELLOW, C_CYAN, C_DIM;
 bool cloudUp = false;                // cloud tunnel connected? (reported by /status; set by the cloud task)
 volatile bool otaPullPending = false; // remote OTA: /ota_pull sets this; loop() runs the download
 volatile bool gifPullPending = false; String gifPullName = "";   // remote GIF push: board pulls the file from R2
+volatile bool helloPending = false;   // config changed: the cloud task re-sends hello so the relay shows the new layout
 
 struct Player { String name = "PLAYER"; int score = 501; int legs = 0; float avg = 0; int c180 = 0; int high = 0; String co = ""; float f9 = 0; int coPct = 0; };  // co = autodarts' own checkout suggestion (verbatim), "" = compute ours; f9 = first-9 avg; coPct = checkout %
 Player players[4];
@@ -288,6 +289,14 @@ void drawFields(JsonArray fields) {
     if (size <= 0) { dma->setFont(&TomThumb); dma->setCursor(x, y + 5); dma->print(v); dma->setFont(nullptr); }  // baseline font: y+5 puts glyph top ~y
     else { dma->setTextSize(size); dma->setCursor(x, y); dma->print(v); }
   }
+}
+// Name of the layout on screen, for /status and the relay dashboard. The web UI writes
+// layout.activePreset on save (the preset the fields match, else "custom").
+String activeLayoutName() {
+  JsonArray fields = cfg["layout"]["fields"].as<JsonArray>();
+  if (fields.isNull() || fields.size() == 0) return "classic";
+  String n = (const char *)(cfg["layout"]["activePreset"] | "");
+  return n.length() ? n : "custom";
 }
 void drawScoreboard() {
   idle = false; summaryShowing = false; gifSkipX0 = -1;   // no reserved band on the scoreboard
@@ -841,10 +850,14 @@ void handleConfigPost() {
     for (const char *k : keep) if (dl[k].isNull() && !cl[k].isNull()) dl[k] = cl[k];
     if (dl["presets"].isNull() && !cl["presets"].isNull()) dl["presets"] = cl["presets"];
     if (dl["gifCategories"].isNull() && !cl["gifCategories"].isNull()) dl["gifCategories"] = cl["gifCategories"];
-    if (dl["fields"].isNull() && !cl["fields"].isNull()) dl["fields"] = cl["fields"];   // keep the custom layout too
+    if (dl["fields"].isNull() && !cl["fields"].isNull()) {    // keep the custom layout too
+      dl["fields"] = cl["fields"];
+      if (dl["activePreset"].isNull() && !cl["activePreset"].isNull()) dl["activePreset"] = cl["activePreset"];   // ...and its name (only while the fields are the kept ones)
+    }
     if (dl["playerRules"].isNull() && !cl["playerRules"].isNull()) dl["playerRules"] = cl["playerRules"];   // keep per-player GIFs
   }
   cfg = d; saveConfig(); applyLive();            // (panelDriver / strip pins+counts need a reboot)
+  helloPending = true;
   if (!eventUntil && !identifyUntil) drawScoreboard();
   server.send(200, "application/json", "{\"ok\":true}");
 }
@@ -896,6 +909,7 @@ void handleStatus() {
   for (int i = 0; i < numPlayers; i++) { s["c180"][i] = players[i].c180; s["high"][i] = players[i].high; }
   s["cloud"]["enabled"] = (bool)(cfg["layout"]["cloudEnabled"] | false); s["cloud"]["up"] = cloudUp;
   s["ver"] = FW_VERSION;
+  s["layout"] = activeLayoutName();
   s["fsUsed"] = LittleFS.usedBytes(); s["fsTotal"] = LittleFS.totalBytes();   // GIF/config storage (bytes)
   String o; serializeJson(s, o); server.send(200, "application/json", o);
 }
@@ -981,7 +995,8 @@ void sendHello() {
   String name = (const char *)(cfg["layout"]["cloudName"] | "");
   if (!name.length()) name = (const char *)(cfg["layout"]["cloudId"] | "darts");
   name.replace("\"", "");
-  String msg = "{\"t\":\"hello\",\"meta\":{\"name\":\"" + name + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"fw\":\"scoreboard\",\"ver\":\"" FW_VERSION "\"}}";
+  String lay = activeLayoutName(); lay.replace("\\", ""); lay.replace("\"", "");
+  String msg = "{\"t\":\"hello\",\"meta\":{\"name\":\"" + name + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"fw\":\"scoreboard\",\"ver\":\"" FW_VERSION "\",\"layout\":\"" + lay + "\"}}";
   cloudWS.sendTXT(msg);
 }
 
@@ -1047,6 +1062,7 @@ void cloudTask(void *) {
     cloudWS.loop();
     uint32_t now = millis();
     if (cloudUp && now - lastPing > 30000) { lastPing = now; cloudWS.sendTXT("{\"t\":\"ping\"}"); }   // refresh lastSeen
+    if (cloudUp && helloPending) { helloPending = false; sendHello(); }                           // config saved → update relay meta
     vTaskDelay(pdMS_TO_TICKS(5));
   }
   cloudWS.disconnect(); cloudUp = false; cloudTaskH = nullptr; vTaskDelete(nullptr);

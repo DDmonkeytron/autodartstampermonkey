@@ -63,7 +63,7 @@ If the panel is blank/garbled, uncomment a `cfg.driver = ...` line to match the 
 |---|---|---|---|
 | GET  | `/`        | – | **web config UI** (edit config, upload GIFs, test events, OTA, status) |
 | GET  | `/ping`    | – | identifies the device (used by the scan feature) |
-| GET  | `/status`  | – | heap / RSSI / IP / current GIF / uptime / queue depth |
+| GET  | `/status`  | – | heap / RSSI / IP / current GIF / uptime / queue depth / active `layout` name |
 | GET  | `/config`  | – | returns current config (layout + event map) |
 | POST | `/config`  | full config JSON | replace layout + event map, persist, re-render, apply live |
 | GET  | `/sprites` | – | list uploaded GIFs |

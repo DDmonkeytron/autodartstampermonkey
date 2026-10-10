@@ -168,7 +168,8 @@ async function load(){
    const d=document.createElement('div');d.className='board';
    const meta=b.meta||{};
    const seen=b.lastSeen?new Date(b.lastSeen).toLocaleTimeString():'';
-   const info=[meta.ver?'v'+meta.ver:'',meta.ip||'',b.online?'':(seen?'seen '+seen:'')].filter(Boolean).join(' · ');
+   const lay=meta.layout?'layout: '+String(meta.layout).replace(/[<>&]/g,''):'';
+   const info=[meta.ver?'v'+meta.ver:'',meta.ip||'',lay,b.online?'':(seen?'seen '+seen:'')].filter(Boolean).join(' · ');
    d.innerHTML='<span class=dot>'+(b.online?'🟢':'🔴')+'</span> <b>'+b.id+'</b>'+(meta.name?' <span class=name>'+meta.name+'</span>':'')+(info?' <span class=meta>'+info+'</span>':'')+'<span class=sp></span>';
    const mk=(t,fn)=>{const x=document.createElement('button');x.textContent=t;x.disabled=!b.online;x.onclick=fn;d.appendChild(x)};
    mk('Open control panel',()=>opn(b.id));

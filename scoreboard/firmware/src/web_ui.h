@@ -51,6 +51,7 @@ img{image-rendering:pixelated}pre{background:#1c1c1c;padding:.6em;white-space:pr
 <div id=fprops style="min-height:2em;margin:.3em 0">(no field selected)</div>
 <button onclick=savelay() class=primary>💾 Save &amp; apply</button>
 <button onclick=deffields()>Load classic layout</button> <button onclick=clearfields()>Clear (blank &rarr; classic)</button>
+<div style="margin-top:.5em">On board: <b id=curlay class=hint></b></div>
 <div style="margin-top:.5em">Presets: <select id=preset></select> <button onclick=loadpreset()>Load into editor</button>
  &nbsp;<input id=pname placeholder="new preset name" style=width:130px><button onclick=savepreset()>Save as preset</button> <button onclick=delpreset()>Delete</button></div>
 </section>
@@ -279,12 +280,17 @@ function BUILTINS(){return {
 }}
 function renderPresets(){const b=Object.keys(BUILTINS()),u=Object.keys(presets());
  preset.innerHTML=b.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')+(u.length?`<option disabled>── my presets ──</option>`+u.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join(''):'')}
+// Which preset the editor's fields match (classic = none, custom = edited). Saved as layout.activePreset
+// so /status and the cloud relay can show what the board is displaying.
+function layName(){const F=lfields();if(!F.length)return 'classic';const j=JSON.stringify(F),b=BUILTINS(),u=presets();
+ for(const n in b)if(JSON.stringify(b[n])==j)return n;for(const n in u)if(JSON.stringify(u[n])==j)return n;return 'custom'}
+function showLay(){curlay.textContent=layName()}
 function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clone(b[n]):clone(presets()[n]||[]);selF=-1;renderLED()}
 async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
 async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
 function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels();renderCloud()}
-async function save(){c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)})}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels();renderCloud();showLay()}
+async function save(){C.layout.activePreset=layName();c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)});showLay()}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
 async function sp(){gifs=JSON.parse(await t('/sprites'));

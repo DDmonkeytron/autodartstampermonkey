@@ -62,6 +62,8 @@ and the board appears 🟢 in the dashboard.
 
 ## Notes / limits
 - Config, layouts, GIF list, test events, and **GIF uploads** proxy fine (small payloads).
+- Each board row shows the **layout on screen** (`layout: 2 Player (classic)`, `custom` for an edited
+  layout, `classic` for none). The board reports it on connect and again after every config save.
 - **OTA firmware push** over the tunnel is a follow-up (a ~1 MB image exceeds the
   1 MB WebSocket-message limit and needs chunking). Local OTA still works.
 - Durable Object **WebSocket hibernation** keeps idle boards essentially free.
