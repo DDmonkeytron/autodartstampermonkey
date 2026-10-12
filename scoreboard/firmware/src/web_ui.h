@@ -216,7 +216,7 @@ function renderProps(){const F=lfields();if(selF<0||selF>=F.length){fprops.inner
  fprops.innerHTML=`<b>#${selF}</b> type <select onchange="fS('t',this.value)">${opt(FT,f.t)}</select> player <select onchange="fS('p',+this.value)">${opt(['0','1','2','3'],''+f.p)}</select> size <select onchange="fS('s',+this.value)"><option value=0 ${(f.s??1)==0?'selected':''}>small</option><option value=1 ${(f.s??1)==1?'selected':''}>1</option><option value=2 ${(f.s??1)==2?'selected':''}>2</option></select> align <select onchange="fS('a',this.value)">${opt(['l','c','r'],f.a||'l')}</select> x<input type=number style=width:46px value="${f.x}" onchange="fS('x',+this.value)"> y<input type=number style=width:46px value="${f.y}" onchange="fS('y',+this.value)"> <input type=color value="${hx(f.c)}" onchange="fS('c',rgb(this.value))"> ${f.t=='label'?`text <input value="${esc(f.v||'')}" onchange="fS('v',this.value)">`:''} ${f.t=='darts'?`count <select onchange="fS('m',this.value)" title="turn = dart 1-3 of this visit (thrower only) · leg / match = running total per player">${opt(['turn','leg','match'],f.m||'turn')}</select>`:''} ${f.t=='amark'?`fx <select onchange="fS('fx',this.value)">${opt(['on','blink','pulse'],f.fx||'on')}</select>`:''} <button onclick=centerX()>&#9678; centre</button> <button onclick="delF(${selF})">✕ delete</button>`}
 function fS(k,v){lfields()[selF][k]=v;renderLED()}
 function delF(i){lfields().splice(i,1);selF=-1;renderLED()}
-async function savelay(){await save();alert('Layout saved & applied')}
+async function savelay(){const n=presets()[curP]?curP:'';if(n)presets()[n]=clone(lfields());await save();alert('Layout saved & applied'+(n?' — preset "'+n+'" updated':''))}
 function clearfields(){C.layout.fields=[];selF=-1;renderLED()}
 function DEFAULT_FIELDS(){return [
  {t:'name',p:0,x:1,y:0,s:1,a:'l'},{t:'amark',p:0,x:60,y:0},{t:'score',p:0,x:1,y:8,s:2,a:'l'},{t:'legs',p:0,x:1,y:24,s:1,a:'l',c:[40,200,230]},{t:'avg',p:0,x:14,y:24,s:1,a:'l',c:[40,200,230]},
@@ -224,6 +224,7 @@ function DEFAULT_FIELDS(){return [
  {t:'name',p:1,x:1,y:32,s:1,a:'l'},{t:'amark',p:1,x:60,y:32},{t:'score',p:1,x:1,y:40,s:2,a:'l'},{t:'legs',p:1,x:1,y:56,s:1,a:'l',c:[40,200,230]},{t:'avg',p:1,x:14,y:56,s:1,a:'l',c:[40,200,230]}]}
 const clone=o=>JSON.parse(JSON.stringify(o));
 function deffields(){C.layout.fields=DEFAULT_FIELDS();selF=-1;renderLED()}
+let curP='';   // the user preset being edited: Save & apply writes the edits back into it
 function presets(){if(!C.layout.presets)C.layout.presets={};return C.layout.presets}
 const _CY=[40,200,230],_GR=[40,220,60],_GD=[255,215,0],_MG=[230,80,230],_OR=[255,140,0];
 function BUILTINS(){return {
@@ -285,11 +286,11 @@ function renderPresets(){const b=Object.keys(BUILTINS()),u=Object.keys(presets()
 function layName(){const F=lfields();if(!F.length)return 'classic';const j=JSON.stringify(F),b=BUILTINS(),u=presets();
  for(const n in b)if(JSON.stringify(b[n])==j)return n;for(const n in u)if(JSON.stringify(u[n])==j)return n;return 'custom'}
 function showLay(){curlay.textContent=layName()}
-function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clone(b[n]):clone(presets()[n]||[]);selF=-1;renderLED()}
-async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;await save();alert('Preset "'+n+'" saved')}
-async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];renderPresets();await save()}
+function loadpreset(){const n=preset.value,b=BUILTINS();C.layout.fields=b[n]?clone(b[n]):clone(presets()[n]||[]);curP=b[n]?'':n;selF=-1;renderLED()}
+async function savepreset(){const n=pname.value.trim();if(!n){alert('Enter a preset name');return}if(BUILTINS()[n]){alert('That name is a built-in — pick another');return}presets()[n]=clone(lfields());pname.value='';renderPresets();preset.value=n;curP=n;await save();alert('Preset "'+n+'" saved')}
+async function delpreset(){const n=preset.value;if(BUILTINS()[n]){alert("Built-in layouts can't be deleted");return}if(!presets()[n]){alert('Pick one of your saved presets');return}if(!confirm('Delete preset "'+n+'"?'))return;delete presets()[n];if(curP==n)curP='';renderPresets();await save()}
 function centerX(){const f=lfields()[selF];if(!f)return;f.a='c';f.x=32;renderLED()}
-async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();renderCats();renderPanels();renderCloud();showLay()}
+async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.stringify(C,null,1);renderLayout();renderEvents();renderLED();renderPresets();curP=presets()[layName()]?layName():'';if(curP)preset.value=curP;renderCats();renderPanels();renderCloud();showLay()}
 async function save(){C.layout.activePreset=layName();c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)});showLay()}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
