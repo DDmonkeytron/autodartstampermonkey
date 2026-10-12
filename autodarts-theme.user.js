@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.57.2
+// @version      2.58.0
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.57.2";
+  const SCRIPT_VERSION = "2.58.0";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -310,7 +310,7 @@
     UNDO_BTN_X_PX: 0, UNDO_BTN_Y_PX: 0, UNDO_BTN_SCALE: 1,
     CAMERA_BTN_X_PX: 0, CAMERA_BTN_Y_PX: 0, CAMERA_BTN_SCALE: 1,   // rebuilt site: the camera button on the board
     NEXT_BTN_X_PX: 0, NEXT_BTN_Y_PX: 0, NEXT_BTN_SCALE: 1,
-    ACTION_BAR_X_PX: 0, ACTION_BAR_Y_PX: 0, ACTION_BAR_SCALE: 1,   // rebuilt site: the whole bottom bar (input mode / undo / Next)
+    ACTION_BAR_X_PX: 0, ACTION_BAR_Y_PX: 0, ACTION_BAR_SCALE: 1, ACTION_BAR_WIDTH_PX: 0,   // width 0 = the site's own width   // rebuilt site: the whole bottom bar (input mode / undo / Next)
     // Whole turn bar (the 3 dart-throw cards + total score, moved/scaled as one linked unit)
     TURN_BAR_X_PX: 0, TURN_BAR_Y_PX: 0, TURN_BAR_SCALE: 1,
   };
@@ -2437,6 +2437,10 @@ svg.ad-board-svg, img.ad-board-img, svg.ad-core-board{
   translate: ${clamp(Math.round(+c.ACTION_BAR_X_PX || 0), -2000, 2000)}px ${clamp(Math.round(+c.ACTION_BAR_Y_PX || 0), -2000, 2000)}px !important;
   scale: ${clamp(Number.isFinite(+c.ACTION_BAR_SCALE) ? +c.ACTION_BAR_SCALE : 1, 0.3, 3)} !important;
 }
+${(+c.ACTION_BAR_WIDTH_PX || 0) >= 100 ? `.ad-core-actionbar{
+  width: ${clamp(Math.round(+c.ACTION_BAR_WIDTH_PX), 100, 3000)}px !important;
+  min-width: 0 !important; max-width: none !important; flex: 0 0 auto !important;
+}` : ""}
 #ad-ext-turn{
   translate: ${clamp(Number.isFinite(+c.TURN_BAR_X_PX) ? +c.TURN_BAR_X_PX : 0, -1000, 1000)}px ${clamp(Number.isFinite(+c.TURN_BAR_Y_PX) ? +c.TURN_BAR_Y_PX : 0, -1000, 1000)}px !important;
   scale: ${clamp(Number.isFinite(+c.TURN_BAR_SCALE) ? +c.TURN_BAR_SCALE : 1, 0.3, 3)} !important;
@@ -9348,6 +9352,7 @@ function ensureMainButtonPosition() {
         addSliderInt("CAMERA_BTN_Y_PX", "Camera button up / down px", -800, 800);
         addSliderInt("ACTION_BAR_X_PX", "Bottom bar (Undo / Next) left / right px", -1500, 1500);
         addSliderInt("ACTION_BAR_Y_PX", "Bottom bar (Undo / Next) up / down px", -1500, 1500);
+        addSliderInt("ACTION_BAR_WIDTH_PX", "Bottom bar (Undo / Next) width px (0 = default)", 0, 3000);
 
         sub("Dart card layout");
         addSelect("TB_ALIGN", "Card alignment", [["evenly", "Spread evenly"], ["center", "Centred"], ["start", "Left"], ["end", "Right"]]);
@@ -9403,7 +9408,7 @@ function ensureMainButtonPosition() {
                            "TURN_BAR_X_PX", "TURN_BAR_Y_PX", "TURN_BAR_SCALE", "TB_ALIGN", "TB_OFFSET_X_PX",
                            "TB_BOX_RADIUS_PX", "TB_BOX_PAD_PX", "TB_BORDER_PX", "TB_EMPTY_DART_PCT", "BOARD_SCALE", "BOARD_X_PX", "BOARD_Y_PX",
                            "CAMERA_BTN_X_PX", "CAMERA_BTN_Y_PX", "CAMERA_BTN_SCALE",
-                           "ACTION_BAR_X_PX", "ACTION_BAR_Y_PX", "ACTION_BAR_SCALE"]) c[k] = DEFAULT_CFG[k];
+                           "ACTION_BAR_X_PX", "ACTION_BAR_Y_PX", "ACTION_BAR_SCALE", "ACTION_BAR_WIDTH_PX"]) c[k] = DEFAULT_CFG[k];
           saveStateDebounced(); renderCss(); dirtyTurn(); scheduleUpdate(); renderPanel();
           showToast(L.saved);
         }, "ghost", compact);
@@ -9525,6 +9530,7 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_P4_SHIFT_Y", pi.alignP4, -200, 200, 2);
         addSliderInt("ACTION_BAR_X_PX", pi.editGlobalLabel.actionBar + " ↔", -1500, 1500);
         addSliderInt("ACTION_BAR_Y_PX", pi.editGlobalLabel.actionBar + " ↕", -1500, 1500);
+        addSliderInt("ACTION_BAR_WIDTH_PX", pi.editGlobalLabel.actionBar + " width px (0 = default)", 0, 3000);
 
         // ---- 3-4 PLAYER FIT ----
         piSection(pi.secGrid);
