@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.57.1
+// @version      2.57.2
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.57.1";
+  const SCRIPT_VERSION = "2.57.2";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -5331,6 +5331,13 @@ function markCheckoutInTurnBar(turn) {
         // camera toggle on the board (FontAwesome camera icon)
         const cam = centre.querySelector('svg[data-icon="camera"]')?.closest("button");
         if (cam && !cam.classList.contains("ad-core-btn-camera")) cam.classList.add("ad-core-btn-camera");
+        // bottom bar (input mode / undo / Next): the last rounded strip of buttons in the centre
+        // column. Found by structure, not by the Next button's label, so it tags in any site
+        // language and when Next isn't showing.
+        const abar = Array.from(centre.querySelectorAll("div")).filter((d) =>
+          /(^|\s)rounded-2xl(\s|$)/.test(String(d.className)) && d.querySelectorAll("button").length >= 2
+          && !d.querySelector(".font-number") && !(board && d.contains(board))).pop();
+        if (abar && !abar.classList.contains("ad-core-actionbar")) abar.classList.add("ad-core-actionbar");
         if (board) {
           if (!board.classList.contains("ad-core-board")) board.classList.add("ad-core-board");
           const wrap = board.parentElement;
@@ -7145,6 +7152,7 @@ function tagActionButtons() {
     else if (RE_NEXT_BTN.test(txt)) b.classList.add("ad-core-btn-next");
   }
   // rebuilt site: the rounded bar those buttons sit in (input mode / undo / Next), moved as one unit
+  if (document.querySelector(".ad-core-actionbar")) return;   // already found structurally (AD2.tag)
   const anchor = document.querySelector(".ad-core-btn-next, .ad-core-btn-undo");
   let bar = anchor && anchor.parentElement;
   for (let i = 0; i < 4 && bar; i++, bar = bar.parentElement) {
@@ -9515,6 +9523,8 @@ function ensureMainButtonPosition() {
         addSliderPx("PI_P2_SHIFT_Y", pi.alignP2, -200, 200, 2);
         addSliderPx("PI_P3_SHIFT_Y", pi.alignP3, -200, 200, 2);
         addSliderPx("PI_P4_SHIFT_Y", pi.alignP4, -200, 200, 2);
+        addSliderInt("ACTION_BAR_X_PX", pi.editGlobalLabel.actionBar + " ↔", -1500, 1500);
+        addSliderInt("ACTION_BAR_Y_PX", pi.editGlobalLabel.actionBar + " ↕", -1500, 1500);
 
         // ---- 3-4 PLAYER FIT ----
         piSection(pi.secGrid);
