@@ -294,17 +294,24 @@ async function load(){C=JSON.parse(await t('/config')||'{}');c.value=JSON.string
 async function save(){C.layout.activePreset=layName();c.value=JSON.stringify(C,null,1);await fetch('/config',{method:'POST',body:JSON.stringify(C)});showLay()}
 function applyRaw(){try{C=JSON.parse(c.value);renderLayout();renderEvents()}catch(e){alert('bad JSON: '+e)}}
 function dl(){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(C,null,1)],{type:'application/json'}));a.download='config.json';a.click()}
+// GIF previews load ONE at a time, and only once the GIFs tab is open: through the cloud tunnel each
+// one is a loopback fetch + base64 on the board, and ~50 at once ran it out of memory (reboot)
+let thumbRun=0;
+async function thumbs(){const run=++thumbRun;
+ for(const c of document.querySelectorAll('#s [data-s]')){if(run!=thumbRun)return;if(c.dataset.ok)continue;c.dataset.ok=1;
+  if(c.tagName=='IMG'){await new Promise(r=>{c.onload=r;c.onerror=()=>{c.remove();r()};c.src=c.dataset.s});continue}
+  try{const a=new Uint8Array(await (await fetch(c.dataset.s)).arrayBuffer());
+  if(a[0]!=73||a[1]!=77)continue;const w=a[2],h=a[3];c.width=w;c.height=h;
+  const g=c.getContext('2d'),id=g.createImageData(w,h);
+  for(let i=0,o=4;i<w*h;i++,o+=2){const v=a[o]|(a[o+1]<<8);id.data[i*4]=v>>8&248;id.data[i*4+1]=v>>3&252;id.data[i*4+2]=v<<3&248;id.data[i*4+3]=255}
+  g.putImageData(id,0,0)}catch(e){}}}
 async function sp(){gifs=JSON.parse(await t('/sprites'));
  try{const st=JSON.parse(await t('/status'));if(st.fsTotal){const u=st.fsUsed/1024|0,tt=st.fsTotal/1024|0,fr=tt-u,pc=(st.fsUsed/st.fsTotal*100)|0;
   fsbar.innerHTML=`Storage: <b>${u} KB</b> used / ${tt} KB &mdash; <b style="color:${fr<200?'#f66':'#8f8'}">${fr} KB free</b> (${pc}%). GIFs for a 128&times;64 panel should be ~30&ndash;80 KB each; shrink big ones at ezgif.com.`}}catch(e){}
  s.innerHTML=gifs.map(n=>{const b=n.split('/').pop(),r=norm(n).replace(/^\//,'');
-  const pv=b.endsWith('.img')?`<canvas class=ipv data-s="${r}" style="height:32px"></canvas>`:`<img src="${r}" height=32 onerror="this.remove()">`;
+  const pv=b.endsWith('.img')?`<canvas class=ipv data-s="${r}" style="height:32px"></canvas>`:`<img data-s="${r}" height=32>`;
   return `<span class=gif>${pv}${b} <button onclick="del('${n}')">x</button></span>`}).join('')||'(none)';
- document.querySelectorAll('.ipv').forEach(async c=>{try{const a=new Uint8Array(await (await fetch(c.dataset.s)).arrayBuffer());
-  if(a[0]!=73||a[1]!=77)return;const w=a[2],h=a[3];c.width=w;c.height=h;
-  const g=c.getContext('2d'),id=g.createImageData(w,h);
-  for(let i=0,o=4;i<w*h;i++,o+=2){const v=a[o]|(a[o+1]<<8);id.data[i*4]=v>>8&248;id.data[i*4+1]=v>>3&252;id.data[i*4+2]=v<<3&248;id.data[i*4+3]=255}
-  g.putImageData(id,0,0)}catch(e){}});
+ if(document.getElementById('p-gifs').classList.contains('on'))thumbs();
  tgif.innerHTML=gifopt('');
  if(C){renderEvents();renderCats();renderLayout();renderPlayers()}}
 async function del(n){await fetch('/delete?name='+encodeURIComponent(n.split('/').pop()),{method:'POST'});sp()}
@@ -371,6 +378,6 @@ async function idf(){await fetch('/identify',{method:'POST'})}
 async function rb(){if(confirm('Reboot device?'))await fetch('/reboot',{method:'POST'})}
 async function stat(){st.textContent=await t('/status')}
 async function lg_(){lg.textContent=await t('/log');lg.scrollTop=lg.scrollHeight}
-function nav(p){document.querySelectorAll('.panel').forEach(e=>e.classList.remove('on'));document.getElementById('p-'+p).classList.add('on');document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('sel',b.dataset.p==p))}
-(async()=>{await sp();await load();renderAddBtns();nav('layout');stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
+function nav(p){document.querySelectorAll('.panel').forEach(e=>e.classList.remove('on'));document.getElementById('p-'+p).classList.add('on');document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('sel',b.dataset.p==p));if(p=='gifs')thumbs()}
+(async()=>{renderAddBtns();nav('layout');for(const f of [sp,load])try{await f()}catch(e){console.error(e);alert('Page did not load fully ('+f.name+'): '+e+' — reload to retry.')}stat();lg_();setInterval(stat,3000);setInterval(lg_,2000)})();
 </script>)HTML";
