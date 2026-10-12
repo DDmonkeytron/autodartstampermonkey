@@ -2,7 +2,7 @@
 // @name         Autodarts – CORE - Jason
 // @namespace    autodarts.core.szala
 // @author       Szala/AI
-// @version      2.57.0
+// @version      2.57.1
 // @match        https://play.autodarts.com/*
 // @match        https://play.autodarts.io/*
 // @run-at       document-start
@@ -18,7 +18,7 @@
 (() => {
   "use strict";
 
-  const SCRIPT_VERSION = "2.57.0";
+  const SCRIPT_VERSION = "2.57.1";
 
   /* ================== STORAGE ================== */
   const STORE_KEY_STATE = "ad_core_state";
@@ -7148,7 +7148,7 @@ function tagActionButtons() {
   const anchor = document.querySelector(".ad-core-btn-next, .ad-core-btn-undo");
   let bar = anchor && anchor.parentElement;
   for (let i = 0; i < 4 && bar; i++, bar = bar.parentElement) {
-    if (/(^|s)rounded-/.test(String(bar.className)) && bar.querySelectorAll("button").length >= 2) { bar.classList.add("ad-core-actionbar"); break; }
+    if (/(^|\s)rounded-/.test(String(bar.className)) && bar.querySelectorAll("button").length >= 2) { bar.classList.add("ad-core-actionbar"); break; }
   }
 }
 
