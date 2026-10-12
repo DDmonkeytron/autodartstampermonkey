@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autodarts LED Scoreboard Bridge (ESP32)
 // @namespace    autodarts.scoreboard.ddmonkeytron
-// @version      0.9.3
+// @version      0.9.4
 // @downloadURL  https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @updateURL    https://raw.githubusercontent.com/DDmonkeytron/autodartstampermonkey/main/scoreboard/userscript/autodarts-scoreboard.user.js
 // @description  Controls an ESP32 LED scoreboard (HUB75 + WS2812) from play.autodarts.com: live scores, GIF+light celebrations, layout config, GIF uploads, and automatic throw detection (double/treble/ton/140/180/26/bust/legWon/gameWon).
@@ -248,7 +248,7 @@
 
   // ---- state machine ----
   let curThrows = [], curActive = -1, lastWinner = null, prevLegs = [], scoreSig = "", bustedThisTurn = false, turnCelebrated = false, shotSig = "", coFired = false, shFired = false, prevLegNo = null;
-  let legDarts = [0, 0, 0, 0], nineWarned = [false, false, false, false], curMatchId = "";   // nine-darter watch (per leg, per player)
+  let legDarts = [0, 0, 0, 0], matchDarts = [0, 0, 0, 0], nineWarned = [false, false, false, false], curMatchId = "";   // nine-darter watch (per leg, per player)
 
   // is n finishable in 3 darts? (≤170, excluding the classic bogey numbers)
   const canFinish3 = (n) => n >= 2 && n <= 170 && ![159, 162, 163, 165, 166, 168, 169].includes(n);
@@ -260,33 +260,33 @@
     if (ev) postEvent(ev, undefined, total);
   }
 
-  // ---- running dart counts (the board's "darts" field in leg / match mode) ----
-  // autodarts keeps dartsThrown per player in stats[i].legStats / .matchStats. Whether that
-  // already includes the darts in hand mid-visit isn't relied on: for the thrower we take the
-  // count at the START of the visit and add the darts as they land (7,8,9 → 10,11,12).
-  let dcVisit = "", dcPrevN = 0, dcBase = { legStats: null, matchStats: null };
-  function dartCounts(m, s) {
-    const a = s.active, n = s.throws.length;
-    const stat = (i, k) => { const v = m.stats?.[i]?.[k]?.dartsThrown; return Number.isFinite(+v) ? +v : null; };
-    const visit = [curMatchId, s.set, s.leg, a, m.round ?? ""].join("|");
-    if (visit !== dcVisit || n < dcPrevN) {             // new visit (or a correction): re-take the base
-      dcVisit = visit;
-      for (const k of ["legStats", "matchStats"]) {
-        const raw = stat(a, k);
-        // joined mid-visit: completed visits are normally whole 3s, so if raw-n is a multiple
-        // of 3 the stat already includes the darts in hand
-        dcBase[k] = raw == null ? null : (n > 0 && raw >= n && (raw - n) % 3 === 0 ? raw - n : raw);
-      }
-    }
-    dcPrevN = n;
-    const one = (i, k) => {
-      if (i === a && dcBase[k] != null) return dcBase[k] + n;
-      const raw = stat(i, k);
-      if (raw != null) return raw;
-      if (k !== "legStats") return null;                // no stats: only the leg count can be tracked here
-      return (legDarts[i] || 0) + (i === a ? Math.max(0, n - curThrows.length) : 0);
-    };
-    return s.players.map((_, i) => ({ dl: one(i, "legStats"), dm: one(i, "matchStats") }));
+  // ---- running dart counts (the board's "darts" field in leg / match mode; nine-darter watch) ----
+  // Counted here, dart by dart, from the visits themselves. autodarts' own stats[i].legStats
+  // .dartsThrown is NOT usable live (it sat at 0 all leg, so the board never counted) — the
+  // stats only seed the counters when the bridge joins a match that is already under way.
+  let dcKey = "", dcN = 0, dcLegNo = null;
+  function seedDarts(m, s) {
+    const stat = (i, k) => { const v = +m.stats?.[i]?.[k]?.dartsThrown; return Number.isFinite(v) && v > 0 ? v : 0; };
+    const firstLeg = (m.scores || []).every((x) => !x || (!x.legs && !x.sets));
+    s.players.forEach((_, i) => {
+      const lRaw = stat(i, "legStats"), mRaw = stat(i, "matchStats");
+      // finished visits in a leg are whole 3s; any remainder is darts in hand, which get counted below
+      const inHand = lRaw ? lRaw % 3 : (firstLeg ? mRaw % 3 : 0);
+      legDarts[i] = lRaw ? lRaw - inHand : (firstLeg ? mRaw - inHand : 0);   // leg stat stuck at 0: in leg 1 the match count is the leg count
+      matchDarts[i] = Math.max(legDarts[i], mRaw - inHand);
+    });
+  }
+  function countDarts(m, s) {
+    const a = s.active, n = s.throws.length, legNo = s.set * 100 + s.leg;
+    if (dcLegNo != null && legNo !== dcLegNo) { legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false]; }
+    dcLegNo = legNo;
+    const key = [legNo, a, m.round ?? ""].join("|");
+    if (key !== dcKey) { dcKey = key; dcN = 0; }        // a new visit
+    if (a < 0 || a > 3) return;
+    // same visit: dcN → n darts (n < dcN = a dart was taken back off the board)
+    legDarts[a] = Math.max(0, (legDarts[a] || 0) + n - dcN);
+    matchDarts[a] = Math.max(0, (matchDarts[a] || 0) + n - dcN);
+    dcN = n;
   }
 
   function onMatchState(m, matchId) {
@@ -295,13 +295,17 @@
     if (!s.players.length) return;
 
     // new match → reset the leg/nine-darter trackers (the board resets its stats via matchId)
-    if (matchId && matchId !== curMatchId) { curMatchId = matchId; legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false]; }
+    if (matchId && matchId !== curMatchId) {
+      curMatchId = matchId; legDarts = [0, 0, 0, 0]; matchDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false];
+      dcKey = ""; dcN = 0; dcLegNo = null; seedDarts(m, s);
+    }
 
     // mirror autodarts' own suggested checkout onto the active player (the thrower)
     if (s.active >= 0 && s.active < s.players.length) s.players[s.active].co = readCheckout(m);
 
     // darts thrown so far: dl = this leg, dm = whole match (per player)
-    dartCounts(m, s).forEach((c, i) => { if (c.dl != null) s.players[i].dl = c.dl; if (c.dm != null) s.players[i].dm = c.dm; });
+    countDarts(m, s);
+    s.players.forEach((p, i) => { p.dl = legDarts[i] || 0; p.dm = matchDarts[i] || 0; });
 
     // push scoreboard (deduped) — include the active turn's individual dart scores
     const throwPoints = s.throws.map(dartPoints);
@@ -330,7 +334,6 @@
     }
     // new darts this update → per-dart events (with segment value for thresholds)
     for (let i = curThrows.length; i < s.throws.length; i++) {
-      legDarts[s.active] = (legDarts[s.active] || 0) + 1;   // per-leg dart count (nine-darter watch)
       const d = classifyDart(s.throws[i]);
       if (d) postEvent(d.ev, undefined, d.val);
     }
@@ -378,11 +381,10 @@
     });
     prevLegs = s.players.map((p) => p.legs);
 
-    // new leg started (leg/set counter advanced) → "game on" + fresh nine-darter trackers
+    // new leg started (leg/set counter advanced) → "game on" (countDarts() has already zeroed the leg counters)
     const legNo = s.set * 100 + s.leg;
     if (prevLegNo != null && legNo !== prevLegNo) {
       postEvent("legStart", undefined, 0);
-      legDarts = [0, 0, 0, 0]; nineWarned = [false, false, false, false];
     }
     prevLegNo = legNo;
 
