@@ -1,0 +1,96 @@
+# Darts scoreboard: build the ESP32 firmware, deploy the Cloudflare relay, and (on demand) OTA boards.
+#
+# - Every push touching scoreboard/ builds the firmware (download it from the run's artifacts)
+#   and typechecks the relay.
+# - Pushes to main deploy the relay when the CLOUDFLARE_API_TOKEN secret is set.
+# - "Run workflow" (Actions tab) can also deploy the relay and/or flash boards over the relay:
+#   type board ids (comma-separated) in "ota_boards". Needs RELAY_URL + DASH_PASSWORD secrets.
+#
+# Secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   token with "Edit Cloudflare Workers" permission
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account id
+#   RELAY_URL              e.g. https://darts-scoreboard-relay.<you>.workers.dev
+#   DASH_PASSWORD          the relay dashboard password
+name: scoreboard
+
+on:
+  push:
+    paths:
+      - "scoreboard/**"
+      - ".github/workflows/scoreboard.yml"
+  workflow_dispatch:
+    inputs:
+      deploy_relay:
+        description: "Deploy the Cloudflare relay"
+        type: boolean
+        default: false
+      ota_boards:
+        description: "Board ids to flash over the relay (comma-separated, blank = none)"
+        type: string
+        default: ""
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scoreboard/firmware
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('scoreboard/firmware/platformio.ini') }}
+      - run: pip install platformio
+      - run: pio run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoreboard-firmware
+          path: scoreboard/firmware/.pio/build/esp32-s3-devkitc-1-n16r8/firmware.bin
+
+  relay:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scoreboard/cloud
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx tsc -p .
+      - name: Deploy
+        if: env.CLOUDFLARE_API_TOKEN != '' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.deploy_relay)
+        run: npx wrangler deploy
+
+  ota:
+    if: github.event_name == 'workflow_dispatch' && inputs.ota_boards != ''
+    needs: [firmware, relay]
+    runs-on: ubuntu-latest
+    env:
+      RELAY_URL: ${{ secrets.RELAY_URL }}
+      DASH_PASSWORD: ${{ secrets.DASH_PASSWORD }}
+      BOARDS: ${{ inputs.ota_boards }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: scoreboard-firmware
+      - name: Upload firmware and trigger each board
+        run: |
+          set -eu
+          [ -n "$RELAY_URL" ] && [ -n "$DASH_PASSWORD" ] || { echo "RELAY_URL / DASH_PASSWORD secrets not set"; exit 1; }
+          R="${RELAY_URL%/}"
+          curl -sSf -c jar -o /dev/null --data-urlencode "password=$DASH_PASSWORD" "$R/login"
+          grep -q auth jar || { echo "dashboard login failed"; exit 1; }
+          for id in $(echo "$BOARDS" | tr ',' ' '); do
+            echo "== $id"
+            curl -sSf -b jar --data-binary @firmware.bin -H 'content-type: application/octet-stream' "$R/fw/$id"; echo
+            curl -sSf -b jar -X POST "$R/board/$id/ota_pull"; echo
+          done
